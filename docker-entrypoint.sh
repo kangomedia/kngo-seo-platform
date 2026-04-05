@@ -2,7 +2,7 @@
 set -e
 
 echo "🔄 Syncing database schema..."
-npx prisma db push --skip-generate --accept-data-loss
+npx prisma db push --accept-data-loss --config=./prisma.config.ts 2>&1 || echo "⚠️ Schema sync had issues (app will still start)"
 
-echo "✅ Database ready. Starting application..."
+echo "✅ Starting application..."
 exec node server.js

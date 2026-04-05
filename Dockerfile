@@ -40,13 +40,14 @@ RUN adduser --system --uid 1001 nextjs
 # Copy public assets
 COPY --from=builder /app/public ./public
 
-# Copy prisma schema + migrations for runtime migration commands
+# Copy prisma schema + config for runtime db push
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
-# Install only prisma CLI for migrations (small footprint)
-RUN npm install --no-save prisma@7.6.0
+# Install prisma CLI + tsx (to run prisma.config.ts)
+RUN npm install --no-save prisma@7.6.0 tsx
 
 # Automatically leverage output traces to reduce image size
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
