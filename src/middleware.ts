@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/lib/auth";
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export default auth((req) => {
+  const { pathname } = req.nextUrl;
 
   // Public routes — no auth required
   const publicPaths = ["/", "/login", "/report/", "/client/"];
@@ -20,24 +19,26 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check JWT token (works in Edge runtime)
-  const token = await getToken({ req: request });
+  // req.auth is the session — uses the same cookie config as our NextAuth setup
+  const session = req.auth;
+  console.log("[MIDDLEWARE]", pathname, "- session:", !!session);
 
-  if (!token) {
-    const loginUrl = new URL("/login", request.url);
+  if (!session) {
+    const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Agency routes require agency role
   if (pathname.startsWith("/agency")) {
-    if (token.role !== "AGENCY_ADMIN" && token.role !== "AGENCY_MEMBER") {
-      return NextResponse.redirect(new URL("/", request.url));
+    const role = session.user?.role;
+    if (role !== "AGENCY_ADMIN" && role !== "AGENCY_MEMBER") {
+      return NextResponse.redirect(new URL("/", req.url));
     }
   }
 
   return NextResponse.next();
-}
+});
 
 export const config = {
   matcher: [
