@@ -25,6 +25,7 @@ export async function middleware(request: NextRequest) {
   // Cloudflare and looks for __Secure-authjs.session-token which doesn't exist.
   const token = await getToken({
     req: request,
+    secret: process.env.AUTH_SECRET,
     cookieName: "authjs.session-token",
   });
 
