@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
 
   // Public routes — no auth required
   const publicPaths = ["/", "/login", "/report/", "/client/"];
@@ -19,26 +20,31 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // req.auth is the session — uses the same cookie config as our NextAuth setup
-  const session = req.auth;
-  console.log("[MIDDLEWARE]", pathname, "- session:", !!session);
+  // Explicitly use the non-secure cookie name to match useSecureCookies: false
+  // in auth.ts config. Without this, getToken() auto-detects https:// from
+  // Cloudflare and looks for __Secure-authjs.session-token which doesn't exist.
+  const token = await getToken({
+    req: request,
+    cookieName: "authjs.session-token",
+  });
 
-  if (!session) {
-    const loginUrl = new URL("/login", req.url);
+  console.log("[MIDDLEWARE]", pathname, "- token:", !!token);
+
+  if (!token) {
+    const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Agency routes require agency role
   if (pathname.startsWith("/agency")) {
-    const role = session.user?.role;
-    if (role !== "AGENCY_ADMIN" && role !== "AGENCY_MEMBER") {
-      return NextResponse.redirect(new URL("/", req.url));
+    if (token.role !== "AGENCY_ADMIN" && token.role !== "AGENCY_MEMBER") {
+      return NextResponse.redirect(new URL("/", request.url));
     }
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [
