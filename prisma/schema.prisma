@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Auth ─────────────────────────────────────────────
+
+enum UserRole {
+  AGENCY_ADMIN
+  AGENCY_MEMBER
+  CLIENT
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String    @unique
+  emailVerified  DateTime?
+  hashedPassword String?
+  image          String?
+  role           UserRole  @default(CLIENT)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  clientAccess   ClientUser[]
+  accounts       Account[]
+  sessions       Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Clients ──────────────────────────────────────────
+
+enum ClientTier {
+  STARTER
+  GROWTH
+  PRO
+}
+
+model Client {
+  id          String     @id @default(cuid())
+  name        String
+  domain      String?
+  logoUrl     String?
+  tier        ClientTier @default(STARTER)
+  isActive    Boolean    @default(true)
+  accessToken String     @unique @default(uuid())
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Deliverable template defaults
+  monthlyBlogs        Int @default(4)
+  monthlyGbpPosts     Int @default(8)
+  monthlyPressReleases Int @default(0)
+  includesAudit       Boolean @default(true)
+  includesReporting   Boolean @default(true)
+
+  // Relations
+  users          ClientUser[]
+  keywords       Keyword[]
+  rankSnapshots  RankSnapshot[]
+  contentPlans   ContentPlan[]
+  deliverables   Deliverable[]
+  reports        Report[]
+}
+
+model ClientUser {
+  id       String @id @default(cuid())
+  userId   String
+  clientId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+}
+
+// ─── Rankings ─────────────────────────────────────────
+
+model Keyword {
+  id           String   @id @default(cuid())
+  clientId     String
+  keyword      String
+  searchVolume Int?
+  difficulty   Int?
+  targetUrl    String?
+  group        String?  // keyword group/cluster name
+  isTracking   Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  client    Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  snapshots RankSnapshot[]
+
+  @@unique([clientId, keyword])
+}
+
+model RankSnapshot {
+  id          String   @id @default(cuid())
+  clientId    String
+  keywordId   String
+  position    Int?     // null = not ranking
+  previousPos Int?
+  url         String?  // the URL that's ranking
+  localPack   Boolean  @default(false)
+  checkedAt   DateTime @default(now())
+
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  keyword Keyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, checkedAt])
+  @@index([keywordId, checkedAt])
+}
+
+// ─── Content ──────────────────────────────────────────
+
+enum ContentType {
+  BLOG_POST
+  GBP_POST
+  PRESS_RELEASE
+}
+
+enum ContentStatus {
+  PLANNED
+  CLIENT_REVIEW
+  APPROVED
+  REJECTED
+  WRITING
+  PUBLISHED
+  ARCHIVED
+}
+
+model ContentPlan {
+  id          String   @id @default(cuid())
+  clientId    String
+  month       Int      // 1-12
+  year        Int
+  title       String   // e.g. "May 2026 Content Plan"
+  seedKeyword String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  pieces ContentPiece[]
+
+  @@unique([clientId, month, year])
+}
+
+model ContentPiece {
+  id            String        @id @default(cuid())
+  contentPlanId String
+  type          ContentType
+  title         String
+  description   String?       @db.Text  // angle/brief
+  keyword       String?       // target keyword
+  body          String?       @db.Text  // full content body (markdown/html)
+  status        ContentStatus @default(PLANNED)
+  sortOrder     Int           @default(0)
+  publishedUrl  String?
+  publishedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  contentPlan ContentPlan      @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  approval    ContentApproval?
+}
+
+model ContentApproval {
+  id             String   @id @default(cuid())
+  contentPieceId String   @unique
+  outcome        String   // 'approved', 'rejected', 'save_for_later'
+  notes          String?  @db.Text
+  imageUrl       String?  // reference photo from client
+  decidedAt      DateTime @default(now())
+
+  contentPiece ContentPiece @relation(fields: [contentPieceId], references: [id], onDelete: Cascade)
+}
+
+// ─── Deliverables ─────────────────────────────────────
+
+enum DeliverableStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+model Deliverable {
+  id          String            @id @default(cuid())
+  clientId    String
+  month       Int
+  year        Int
+  name        String            // "Blog Posts", "GBP Posts", "Technical Audit", etc.
+  targetCount Int               @default(1)
+  currentCount Int              @default(0)
+  status      DeliverableStatus @default(PENDING)
+  notes       String?           @db.Text
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, month, year])
+}
+
+// ─── Reports ──────────────────────────────────────────
+
+model Report {
+  id          String   @id @default(cuid())
+  clientId    String
+  uuid        String   @unique @default(cuid()) // public share link
+  month       Int
+  year        Int
+  title       String
+  summary     String?  @db.Text // plain English summary
+  highlights  String?  @db.Text // JSON array of key wins
+  pdfUrl      String?
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, month, year])
+}
+
+// ─── Settings ─────────────────────────────────────────
+
+model AgencySettings {
+  id              String  @id @default("default")
+  agencyName      String  @default("KangoMedia")
+  logoUrl         String?
+  dataforseoLogin String?
+  dataforseoPwd   String?
+  claudeApiKey    String?
+  ghlApiKey       String?
+  ghlLocationId   String?
+}

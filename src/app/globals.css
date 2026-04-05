@@ -1,26 +1,404 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ============================================
+   KNGO SEO Platform — KangoMedia Design System
+   ============================================ */
+
+@theme {
+  --font-sans: 'Montserrat', sans-serif;
+  --color-vermillion: #E34234;
+  --color-vermillion-dark: #c9382d;
+  --color-vermillion-light: #fff0ef;
+  --color-near-black: #222222;
+  --color-charcoal: #444444;
+  --color-surface-dark: #0B0E14;
+  --color-surface-dark-2: #12161F;
+  --color-surface-dark-3: #1A1F2E;
+  --color-surface-dark-4: #232939;
+  --color-success: #16a34a;
+  --color-success-light: #dcfce7;
+  --color-warning: #b45309;
+  --color-warning-light: #fef3c7;
+  --color-info: #1d4ed8;
+  --color-info-light: #eff6ff;
+  --color-danger: #dc2626;
+  --color-danger-light: #fee2e2;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --font-heading: 'Montserrat', sans-serif;
+    --font-body: 'Montserrat', sans-serif;
+
+    /* Colors — Light mode (client portal) */
+    --bg-primary: #F5F5F5;
+    --bg-secondary: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #FAFAFA;
+    --text-primary: #222222;
+    --text-secondary: #444444;
+    --text-muted: #888888;
+    --border: #E4E4E4;
+    --accent: #E34234;
+    --accent-hover: #c9382d;
+    --accent-muted: #fff0ef;
+    --success: #16a34a;
+    --warning: #b45309;
+    --danger: #dc2626;
+    --info: #1d4ed8;
+  }
+
+  .dark {
+    --bg-primary: #0B0E14;
+    --bg-secondary: #12161F;
+    --bg-card: #1A1F2E;
+    --bg-card-hover: #232939;
+    --text-primary: #F1F5F9;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --border: #232939;
+    --accent: #E34234;
+    --accent-hover: #ef5a4d;
+    --accent-muted: rgba(227, 66, 52, 0.15);
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --info: #3B82F6;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  button, input, select, textarea {
+    font-family: var(--font-body);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ============================================
+   Scrollbar — Minimal
+   ============================================ */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(227, 66, 52, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(227, 66, 52, 0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.35s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ============================================
+   Component: Cards
+   ============================================ */
+.glass-card {
+  background: rgba(26, 31, 46, 0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 14px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 24px rgba(227, 66, 52, 0.08);
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Component: Badges & Pills
+   ============================================ */
+.tier-badge {
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 4px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+.tier-starter { background: rgba(29, 78, 216, 0.15); color: #3B82F6; }
+.tier-growth { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.tier-pro { background: rgba(227, 66, 52, 0.15); color: #E34234; }
+
+.position-badge {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 14px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+.position-good { background: rgba(16, 185, 129, 0.12); color: #10B981; }
+.position-mid { background: rgba(245, 158, 11, 0.12); color: #F59E0B; }
+.position-bad { background: rgba(239, 68, 68, 0.12); color: #EF4444; }
+.position-none { background: rgba(100, 116, 139, 0.12); color: #64748B; }
+
+.status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-draft { background: rgba(100, 116, 139, 0.12); color: #94A3B8; }
+.status-review { background: rgba(245, 158, 11, 0.12); color: #F59E0B; }
+.status-approved { background: rgba(6, 182, 212, 0.12); color: #06B6D4; }
+.status-published { background: rgba(16, 185, 129, 0.12); color: #10B981; }
+.status-rejected { background: rgba(239, 68, 68, 0.12); color: #EF4444; }
+
+/* ============================================
+   Component: Data Table
+   ============================================ */
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.data-table th {
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: background 0.15s;
+}
+.data-table tbody tr:hover td {
+  background: var(--bg-card-hover);
+}
+
+/* ============================================
+   Component: Buttons
+   ============================================ */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(227, 66, 52, 0.25);
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ============================================
+   Component: Input Fields
+   ============================================ */
+.input-field {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(227, 66, 52, 0.1);
+}
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Component: Progress
+   ============================================ */
+.progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.6s ease-out;
+}
+
+/* ============================================
+   Component: Health Gauge
+   ============================================ */
+.health-gauge {
+  position: relative;
+  width: 120px;
+  height: 60px;
+  overflow: hidden;
+}
+
+/* ============================================
+   Layout: Sidebar
+   ============================================ */
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.sidebar-link:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+.sidebar-link.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+/* ============================================
+   Utility: Stagger Animation
+   ============================================ */
+.stagger > * {
+  animation: fadeIn 0.4s ease-out forwards;
+  opacity: 0;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger > *:nth-child(6) { animation-delay: 0.3s; }
+.stagger > *:nth-child(7) { animation-delay: 0.35s; }
+.stagger > *:nth-child(8) { animation-delay: 0.4s; }
