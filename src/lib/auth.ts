@@ -29,6 +29,8 @@ declare module "next-auth/jwt" {
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
+  debug: process.env.NODE_ENV !== "production" || !!process.env.AUTH_DEBUG,
+  useSecureCookies: false,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -68,6 +70,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
           if (!isValid) return null;
 
+          console.log("[AUTH] ✅ Returning user object:", { id: user.id, email: user.email, role: user.role });
           return {
             id: user.id,
             name: user.name,
@@ -83,6 +86,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
+      console.log("[AUTH] JWT callback - user present:", !!user, "token.sub:", token.sub);
       if (user) {
         token.role = user.role;
         token.sub = user.id;
@@ -90,6 +94,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return token;
     },
     async session({ session, token }) {
+      console.log("[AUTH] Session callback - token.sub:", token.sub, "token.role:", token.role);
       if (session.user) {
         session.user.id = token.sub!;
         session.user.role = token.role as UserRole;
