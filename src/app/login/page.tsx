@@ -23,16 +23,20 @@ export default function LoginPage() {
       redirect: false,
     });
 
+    console.log("[LOGIN] signIn result:", JSON.stringify(result));
     setLoading(false);
 
     if (result?.error) {
+      console.log("[LOGIN] Error:", result.error);
       setError("Invalid email or password");
       return;
     }
 
-    // Redirect based on role — for now go to agency dashboard
-    router.push("/agency/dashboard");
-    router.refresh();
+    if (result?.ok) {
+      // Redirect based on role — for now go to agency dashboard
+      router.push("/agency/dashboard");
+      router.refresh();
+    }
   };
 
   return (
