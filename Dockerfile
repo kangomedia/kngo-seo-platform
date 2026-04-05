@@ -47,7 +47,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 
 # Install prisma CLI + tsx (to run prisma.config.ts)
-RUN npm install --no-save prisma@7.6.0
+RUN npm install --no-save prisma@7.6.0 tsx bcryptjs @prisma/client
 
 # Automatically leverage output traces to reduce image size
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
