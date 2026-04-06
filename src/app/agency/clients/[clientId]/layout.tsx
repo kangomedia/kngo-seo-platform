@@ -11,13 +11,17 @@ import {
   FileBarChart,
   ArrowLeft,
   Loader2,
+  Search,
+  TrendingUp,
 } from "lucide-react";
 
 const subNav = [
   { href: "", label: "Overview", icon: LayoutDashboard },
   { href: "/rankings", label: "Rankings", icon: BarChart3 },
+  { href: "/audit", label: "Site Audit", icon: Search },
   { href: "/content", label: "Content Hub", icon: FileText },
   { href: "/deliverables", label: "Deliverables", icon: ListChecks },
+  { href: "/analytics", label: "Analytics", icon: TrendingUp },
   { href: "/reports", label: "Reports", icon: FileBarChart },
 ];
 

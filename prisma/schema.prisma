@@ -100,6 +100,10 @@ model Client {
   includesAudit       Boolean @default(true)
   includesReporting   Boolean @default(true)
 
+  // Google Integration
+  gscProperty   String?  // GSC property URL (e.g. "sc-domain:example.com")
+  ga4PropertyId String?  // GA4 property ID (e.g. "123456789")
+
   // Relations
   users          ClientUser[]
   keywords       Keyword[]
@@ -107,6 +111,8 @@ model Client {
   contentPlans   ContentPlan[]
   deliverables   Deliverable[]
   reports        Report[]
+  siteAudits     SiteAudit[]
+  googleToken    GoogleToken?
 }
 
 model ClientUser {
@@ -280,4 +286,56 @@ model AgencySettings {
   claudeApiKey    String?
   ghlApiKey       String?
   ghlLocationId   String?
+}
+
+// ─── Site Audit (On-Page SEO) ─────────────────────────
+
+model SiteAudit {
+  id          String   @id @default(cuid())
+  clientId    String
+  taskId      String?  // DataForSEO task ID
+  status      String   @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
+  pagesCount  Int      @default(0)
+  onpageScore Float?   // 0-100 overall health score
+  summary     String?  @db.Text // JSON: full crawl summary
+  crawledAt   DateTime @default(now())
+
+  client Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  pages  SiteAuditPage[]
+
+  @@index([clientId, crawledAt])
+}
+
+model SiteAuditPage {
+  id          String @id @default(cuid())
+  auditId     String
+  url         String
+  statusCode  Int?
+  title       String?
+  description String?  @db.Text
+  h1Count     Int      @default(0)
+  wordCount   Int      @default(0)
+  imageCount  Int      @default(0)
+  imagesNoAlt Int      @default(0)
+  checks      String?  @db.Text // JSON: per-page check results
+  onpageScore Float?
+
+  audit SiteAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+}
+
+// ─── Google Integration ───────────────────────────────
+
+model GoogleToken {
+  id           String   @id @default(cuid())
+  clientId     String   @unique
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  expiresAt    DateTime
+  scope        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
