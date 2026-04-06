@@ -51,3 +51,38 @@ export async function PUT(
 
   return NextResponse.json({ error: "deliverableId required" }, { status: 400 });
 }
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  const body = await request.json();
+
+  if (!body.name || !body.targetCount) {
+    return NextResponse.json(
+      { error: "name and targetCount are required" },
+      { status: 400 }
+    );
+  }
+
+  const now = new Date();
+  const deliverable = await prisma.deliverable.create({
+    data: {
+      clientId,
+      name: body.name,
+      targetCount: parseInt(body.targetCount, 10),
+      currentCount: 0,
+      month: body.month || now.getMonth() + 1,
+      year: body.year || now.getFullYear(),
+      status: "PENDING",
+    },
+  });
+
+  return NextResponse.json(deliverable);
+}
