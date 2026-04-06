@@ -19,6 +19,9 @@ export async function GET(
     include: {
       pages: {
         orderBy: { onpageScore: "asc" },
+        include: {
+          issues: true,
+        },
       },
     },
   });

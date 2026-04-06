@@ -152,3 +152,81 @@ ${content.substring(0, 3000)}`;
 }
 
 export type { ClaudeConfig };
+
+// ─── Audit Recommendations ───────────────────────────
+
+export interface AuditPageData {
+  url: string;
+  title: string | null;
+  description: string | null;
+  h1Count: number;
+  wordCount: number;
+  imageCount: number;
+  imagesNoAlt: number;
+  checks: Record<string, boolean>;
+}
+
+export interface AuditRecommendation {
+  checkKey: string;
+  severity: "critical" | "warning" | "info";
+  issue: string;
+  currentValue: string | null;
+  suggestion: string;
+  explanation: string;
+}
+
+export async function generateSEORecommendations(
+  page: AuditPageData,
+  targetKeyword: string | null,
+  config: ClaudeConfig
+): Promise<AuditRecommendation[]> {
+  const failedChecks = Object.entries(page.checks)
+    .filter(([, failed]) => failed)
+    .map(([key]) => key);
+
+  if (failedChecks.length === 0) return [];
+
+  const system = `You are an expert on-page SEO auditor. Analyze the provided page data and generate specific, actionable recommendations for each failed check. For title and description issues, write ready-to-use replacement text. For image alt issues, describe what kind of alt text should be added. Be specific and practical — the user should be able to copy-paste your suggestions directly into their CMS.
+
+IMPORTANT: Return ONLY valid JSON array, no markdown fencing, no explanation outside the JSON.`;
+
+  const prompt = `Analyze this page and generate fix recommendations:
+
+URL: ${page.url}
+Current Title: ${page.title || "(none)"}
+Current Meta Description: ${page.description || "(none)"}
+H1 Count: ${page.h1Count}
+Word Count: ${page.wordCount}
+Images: ${page.imageCount} total, ${page.imagesNoAlt} missing alt text
+${targetKeyword ? `Target Keyword: "${targetKeyword}"` : ""}
+
+Failed checks: ${JSON.stringify(failedChecks)}
+
+For each failed check, return a JSON array of objects with these fields:
+- checkKey: the check identifier (e.g. "no_title")
+- severity: "critical" | "warning" | "info"
+- issue: human-readable description of the problem
+- currentValue: what the page currently has (null if nothing)
+- suggestion: the specific replacement text or action to take
+- explanation: brief explanation of WHY this fix matters for SEO
+
+For title/description issues, write an optimized replacement incorporating ${targetKeyword ? `the keyword "${targetKeyword}"` : "relevant keywords from the URL/content"}.
+For alt text issues, describe what alt tags should include based on the page context.
+Classify severity: missing title/description/h1 = critical, too long/short = warning, other = info.
+
+Return only the JSON array.`;
+
+  const raw = await claudeChat(
+    [{ role: "user", content: prompt }],
+    system,
+    config
+  );
+
+  try {
+    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    return JSON.parse(cleaned);
+  } catch {
+    console.error("[CLAUDE] Failed to parse recommendations JSON:", raw.substring(0, 200));
+    return [];
+  }
+}

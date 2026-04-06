@@ -307,22 +307,42 @@ model SiteAudit {
 }
 
 model SiteAuditPage {
-  id          String @id @default(cuid())
-  auditId     String
-  url         String
-  statusCode  Int?
-  title       String?
-  description String?  @db.Text
-  h1Count     Int      @default(0)
-  wordCount   Int      @default(0)
-  imageCount  Int      @default(0)
-  imagesNoAlt Int      @default(0)
-  checks      String?  @db.Text // JSON: per-page check results
-  onpageScore Float?
+  id              String @id @default(cuid())
+  auditId         String
+  url             String
+  statusCode      Int?
+  title           String?
+  description     String?  @db.Text
+  h1Count         Int      @default(0)
+  wordCount       Int      @default(0)
+  imageCount      Int      @default(0)
+  imagesNoAlt     Int      @default(0)
+  checks          String?  @db.Text // JSON: per-page check results
+  onpageScore     Float?
+  recommendations String?  @db.Text // JSON: AI-generated recs per check
 
-  audit SiteAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit  SiteAudit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  issues AuditIssue[]
 
   @@index([auditId])
+}
+
+model AuditIssue {
+  id            String   @id @default(cuid())
+  pageId        String
+  checkKey      String   // e.g. "no_title", "title_too_long"
+  severity      String   @default("warning") // "critical", "warning", "info"
+  currentValue  String?  @db.Text // e.g. current title text
+  suggestion    String?  @db.Text // AI-generated replacement
+  status        String   @default("OPEN") // OPEN, FIXED, IGNORED
+  fixedAt       DateTime?
+  fixNotes      String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  page SiteAuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([status])
 }
 
 // ─── Google Integration ───────────────────────────────
