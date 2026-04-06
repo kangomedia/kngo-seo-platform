@@ -100,6 +100,17 @@ export default function DeliverablesPage() {
   const total = deliverables.length;
   const overallPct = total ? Math.round((completed / total) * 100) : 0;
 
+  // Group deliverables by month/year for summary
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+  const currentDeliverables = deliverables.filter(
+    (d) => d.month === currentMonth && d.year === currentYear
+  );
+  const summaryBreakdown = currentDeliverables
+    .map((d) => `${d.currentCount}/${d.targetCount} ${d.name}`)
+    .join(" · ");
+
   const statusConfig: Record<
     string,
     { icon: React.ReactNode; color: string; label: string }
@@ -149,7 +160,7 @@ export default function DeliverablesPage() {
               className="text-xs"
               style={{ color: "var(--text-muted)" }}
             >
-              {completed} of {total} deliverables complete · {overallPct}%
+              {months[currentMonth - 1]} {currentYear}: {summaryBreakdown || `${completed} of ${total} complete`} · {overallPct}%
             </p>
           </div>
           <button
@@ -238,6 +249,12 @@ export default function DeliverablesPage() {
                     >
                       {del.name}
                     </h4>
+                    <span
+                      className="text-[10px] px-2 py-0.5 rounded-md ml-2"
+                      style={{ background: "var(--bg-card-hover)", color: "var(--text-muted)" }}
+                    >
+                      {months[del.month - 1]} {del.year}
+                    </span>
                     <span
                       className="text-xs font-bold"
                       style={{ color: config.color }}

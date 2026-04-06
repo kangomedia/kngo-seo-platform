@@ -186,6 +186,8 @@ model ContentPlan {
   year        Int
   title       String   // e.g. "May 2026 Content Plan"
   seedKeyword String?
+  planStatus  String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED
+  planNotes   String?  @db.Text // Client feedback notes on plan
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

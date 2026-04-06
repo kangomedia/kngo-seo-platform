@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 
 /* ─── Types ──────────────────────────────────────────── */
@@ -75,6 +75,28 @@ function statusIcon(status: string) {
   return "🔴";
 }
 
+const STORAGE_KEY = "kngo_audit_pending";
+
+function getPendingAudit(clientId: string): string | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return null;
+    const data = JSON.parse(stored);
+    if (data.clientId === clientId && data.auditId) return data.auditId;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setPendingAudit(clientId: string, auditId: string) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ clientId, auditId, startedAt: Date.now() }));
+}
+
+function clearPendingAudit() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
 const CHECK_LABELS: Record<string, string> = {
   no_title: "Missing title tag",
   title_too_long: "Title too long (>60 chars)",
@@ -117,12 +139,15 @@ export default function SiteAuditPage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState("");
+  const [pagesCrawled, setPagesCrawled] = useState(0);
   const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [generatingRecs, setGeneratingRecs] = useState<Set<string>>(new Set());
   const [issues, setIssues] = useState<AuditIssue[]>([]);
   const [issueStats, setIssueStats] = useState({ total: 0, open: 0, fixed: 0, ignored: 0 });
   const [view, setView] = useState<"pages" | "issues">("pages");
   const [prevAudit, setPrevAudit] = useState<Audit | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAudits = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/audit`);
@@ -133,39 +158,66 @@ export default function SiteAuditPage() {
     setLoading(false);
   }, [clientId]);
 
-  useEffect(() => { loadAudits(); }, [loadAudits]);
+  // Poll for results — runs in the background
+  const pollResults = useCallback(async (auditId: string) => {
+    setPolling(true);
+    let attempts = 0;
+    const maxAttempts = 60; // 10 minutes max
+
+    const poll = async () => {
+      attempts++;
+      try {
+        const res = await fetch(`/api/clients/${clientId}/audit/check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ auditId }),
+        });
+        const data = await res.json();
+
+        if (data.pagesCrawled) setPagesCrawled(data.pagesCrawled);
+        if (data.crawlProgress) setCrawlProgress(data.crawlProgress);
+
+        if (data.status === "COMPLETED" || attempts >= maxAttempts) {
+          setPolling(false);
+          setCrawlProgress("");
+          setPagesCrawled(0);
+          clearPendingAudit();
+          loadAudits();
+          loadAuditDetail(auditId);
+          return;
+        }
+      } catch (err) {
+        console.error("[AUDIT POLL] Error:", err);
+      }
+      pollRef.current = setTimeout(poll, 10000);
+    };
+    pollRef.current = setTimeout(poll, 8000);
+  }, [clientId, loadAudits]);
+
+  // On mount: load audits and check for pending crawl
+  useEffect(() => {
+    loadAudits();
+    const pendingId = getPendingAudit(clientId);
+    if (pendingId) {
+      pollResults(pendingId);
+    }
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, [clientId, loadAudits, pollResults]);
 
   const startAudit = async () => {
     setRunning(true);
     const res = await fetch(`/api/clients/${clientId}/audit`, { method: "POST" });
     const data = await res.json();
     if (data.auditId) {
-      setPolling(true);
+      setPendingAudit(clientId, data.auditId);
+      setPagesCrawled(0);
+      setCrawlProgress("in_progress");
       pollResults(data.auditId);
     }
     setRunning(false);
     loadAudits();
-  };
-
-  const pollResults = async (auditId: string) => {
-    let attempts = 0;
-    const poll = async () => {
-      attempts++;
-      const res = await fetch(`/api/clients/${clientId}/audit/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auditId }),
-      });
-      const data = await res.json();
-      if (data.status === "COMPLETED" || attempts >= 30) {
-        setPolling(false);
-        loadAudits();
-        loadAuditDetail(auditId);
-        return;
-      }
-      setTimeout(poll, 10000);
-    };
-    setTimeout(poll, 10000);
   };
 
   const loadAuditDetail = async (auditId: string) => {
@@ -195,7 +247,6 @@ export default function SiteAuditPage() {
         body: JSON.stringify({ pageId, targetKeyword }),
       });
       if (res.ok) {
-        // Reload audit detail to get fresh recommendations
         if (activeAudit) {
           await loadAuditDetail(activeAudit.id);
         }
@@ -296,7 +347,7 @@ export default function SiteAuditPage() {
         </button>
       </div>
 
-      {/* Polling indicator */}
+      {/* Crawl progress banner — non-blocking */}
       {polling && (
         <div style={{
           background: "rgba(99,102,241,0.1)",
@@ -309,8 +360,22 @@ export default function SiteAuditPage() {
             border: "2px solid #6366f1", borderTopColor: "transparent",
             animation: "spin 1s linear infinite",
           }} />
-          <span style={{ color: "#a5b4fc", fontSize: 14 }}>
-            Crawling website… This may take 1–5 minutes.
+          <div style={{ flex: 1 }}>
+            <span style={{ color: "#a5b4fc", fontSize: 14, fontWeight: 600 }}>
+              Crawling website…
+            </span>
+            <span style={{ color: "#9ca3af", fontSize: 13, marginLeft: 8 }}>
+              {pagesCrawled > 0
+                ? `${pagesCrawled} pages found so far`
+                : "Starting crawl, this may take 1–5 minutes"
+              }
+            </span>
+          </div>
+          <span style={{
+            background: "rgba(99,102,241,0.2)", color: "#a5b4fc",
+            padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+          }}>
+            {crawlProgress || "starting"}
           </span>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>

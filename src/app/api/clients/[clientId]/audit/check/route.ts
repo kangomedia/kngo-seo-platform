@@ -69,14 +69,18 @@ export async function POST(
   console.log(`[AUDIT CHECK] taskId=${audit.taskId}, progress=${crawlProgress}`);
 
   if (crawlProgress !== "finished") {
+    const pagesCrawled = result.pages_crawled || 0;
+    const pagesCount = result.pages_count || 0;
     await prisma.siteAudit.update({
       where: { id: auditId },
-      data: { status: "CRAWLING" },
+      data: { status: "CRAWLING", pagesCount: pagesCrawled },
     });
     return NextResponse.json({
       status: "CRAWLING",
       crawlProgress,
-      message: `Crawl is ${crawlProgress}`,
+      pagesCrawled,
+      pagesCount,
+      message: `Crawl is ${crawlProgress} — ${pagesCrawled} pages found`,
     });
   }
 

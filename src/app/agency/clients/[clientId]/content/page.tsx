@@ -16,8 +16,8 @@ import {
   Loader2,
   AlertCircle,
   X,
-  Link,
   Copy,
+  ClipboardList,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -37,6 +37,8 @@ interface ContentPlan {
   year: number;
   title: string;
   seedKeyword: string;
+  planStatus: string;
+  planNotes: string | null;
   pieces: ContentPiece[];
 }
 
@@ -51,7 +53,7 @@ export default function ContentHubPage() {
   const [prCount, setPrCount] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"plan" | "generate">("plan");
+  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts">("plan");
 
   // Draft generation
   const [generatingPieceId, setGeneratingPieceId] = useState<string | null>(null);
@@ -63,6 +65,10 @@ export default function ContentHubPage() {
   const [isSendingApproval, setIsSendingApproval] = useState(false);
   const [approvalLink, setApprovalLink] = useState<string | null>(null);
   const [approvalMessage, setApprovalMessage] = useState("");
+
+  // Plan approval flow
+  const [isSendingPlanApproval, setIsSendingPlanApproval] = useState(false);
+  const [planApprovalLink, setPlanApprovalLink] = useState<string | null>(null);
 
   const loadData = () => {
     fetch(`/api/clients/${clientId}`)
@@ -93,6 +99,13 @@ export default function ContentHubPage() {
     APPROVED: { class: "status-approved", icon: <CheckCircle2 size={12} /> },
     PUBLISHED: { class: "status-published", icon: <CheckCircle2 size={12} /> },
     REJECTED: { class: "status-rejected", icon: <XCircle size={12} /> },
+  };
+
+  const planStatusColors: Record<string, { bg: string; text: string; label: string }> = {
+    DRAFT: { bg: "rgba(107,114,128,0.15)", text: "#9ca3af", label: "Draft" },
+    PENDING_APPROVAL: { bg: "rgba(245,158,11,0.15)", text: "#f59e0b", label: "Pending Client Approval" },
+    APPROVED: { bg: "rgba(34,197,94,0.15)", text: "#22c55e", label: "Plan Approved" },
+    REJECTED: { bg: "rgba(239,68,68,0.15)", text: "#ef4444", label: "Plan Rejected" },
   };
 
   const handleGenerate = async () => {
@@ -146,7 +159,6 @@ export default function ContentHubPage() {
       const data = await res.json();
 
       if (res.ok) {
-        // Update the piece in local state
         setPlans((prev) =>
           prev.map((p) => ({
             ...p,
@@ -167,6 +179,38 @@ export default function ContentHubPage() {
     }
   };
 
+  // Send PLAN for client approval (topics/titles only)
+  const handleSendPlanForApproval = async () => {
+    if (!plan) return;
+    setIsSendingPlanApproval(true);
+    setPlanApprovalLink(null);
+
+    try {
+      const res = await fetch("/api/content/send-plan-for-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, contentPlanId: plan.id }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        const url = `${window.location.origin}/client/${data.accessToken}/content?mode=plan`;
+        setPlanApprovalLink(url);
+        await navigator.clipboard.writeText(url);
+        setLoading(true);
+        loadData();
+      } else {
+        setError(data.error || "Failed to send plan for approval");
+      }
+    } catch {
+      setError("Network error — please try again");
+    } finally {
+      setIsSendingPlanApproval(false);
+    }
+  };
+
+  // Send DRAFTS for client review (written content)
   const handleSendForApproval = async () => {
     if (!plan) return;
     setIsSendingApproval(true);
@@ -186,11 +230,7 @@ export default function ContentHubPage() {
         const url = `${window.location.origin}/client/${data.accessToken}/content`;
         setApprovalLink(url);
         setApprovalMessage(data.message);
-
-        // Copy to clipboard
         await navigator.clipboard.writeText(url);
-
-        // Refresh data to reflect status changes
         setLoading(true);
         loadData();
       } else {
@@ -211,6 +251,13 @@ export default function ContentHubPage() {
     );
   }
 
+  // Pieces with drafts (for the Drafts tab)
+  const piecesWithDrafts = plan?.pieces.filter((p) => p.body) || [];
+  const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
+
+  const planApproved = plan?.planStatus === "APPROVED";
+  const planPending = plan?.planStatus === "PENDING_APPROVAL";
+
   return (
     <div className="max-w-6xl">
       {/* Tabs */}
@@ -223,7 +270,7 @@ export default function ContentHubPage() {
             color: activeTab === "plan" ? "var(--accent)" : "var(--text-muted)",
           }}
         >
-          <FileText size={14} className="inline mr-2" />
+          <ClipboardList size={14} className="inline mr-2" />
           Content Plan
         </button>
         <button
@@ -236,6 +283,22 @@ export default function ContentHubPage() {
         >
           <Sparkles size={14} className="inline mr-2" />
           AI Generator
+        </button>
+        <button
+          onClick={() => setActiveTab("drafts")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: activeTab === "drafts" ? "var(--accent-muted)" : "transparent",
+            color: activeTab === "drafts" ? "var(--accent)" : "var(--text-muted)",
+          }}
+        >
+          <FileText size={14} className="inline mr-2" />
+          Drafts
+          {piecesWithDrafts.length > 0 && (
+            <span className="ml-2 px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(16,185,129,0.2)", color: "#10B981" }}>
+              {piecesWithDrafts.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -258,6 +321,7 @@ export default function ContentHubPage() {
         </div>
       )}
 
+      {/* ═══ AI GENERATOR TAB ═══ */}
       {activeTab === "generate" && (
         <div className="animate-fade-in">
           <div className="stat-card mb-6" style={{ padding: 24 }}>
@@ -323,71 +387,262 @@ export default function ContentHubPage() {
         </div>
       )}
 
+      {/* ═══ CONTENT PLAN TAB ═══ */}
       {activeTab === "plan" && plan && (
+        <div className="animate-fade-in">
+          {/* Plan header with status */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <h2 className="text-xl font-extrabold">{plan.title}</h2>
+                {/* Plan status badge */}
+                <span
+                  className="text-xs font-bold px-3 py-1 rounded-full"
+                  style={{
+                    background: (planStatusColors[plan.planStatus] || planStatusColors.DRAFT).bg,
+                    color: (planStatusColors[plan.planStatus] || planStatusColors.DRAFT).text,
+                  }}
+                >
+                  {(planStatusColors[plan.planStatus] || planStatusColors.DRAFT).label}
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {plan.pieces.length} topics planned ·{" "}
+                {plan.pieces.filter((p) => p.type === "BLOG_POST").length} blog posts ·{" "}
+                {plan.pieces.filter((p) => p.type === "GBP_POST").length} GBP posts ·{" "}
+                {plan.pieces.filter((p) => p.type === "PRESS_RELEASE").length} press releases
+              </p>
+            </div>
+            {/* Send Plan for Approval (only if DRAFT) */}
+            {plan.planStatus === "DRAFT" && (
+              <button
+                onClick={handleSendPlanForApproval}
+                disabled={isSendingPlanApproval}
+                className="btn-primary text-sm"
+              >
+                {isSendingPlanApproval ? (
+                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                ) : (
+                  <><Send size={14} /> Send Plan for Approval</>
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Plan approval link toast */}
+          {planApprovalLink && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(16,185,129,0.08)",
+                border: "1px solid rgba(16,185,129,0.2)",
+              }}
+            >
+              <CheckCircle2 size={18} style={{ color: "var(--success)" }} className="flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold" style={{ color: "var(--success)" }}>
+                  Content plan sent for client approval — link copied!
+                </p>
+                <p className="text-xs truncate mt-1" style={{ color: "var(--text-muted)" }}>
+                  {planApprovalLink}
+                </p>
+              </div>
+              <button
+                onClick={() => navigator.clipboard.writeText(planApprovalLink)}
+                className="btn-secondary text-xs flex-shrink-0"
+                style={{ padding: "4px 10px" }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+              <button onClick={() => setPlanApprovalLink(null)} className="p-1 flex-shrink-0">
+                <X size={14} style={{ color: "var(--text-muted)" }} />
+              </button>
+            </div>
+          )}
+
+          {/* Plan rejected notes */}
+          {plan.planStatus === "REJECTED" && plan.planNotes && (
+            <div
+              className="flex items-start gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.2)",
+              }}
+            >
+              <XCircle size={18} style={{ color: "#ef4444" }} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold" style={{ color: "#ef4444" }}>Client Rejected Plan</p>
+                <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{plan.planNotes}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Pending approval info */}
+          {planPending && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.2)",
+              }}
+            >
+              <Clock size={18} style={{ color: "#f59e0b" }} className="flex-shrink-0" />
+              <p className="text-sm font-semibold" style={{ color: "#f59e0b" }}>
+                Waiting for client to review and approve this content plan…
+              </p>
+            </div>
+          )}
+
+          {/* Plan approved info */}
+          {planApproved && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.2)",
+              }}
+            >
+              <CheckCircle2 size={18} style={{ color: "#22c55e" }} className="flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: "#22c55e" }}>
+                  ✅ Plan approved by client! Switch to the Drafts tab to generate written content.
+                </p>
+              </div>
+              <button onClick={() => setActiveTab("drafts")} className="btn-primary text-xs" style={{ padding: "6px 14px" }}>
+                Go to Drafts →
+              </button>
+            </div>
+          )}
+
+          {/* Content pieces grid — topics/titles only (no draft actions here) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
+            {plan.pieces.map((piece) => {
+              const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
+
+              return (
+                <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden" }}>
+                  <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-6 h-6 rounded-md flex items-center justify-center"
+                        style={{ background: `${typeInfo.color}20`, color: typeInfo.color }}
+                      >
+                        {typeInfo.icon}
+                      </span>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: typeInfo.color }}>
+                        {typeInfo.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <h4 className="text-sm font-bold mb-2" style={{ color: "var(--text-primary)" }}>
+                      {piece.title}
+                    </h4>
+                    <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--text-muted)" }}>
+                      {piece.description}
+                    </p>
+                    <span
+                      className="text-[10px] font-bold uppercase px-2 py-1 rounded-md"
+                      style={{ background: "var(--bg-card-hover)", color: "var(--text-muted)" }}
+                    >
+                      🎯 {piece.keyword}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "plan" && !plan && (
+        <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
+          <Sparkles size={40} style={{ color: "var(--text-muted)" }} className="mb-4" />
+          <h3 className="text-lg font-bold mb-2">No Content Plan Yet</h3>
+          <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+            Switch to the AI Generator tab to create a content plan from a seed keyword.
+          </p>
+          <button onClick={() => setActiveTab("generate")} className="btn-primary">
+            <Sparkles size={16} /> Generate Content Plan
+          </button>
+        </div>
+      )}
+
+      {/* ═══ DRAFTS TAB ═══ */}
+      {activeTab === "drafts" && plan && (
         <div className="animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-extrabold">{plan.title}</h2>
+              <h2 className="text-xl font-extrabold">Drafts & Content</h2>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {plan.pieces.length} pieces · {plan.pieces.filter((p) => p.status === "PUBLISHED").length} published
-                {plan.pieces.filter((p) => p.body).length > 0 && (
-                  <> · {plan.pieces.filter((p) => p.body).length} drafts written</>
-                )}
+                {piecesWithDrafts.length} drafted · {piecesWithoutDrafts.length} awaiting draft
               </p>
             </div>
+            {/* Send drafts for review — only when drafts exist */}
             <button
               onClick={handleSendForApproval}
-              disabled={isSendingApproval || plan.pieces.filter((p) => p.body).length === 0}
+              disabled={isSendingApproval || piecesWithDrafts.length === 0}
               className="btn-primary text-sm"
-              style={{ opacity: plan.pieces.filter((p) => p.body).length === 0 ? 0.4 : 1 }}
-              title={plan.pieces.filter((p) => p.body).length === 0 ? "Generate at least one draft first" : "Send content for client approval"}
+              style={{ opacity: piecesWithDrafts.length === 0 ? 0.4 : 1 }}
+              title={piecesWithDrafts.length === 0 ? "Generate at least one draft first" : "Send written drafts for client review"}
             >
               {isSendingApproval ? (
                 <><Loader2 size={14} className="animate-spin" /> Sending...</>
               ) : (
-                <><Send size={14} /> Send for Approval</>
+                <><Send size={14} /> Send Drafts for Review</>
               )}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-
-            {/* Approval Link Toast */}
-            {approvalLink && (
-              <div
-                className="md:col-span-2 flex items-center gap-3 p-4 rounded-xl"
-                style={{
-                  background: "rgba(16,185,129,0.08)",
-                  border: "1px solid rgba(16,185,129,0.2)",
-                }}
-              >
-                <CheckCircle2 size={18} style={{ color: "var(--success)" }} className="flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold" style={{ color: "var(--success)" }}>
-                    {approvalMessage} — link copied to clipboard!
-                  </p>
-                  <p className="text-xs truncate mt-1" style={{ color: "var(--text-muted)" }}>
-                    {approvalLink}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(approvalLink);
-                  }}
-                  className="btn-secondary text-xs flex-shrink-0"
-                  style={{ padding: "4px 10px" }}
-                >
-                  <Copy size={12} />
-                  Copy
-                </button>
-                <button
-                  onClick={() => { setApprovalLink(null); setApprovalMessage(""); }}
-                  className="p-1 flex-shrink-0"
-                >
-                  <X size={14} style={{ color: "var(--text-muted)" }} />
-                </button>
+          {/* Draft approval link toast */}
+          {approvalLink && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(16,185,129,0.08)",
+                border: "1px solid rgba(16,185,129,0.2)",
+              }}
+            >
+              <CheckCircle2 size={18} style={{ color: "var(--success)" }} className="flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold" style={{ color: "var(--success)" }}>
+                  {approvalMessage} — link copied to clipboard!
+                </p>
+                <p className="text-xs truncate mt-1" style={{ color: "var(--text-muted)" }}>
+                  {approvalLink}
+                </p>
               </div>
-            )}
+              <button
+                onClick={() => navigator.clipboard.writeText(approvalLink)}
+                className="btn-secondary text-xs flex-shrink-0"
+                style={{ padding: "4px 10px" }}
+              >
+                <Copy size={12} /> Copy
+              </button>
+              <button onClick={() => { setApprovalLink(null); setApprovalMessage(""); }} className="p-1 flex-shrink-0">
+                <X size={14} style={{ color: "var(--text-muted)" }} />
+              </button>
+            </div>
+          )}
+
+          {/* Not approved warning */}
+          {!planApproved && plan.planStatus !== "DRAFT" && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.2)",
+              }}
+            >
+              <AlertCircle size={18} style={{ color: "#f59e0b" }} className="flex-shrink-0" />
+              <p className="text-sm" style={{ color: "#f59e0b" }}>
+                The content plan hasn&apos;t been approved yet. You can still generate drafts, but it&apos;s recommended to wait for client plan approval first.
+              </p>
+            </div>
+          )}
+
+          {/* All pieces — with draft actions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
             {plan.pieces.map((piece) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
               const statusInfo = statusConfig[piece.status] || statusConfig.PLANNED;
@@ -437,6 +692,7 @@ export default function ContentHubPage() {
                       )}
                     </div>
                   </div>
+                  {/* Actions */}
                   <div className="px-4 py-3 flex gap-2" style={{ borderTop: "1px solid var(--border)" }}>
                     {!hasDraft && (piece.status === "APPROVED" || piece.status === "PLANNED") && (
                       <button
@@ -484,12 +740,12 @@ export default function ContentHubPage() {
         </div>
       )}
 
-      {activeTab === "plan" && !plan && (
+      {activeTab === "drafts" && !plan && (
         <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
-          <Sparkles size={40} style={{ color: "var(--text-muted)" }} className="mb-4" />
+          <FileText size={40} style={{ color: "var(--text-muted)" }} className="mb-4" />
           <h3 className="text-lg font-bold mb-2">No Content Plan Yet</h3>
           <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
-            Switch to the AI Generator tab to create a content plan from a seed keyword.
+            Create a content plan first, then generate drafts from it.
           </p>
           <button onClick={() => setActiveTab("generate")} className="btn-primary">
             <Sparkles size={16} /> Generate Content Plan

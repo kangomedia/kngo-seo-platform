@@ -150,3 +150,63 @@ export async function getClientRankHistory(accessToken: string, days: number = 3
 
   return snapshots;
 }
+
+export async function getClientPlanForReview(accessToken: string) {
+  const client = await prisma.client.findUnique({
+    where: { accessToken },
+  });
+
+  if (!client || !client.isActive) return null;
+
+  // Find the most recent plan that is PENDING_APPROVAL
+  const plan = await prisma.contentPlan.findFirst({
+    where: {
+      clientId: client.id,
+      planStatus: "PENDING_APPROVAL",
+    },
+    orderBy: [{ year: "desc" }, { month: "desc" }],
+    include: {
+      pieces: {
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
+
+  return { client, plan };
+}
+
+export async function submitPublicPlanApproval(
+  accessToken: string,
+  contentPlanId: string,
+  outcome: "approved" | "rejected",
+  notes?: string
+) {
+  const client = await prisma.client.findUnique({
+    where: { accessToken },
+  });
+
+  if (!client || !client.isActive) {
+    throw new Error("Invalid access link");
+  }
+
+  // Verify this plan belongs to this client
+  const plan = await prisma.contentPlan.findUnique({
+    where: { id: contentPlanId },
+  });
+
+  if (!plan || plan.clientId !== client.id) {
+    throw new Error("Content plan not found");
+  }
+
+  const newStatus = outcome === "approved" ? "APPROVED" : "REJECTED";
+
+  await prisma.contentPlan.update({
+    where: { id: contentPlanId },
+    data: {
+      planStatus: newStatus,
+      planNotes: notes || null,
+    },
+  });
+
+  return { success: true };
+}

@@ -1,8 +1,13 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getClientContentForReview, submitPublicContentApproval } from "@/lib/actions-public";
+import { useParams, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import {
+  getClientContentForReview,
+  getClientPlanForReview,
+  submitPublicContentApproval,
+  submitPublicPlanApproval,
+} from "@/lib/actions-public";
 import {
   CheckCircle2,
   XCircle,
@@ -14,6 +19,7 @@ import {
   ChevronRight,
   BookmarkPlus,
   Send,
+  ClipboardList,
 } from "lucide-react";
 
 type Decision = "approved" | "rejected" | "save_for_later" | null;
@@ -27,14 +33,27 @@ interface ContentPiece {
   body: string | null;
 }
 
-export default function ContentApprovalPage() {
+interface ContentPlan {
+  id: string;
+  title: string;
+  month: number;
+  year: number;
+  pieces: ContentPiece[];
+}
+
+function ContentApprovalInner() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const token = params.token as string;
+  const mode = searchParams.get("mode"); // "plan" or null (default = drafts)
 
   const [pieces, setPieces] = useState<ContentPiece[]>([]);
   const [planTitle, setPlanTitle] = useState("");
+  const [planForReview, setPlanForReview] = useState<ContentPlan | null>(null);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [planNotes, setPlanNotes] = useState("");
+  const [planDecision, setPlanDecision] = useState<"approved" | "rejected" | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -42,32 +61,254 @@ export default function ContentApprovalPage() {
 
   useEffect(() => {
     async function load() {
-      const data = await getClientContentForReview(token);
-      if (data && data.pieces.length > 0) {
-        setPieces(data.pieces as unknown as ContentPiece[]);
-        setPlanTitle(data.pieces[0]?.contentPlan?.title || "Content Review");
+      if (mode === "plan") {
+        // Plan review mode
+        const data = await getClientPlanForReview(token);
+        if (data?.plan) {
+          setPlanForReview(data.plan as unknown as ContentPlan);
+        }
+      } else {
+        // Draft review mode (original behavior)
+        const data = await getClientContentForReview(token);
+        if (data && data.pieces.length > 0) {
+          setPieces(data.pieces as unknown as ContentPiece[]);
+          setPlanTitle(
+            (data.pieces[0] as unknown as { contentPlan?: { title?: string } })?.contentPlan?.title || "Content Review"
+          );
+        }
       }
       setLoading(false);
     }
     load();
-  }, [token]);
+  }, [token, mode]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center">
-          <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{ borderColor: "#E34234", borderTopColor: "transparent" }} />
-          <p className="text-sm" style={{ color: "#888" }}>Loading content...</p>
+          <div
+            className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin mx-auto mb-3"
+            style={{ borderColor: "#E34234", borderTopColor: "transparent" }}
+          />
+          <p className="text-sm" style={{ color: "#888" }}>
+            Loading content...
+          </p>
         </div>
       </div>
     );
   }
 
+  // ═══ PLAN REVIEW MODE ═══
+  if (mode === "plan") {
+    if (!planForReview) {
+      return (
+        <div className="text-center py-16">
+          <ClipboardList size={40} className="mx-auto mb-4" style={{ color: "#ccc" }} />
+          <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>
+            No Content Plan to Review
+          </h2>
+          <p className="text-sm" style={{ color: "#888" }}>
+            There are no content plans pending your review at this time.
+          </p>
+        </div>
+      );
+    }
+
+    if (submitted) {
+      return (
+        <div className="text-center py-16">
+          <div className="text-6xl mb-4">🎉</div>
+          <h2 className="text-2xl font-extrabold mb-2" style={{ color: "#222" }}>
+            Thank You!
+          </h2>
+          <p className="text-sm" style={{ color: "#888" }}>
+            Your feedback on the content plan has been sent to the KangoMedia team.
+            {planDecision === "approved"
+              ? " We'll begin writing the content right away!"
+              : " We'll revise the plan based on your notes."}
+          </p>
+        </div>
+      );
+    }
+
+    const typeLabels: Record<string, { emoji: string; label: string }> = {
+      BLOG_POST: { emoji: "✍️", label: "Blog Post" },
+      GBP_POST: { emoji: "📍", label: "Google Business Post" },
+      PRESS_RELEASE: { emoji: "📢", label: "Press Release" },
+    };
+
+    const handleSubmitPlan = async () => {
+      if (!planDecision) return;
+      setSubmitting(true);
+      try {
+        await submitPublicPlanApproval(token, planForReview.id, planDecision, planNotes || undefined);
+        setSubmitted(true);
+      } catch (err) {
+        console.error("Failed to submit plan approval:", err);
+      }
+      setSubmitting(false);
+    };
+
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>
+            📋 Content Plan Review
+          </h1>
+          <p className="text-sm" style={{ color: "#888" }}>
+            {planForReview.title} · {planForReview.pieces.length} topics proposed
+          </p>
+          <p className="text-xs mt-2" style={{ color: "#666" }}>
+            Your SEO team has created a content plan with the following topics. Please review and approve or request changes.
+          </p>
+        </div>
+
+        {/* Topics list */}
+        <div className="space-y-3 mb-6">
+          {planForReview.pieces.map((piece, i) => {
+            const typeInfo = typeLabels[piece.type] || typeLabels.BLOG_POST;
+            return (
+              <div
+                key={piece.id}
+                className="rounded-xl overflow-hidden"
+                style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+              >
+                <div
+                  className="px-4 py-2 flex items-center gap-2"
+                  style={{ background: "#FAFAFA", borderBottom: "1px solid #E4E4E4" }}
+                >
+                  <span className="text-sm">{typeInfo.emoji}</span>
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "#888" }}>
+                    {typeInfo.label}
+                  </span>
+                  <span className="ml-auto text-xs font-bold" style={{ color: "#ccc" }}>
+                    #{i + 1}
+                  </span>
+                </div>
+                <div className="p-4">
+                  <h3 className="text-sm font-bold mb-1" style={{ color: "#222" }}>
+                    {piece.title}
+                  </h3>
+                  {piece.description && (
+                    <p className="text-xs" style={{ color: "#666" }}>
+                      {piece.description}
+                    </p>
+                  )}
+                  {piece.keyword && (
+                    <div className="mt-2">
+                      <span
+                        className="text-[10px] font-bold uppercase px-2 py-1 rounded-md inline-block"
+                        style={{ background: "#F5F5F5", color: "#888" }}
+                      >
+                        🎯 Target: {piece.keyword}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Overall Plan Decision */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+        >
+          <div
+            className="px-6 py-3"
+            style={{ background: "#FAFAFA", borderBottom: "1px solid #E4E4E4" }}
+          >
+            <span className="text-sm font-bold" style={{ color: "#222" }}>
+              Your Decision
+            </span>
+          </div>
+          <div className="p-6">
+            <p className="text-sm mb-4" style={{ color: "#666" }}>
+              Do you approve this content plan? Your team will begin writing once approved.
+            </p>
+
+            {/* Notes */}
+            <div className="mb-4">
+              <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "#888" }}>
+                <MessageSquare size={12} className="inline mr-1" />
+                Notes or Feedback (optional)
+              </label>
+              <textarea
+                className="w-full p-3 rounded-xl text-sm resize-none"
+                style={{
+                  background: "#FAFAFA",
+                  border: "1.5px solid #E4E4E4",
+                  color: "#222",
+                  minHeight: 80,
+                }}
+                placeholder="Any changes you'd like to see to the topic plan..."
+                value={planNotes}
+                onChange={(e) => setPlanNotes(e.target.value)}
+              />
+            </div>
+
+            {/* Decision buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setPlanDecision("approved")}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all"
+                style={{
+                  background: planDecision === "approved" ? "#16a34a" : "#dcfce7",
+                  color: planDecision === "approved" ? "#fff" : "#16a34a",
+                  border: "2px solid #16a34a",
+                }}
+              >
+                <CheckCircle2 size={18} />
+                Approve Plan
+              </button>
+              <button
+                onClick={() => setPlanDecision("rejected")}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all"
+                style={{
+                  background: planDecision === "rejected" ? "#dc2626" : "#fee2e2",
+                  color: planDecision === "rejected" ? "#fff" : "#dc2626",
+                  border: "2px solid #dc2626",
+                }}
+              >
+                <XCircle size={18} />
+                Request Changes
+              </button>
+            </div>
+
+            {/* Submit */}
+            {planDecision && (
+              <div className="mt-4 text-center animate-slide-up">
+                <button
+                  onClick={handleSubmitPlan}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-bold transition-all"
+                  style={{
+                    background: submitting ? "#999" : "#E34234",
+                    color: "#fff",
+                    boxShadow: "0 4px 20px rgba(227, 66, 52, 0.3)",
+                    cursor: submitting ? "wait" : "pointer",
+                  }}
+                >
+                  <Send size={18} />
+                  {submitting ? "Submitting..." : "Submit Decision"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══ DRAFT REVIEW MODE (original) ═══
   if (pieces.length === 0) {
     return (
       <div className="text-center py-16">
         <FileText size={40} className="mx-auto mb-4" style={{ color: "#ccc" }} />
-        <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>No Content to Review</h2>
+        <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>
+          No Content to Review
+        </h2>
         <p className="text-sm" style={{ color: "#888" }}>
           When your SEO team creates content for you, it will appear here for your review.
         </p>
@@ -126,7 +367,7 @@ export default function ContentApprovalPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>
-          Content Review
+          ✍️ Draft Review
         </h1>
         <p className="text-sm" style={{ color: "#888" }}>
           {planTitle} · {reviewedCount} of {pieces.length} reviewed
@@ -152,22 +393,36 @@ export default function ContentApprovalPage() {
         {pieces.map((piece, i) => {
           const decision = decisions[piece.id];
           const bgColor =
-            decision === "approved" ? "#dcfce7" :
-            decision === "rejected" ? "#fee2e2" :
-            decision === "save_for_later" ? "#fef3c7" :
-            i === currentIndex ? "#fff0ef" : "#F5F5F5";
+            decision === "approved"
+              ? "#dcfce7"
+              : decision === "rejected"
+                ? "#fee2e2"
+                : decision === "save_for_later"
+                  ? "#fef3c7"
+                  : i === currentIndex
+                    ? "#fff0ef"
+                    : "#F5F5F5";
           const textColor =
-            decision === "approved" ? "#16a34a" :
-            decision === "rejected" ? "#dc2626" :
-            decision === "save_for_later" ? "#b45309" :
-            i === currentIndex ? "#E34234" : "#888";
+            decision === "approved"
+              ? "#16a34a"
+              : decision === "rejected"
+                ? "#dc2626"
+                : decision === "save_for_later"
+                  ? "#b45309"
+                  : i === currentIndex
+                    ? "#E34234"
+                    : "#888";
 
           return (
             <button
               key={piece.id}
               onClick={() => setCurrentIndex(i)}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all"
-              style={{ background: bgColor, color: textColor, border: i === currentIndex ? "2px solid #E34234" : "2px solid transparent" }}
+              style={{
+                background: bgColor,
+                color: textColor,
+                border: i === currentIndex ? "2px solid #E34234" : "2px solid transparent",
+              }}
             >
               {decision === "approved" && <CheckCircle2 size={12} />}
               {decision === "rejected" && <XCircle size={12} />}
@@ -338,5 +593,25 @@ export default function ContentApprovalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ContentApprovalPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div
+              className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin mx-auto mb-3"
+              style={{ borderColor: "#E34234", borderTopColor: "transparent" }}
+            />
+            <p className="text-sm" style={{ color: "#888" }}>Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <ContentApprovalInner />
+    </Suspense>
   );
 }
