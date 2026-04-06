@@ -190,34 +190,112 @@ export async function generateContentBody(contentPieceId: string): Promise<strin
   const client = piece.contentPlan.client;
 
   const typeLabel =
-    piece.type === "BLOG_POST" ? "blog post" : piece.type === "GBP_POST" ? "Google Business Profile post" : "press release";
+    piece.type === "BLOG_POST"
+      ? "blog post"
+      : piece.type === "GBP_POST"
+      ? "Google Business Profile post"
+      : "press release";
 
-  const systemPrompt = `You are an expert SEO content writer. Write engaging, locally-optimized content for a ${typeLabel}.
+  // Type-specific SEO writing instructions
+  const typeInstructions: Record<string, string> = {
+    BLOG_POST: `## Blog Post SEO Writing Framework
 
-Rules:
-- Write in a professional yet conversational tone
-- Include the target keyword naturally (don't stuff)
-- For blog posts: 800-1200 words, include H2/H3 headings, a strong intro, and CTA
-- For GBP posts: 150-300 words, punchy and action-oriented with a CTA
-- For press releases: 400-600 words, newsworthy angle, quote from business owner
-- Include local context (city/neighborhood mentions where natural)
-- Format in Markdown`;
+**Length:** 1,200–2,000 words (comprehensive enough to satisfy search intent)
 
-  const userPrompt = `Write a ${typeLabel} for ${client.name} (${client.domain}).
+**Structure Requirements:**
+- **Title (H1):** Include the primary keyword naturally. Use power words for CTR (Ultimate, Complete, Expert, etc.)
+- **Meta Description:** Write a compelling 150-160 character meta description as a comment at the top
+- **Introduction (first 100 words):** Hook the reader, clearly state the problem/topic, include the primary keyword in the first paragraph, and preview what they'll learn
+- **Body with H2/H3 headings:** Each H2 should target a semantic variation or subtopic. Use H3s for supporting detail
+- **Keyword Placement:** Primary keyword in H1, first paragraph, one H2, conclusion, and 2-3 times naturally in body. Use semantic variations and LSI keywords throughout
+- **Internal Link Opportunities:** Add placeholders like [INTERNAL LINK: related topic] where internal links should go
+- **E-E-A-T Signals:** Include specific data points, statistics, expert opinions, and actionable advice that demonstrates first-hand experience and expertise
+- **NLP Entity Optimization:** Mention related entities (brands, locations, tools, industry terms) that Google associates with the topic
+- **FAQ Section:** Include 3-5 FAQs using "People Also Ask" style questions as H3s with concise answers (schema-ready)
+- **CTA:** End with a clear, compelling call to action specific to the business
+- **Local SEO:** Naturally weave in the business's service area, city, and neighborhood references`,
 
-Title: ${piece.title}
-Target Keyword: ${piece.keyword || "general"}
-Brief: ${piece.description || "No specific brief provided"}
-`;
+    GBP_POST: `## Google Business Profile Post SEO Framework
 
-  const body = await callClaude(systemPrompt, userPrompt);
+**Length:** 150–300 words (concise, scannable, action-oriented)
 
-  // Save the generated body
+**Structure Requirements:**
+- **Opening Hook:** Start with an attention-grabbing statement or question (emoji optional for engagement)
+- **Value Proposition:** 2-3 sentences explaining the offer, tip, update, or seasonal content
+- **Local Signals:** Mention the city/area naturally — Google uses this for local ranking signals
+- **Call to Action:** End with a specific CTA (Call now, Book online, Visit us, Learn more)
+- **Keywords:** Include the target keyword once naturally. Use 1-2 related local terms
+- **Tone:** Friendly, professional, and direct. Write as the business speaking to their community
+- **DO NOT** use markdown headings — GBP posts are plain text with line breaks`,
+
+    PRESS_RELEASE: `## Press Release SEO Framework
+
+**Length:** 400–800 words
+
+**Structure Requirements:**
+- **Headline:** Newsworthy, keyword-rich headline (not clickbait)
+- **Dateline:** [CITY, State] — [Date]
+- **Lead Paragraph:** WHO, WHAT, WHEN, WHERE, WHY in the first paragraph. Include primary keyword
+- **Body Paragraphs:** Expand on the news with supporting details, context, and impact
+- **Quote:** Include 1-2 quotes from the business owner or relevant stakeholder (use realistic placeholder names)
+- **Boilerplate:** End with an "About [Company]" section with the business description, location, and contact info
+- **Keywords:** Primary keyword in headline, lead paragraph, one subhead, and boilerplate
+- **Links:** Include placeholder [LINK: company website] where appropriate
+- **Tone:** Professional, third-person, newsworthy. Not promotional — informational`,
+  };
+
+  const systemPrompt = `You are a senior SEO content strategist and writer with 10+ years of experience in search engine optimization and content marketing. You write content that ranks on Google while being genuinely helpful to readers.
+
+Your content philosophy:
+- Search intent satisfaction is the #1 ranking factor — every piece must fully answer what the searcher is looking for
+- E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness) signals must be woven naturally into the content
+- Keyword optimization should be invisible to readers — never sacrifice readability for keyword density
+- Every piece must provide unique value that competitors don't offer
+- Content should be scannable with clear hierarchy, short paragraphs, and strategic formatting
+
+${typeInstructions[piece.type] || typeInstructions.BLOG_POST}
+
+**Critical Rules:**
+- NEVER use filler phrases like "In today's world" or "In this article, we will discuss"
+- NEVER stuff keywords — use natural language and semantic variations
+- ALWAYS write content that a human expert in the field would be proud to publish
+- ALWAYS include specific, actionable information — not vague generalizations
+- Format output in Markdown (except GBP posts which should be plain text with line breaks)`;
+
+  const userPrompt = `Write a ${typeLabel} for the following business and topic:
+
+**Business:** ${client.name}
+**Website:** ${client.domain || "N/A"}
+**Content Title:** ${piece.title}
+**Primary Target Keyword:** ${piece.keyword || "general"}
+**Content Brief/Angle:** ${piece.description || "No specific brief provided"}
+**Seed Topic:** ${piece.contentPlan.seedKeyword || "N/A"}
+
+Write the complete content now. Make it publication-ready.`;
+
+  // Update status to WRITING
   await prisma.contentPiece.update({
     where: { id: contentPieceId },
-    data: { body },
+    data: { status: "WRITING" },
   });
 
-  revalidatePath("/agency");
-  return body;
+  try {
+    const body = await callClaude(systemPrompt, userPrompt);
+
+    // Save the generated body and update status
+    await prisma.contentPiece.update({
+      where: { id: contentPieceId },
+      data: { body, status: "CLIENT_REVIEW" },
+    });
+
+    revalidatePath("/agency");
+    return body;
+  } catch (err) {
+    // Reset status on failure
+    await prisma.contentPiece.update({
+      where: { id: contentPieceId },
+      data: { status: "PLANNED" },
+    });
+    throw err;
+  }
 }
