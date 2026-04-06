@@ -65,9 +65,89 @@ export async function POST(
     }
   }
 
+  // Fetch search volume from DataForSEO for newly created keywords
+  if (results.length > 0) {
+    try {
+      const metrics = await fetchSearchVolume(results.map((r) => r.keyword));
+      
+      // Update each keyword with its metrics
+      for (const result of results) {
+        const metric = metrics.find(
+          (m: { keyword: string }) => m.keyword?.toLowerCase() === result.keyword.toLowerCase()
+        );
+        if (metric) {
+          await prisma.keyword.update({
+            where: { id: result.id },
+            data: {
+              searchVolume: metric.search_volume || null,
+              difficulty: metric.competition_level
+                ? Math.round(metric.competition_level * 100)
+                : null,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      // DataForSEO not configured or API error — keywords still created, just without metrics
+      console.warn("[KEYWORDS] Could not fetch search volume:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Re-fetch keywords with updated metrics
+  const updatedKeywords = await prisma.keyword.findMany({
+    where: { id: { in: results.map((r) => r.id) } },
+  });
+
   return NextResponse.json({
-    created: results,
+    created: updatedKeywords,
     skipped,
     message: `Added ${results.length} keywords${skipped.length > 0 ? `, ${skipped.length} already existed` : ""}`,
   });
+}
+
+/** Fetch search volume from DataForSEO */
+async function fetchSearchVolume(keywords: string[]) {
+  // Try env first, then agency settings
+  let login = process.env.DATAFORSEO_LOGIN;
+  let password = process.env.DATAFORSEO_PASSWORD;
+
+  if (!login || !password) {
+    const settings = await prisma.agencySettings.findUnique({
+      where: { id: "default" },
+    });
+    login = settings?.dataforseoLogin || undefined;
+    password = settings?.dataforseoPwd || undefined;
+  }
+
+  if (!login || !password) {
+    throw new Error("DataForSEO credentials not configured");
+  }
+
+  const encoded = Buffer.from(`${login}:${password}`).toString("base64");
+
+  const response = await fetch(
+    "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${encoded}`,
+      },
+      body: JSON.stringify([
+        {
+          keywords,
+          location_code: 2840, // United States
+          language_code: "en",
+        },
+      ]),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`DataForSEO error: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data?.tasks?.[0]?.result || [];
 }

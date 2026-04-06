@@ -12,6 +12,7 @@ import {
 
 interface Report {
   id: string;
+  uuid: string;
   title: string;
   summary: string;
   month: number;
@@ -177,7 +178,7 @@ export default function ReportsPage() {
                   </span>
                 )}
                 <a
-                  href={`/report/${report.id}`}
+                  href={`/report/${report.uuid}`}
                   target="_blank"
                   className="btn-secondary text-xs"
                   style={{ padding: "6px 12px" }}

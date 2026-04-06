@@ -16,6 +16,8 @@ import {
   Loader2,
   AlertCircle,
   X,
+  Link,
+  Copy,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -56,6 +58,11 @@ export default function ContentHubPage() {
 
   // Preview modal
   const [previewPiece, setPreviewPiece] = useState<ContentPiece | null>(null);
+
+  // Approval flow
+  const [isSendingApproval, setIsSendingApproval] = useState(false);
+  const [approvalLink, setApprovalLink] = useState<string | null>(null);
+  const [approvalMessage, setApprovalMessage] = useState("");
 
   const loadData = () => {
     fetch(`/api/clients/${clientId}`)
@@ -157,6 +164,42 @@ export default function ContentHubPage() {
       setError("Network error — please try again");
     } finally {
       setGeneratingPieceId(null);
+    }
+  };
+
+  const handleSendForApproval = async () => {
+    if (!plan) return;
+    setIsSendingApproval(true);
+    setApprovalMessage("");
+    setApprovalLink(null);
+
+    try {
+      const res = await fetch("/api/content/send-for-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, contentPlanId: plan.id }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        const url = `${window.location.origin}/client/${data.accessToken}/content`;
+        setApprovalLink(url);
+        setApprovalMessage(data.message);
+
+        // Copy to clipboard
+        await navigator.clipboard.writeText(url);
+
+        // Refresh data to reflect status changes
+        setLoading(true);
+        loadData();
+      } else {
+        setError(data.error || "Failed to send for approval");
+      }
+    } catch {
+      setError("Network error — please try again");
+    } finally {
+      setIsSendingApproval(false);
     }
   };
 
@@ -292,13 +335,59 @@ export default function ContentHubPage() {
                 )}
               </p>
             </div>
-            <button className="btn-secondary text-sm">
-              <Send size={14} />
-              Send for Approval
+            <button
+              onClick={handleSendForApproval}
+              disabled={isSendingApproval || plan.pieces.filter((p) => p.body).length === 0}
+              className="btn-primary text-sm"
+              style={{ opacity: plan.pieces.filter((p) => p.body).length === 0 ? 0.4 : 1 }}
+              title={plan.pieces.filter((p) => p.body).length === 0 ? "Generate at least one draft first" : "Send content for client approval"}
+            >
+              {isSendingApproval ? (
+                <><Loader2 size={14} className="animate-spin" /> Sending...</>
+              ) : (
+                <><Send size={14} /> Send for Approval</>
+              )}
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
+
+            {/* Approval Link Toast */}
+            {approvalLink && (
+              <div
+                className="md:col-span-2 flex items-center gap-3 p-4 rounded-xl"
+                style={{
+                  background: "rgba(16,185,129,0.08)",
+                  border: "1px solid rgba(16,185,129,0.2)",
+                }}
+              >
+                <CheckCircle2 size={18} style={{ color: "var(--success)" }} className="flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold" style={{ color: "var(--success)" }}>
+                    {approvalMessage} — link copied to clipboard!
+                  </p>
+                  <p className="text-xs truncate mt-1" style={{ color: "var(--text-muted)" }}>
+                    {approvalLink}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(approvalLink);
+                  }}
+                  className="btn-secondary text-xs flex-shrink-0"
+                  style={{ padding: "4px 10px" }}
+                >
+                  <Copy size={12} />
+                  Copy
+                </button>
+                <button
+                  onClick={() => { setApprovalLink(null); setApprovalMessage(""); }}
+                  className="p-1 flex-shrink-0"
+                >
+                  <X size={14} style={{ color: "var(--text-muted)" }} />
+                </button>
+              </div>
+            )}
             {plan.pieces.map((piece) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
               const statusInfo = statusConfig[piece.status] || statusConfig.PLANNED;

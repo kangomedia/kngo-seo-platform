@@ -11,6 +11,7 @@ import {
   Plus,
   X,
   Loader2,
+  BarChart3,
 } from "lucide-react";
 
 interface KeywordData {
@@ -40,6 +41,11 @@ export default function RankingsPage() {
   const [newGroup, setNewGroup] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [addResult, setAddResult] = useState("");
+
+  // Rank checking
+  const [isCheckingRanks, setIsCheckingRanks] = useState(false);
+  const [isRefreshingMetrics, setIsRefreshingMetrics] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
 
   const loadKeywords = () => {
     fetch(`/api/clients/${clientId}`)
@@ -77,10 +83,11 @@ export default function RankingsPage() {
     .filter((p): p is number => p != null);
   const avgPos =
     positions.length > 0
-      ? (positions.reduce((s, p) => s + p, 0) / positions.length).toFixed(
-          1
-        )
+      ? (positions.reduce((s, p) => s + p, 0) / positions.length).toFixed(1)
       : "—";
+
+  // Total search volume
+  const totalVolume = keywords.reduce((s, k) => s + (k.searchVolume || 0), 0);
 
   const handleAddKeywords = async () => {
     if (!newKeywords.trim()) return;
@@ -108,10 +115,8 @@ export default function RankingsPage() {
         setAddResult(data.message);
         setNewKeywords("");
         setNewGroup("");
-        // Refresh keyword list
         setLoading(true);
         loadKeywords();
-        // Close modal after short delay
         setTimeout(() => {
           setShowAddModal(false);
           setAddResult("");
@@ -123,6 +128,56 @@ export default function RankingsPage() {
       setAddResult("Network error — please try again");
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleCheckRankings = async () => {
+    setIsCheckingRanks(true);
+    setActionMessage("");
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}/rankings/check`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setActionMessage(`Checked ${data.checked} of ${data.total} keywords`);
+        setLoading(true);
+        loadKeywords();
+      } else {
+        setActionMessage(data.error || "Failed to check rankings");
+      }
+    } catch {
+      setActionMessage("Network error — please try again");
+    } finally {
+      setIsCheckingRanks(false);
+      setTimeout(() => setActionMessage(""), 4000);
+    }
+  };
+
+  const handleRefreshMetrics = async () => {
+    setIsRefreshingMetrics(true);
+    setActionMessage("");
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}/keywords/metrics`, {
+        method: "POST",
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setActionMessage(`Updated metrics for ${data.updated} keywords`);
+        setLoading(true);
+        loadKeywords();
+      } else {
+        setActionMessage(data.error || "Failed to refresh metrics");
+      }
+    } catch {
+      setActionMessage("Network error — please try again");
+    } finally {
+      setIsRefreshingMetrics(false);
+      setTimeout(() => setActionMessage(""), 4000);
     }
   };
 
@@ -141,7 +196,7 @@ export default function RankingsPage() {
   return (
     <div className="max-w-6xl stagger">
       {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="stat-card">
           <p
             className="text-xs font-bold uppercase tracking-wide mb-1"
@@ -174,15 +229,70 @@ export default function RankingsPage() {
           </p>
           <p className="text-2xl font-extrabold">{avgPos}</p>
         </div>
+        <div className="stat-card">
+          <p
+            className="text-xs font-bold uppercase tracking-wide mb-1"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Total Volume
+          </p>
+          <p className="text-2xl font-extrabold">
+            {totalVolume > 0 ? totalVolume.toLocaleString() : "—"}
+          </p>
+        </div>
         <div className="stat-card flex items-center gap-2 justify-center">
           <button
-            className="btn-primary flex-1"
+            className="btn-primary flex-1 text-sm"
             onClick={() => setShowAddModal(true)}
           >
-            <Plus size={16} />
-            Add Keywords
+            <Plus size={14} />
+            Add
           </button>
         </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={handleCheckRankings}
+          disabled={isCheckingRanks || keywords.length === 0}
+          className="btn-secondary text-sm"
+          style={{ opacity: keywords.length === 0 ? 0.5 : 1 }}
+        >
+          {isCheckingRanks ? (
+            <><Loader2 size={14} className="animate-spin" /> Checking...</>
+          ) : (
+            <><RefreshCw size={14} /> Check Rankings</>
+          )}
+        </button>
+        <button
+          onClick={handleRefreshMetrics}
+          disabled={isRefreshingMetrics || keywords.length === 0}
+          className="btn-secondary text-sm"
+          style={{ opacity: keywords.length === 0 ? 0.5 : 1 }}
+        >
+          {isRefreshingMetrics ? (
+            <><Loader2 size={14} className="animate-spin" /> Refreshing...</>
+          ) : (
+            <><BarChart3 size={14} /> Refresh Metrics</>
+          )}
+        </button>
+
+        {actionMessage && (
+          <span
+            className="flex items-center text-xs font-bold px-3 py-1 rounded-lg"
+            style={{
+              background: actionMessage.includes("error") || actionMessage.includes("Failed")
+                ? "rgba(239,68,68,0.1)"
+                : "rgba(16,185,129,0.1)",
+              color: actionMessage.includes("error") || actionMessage.includes("Failed")
+                ? "var(--danger)"
+                : "var(--success)",
+            }}
+          >
+            {actionMessage}
+          </span>
+        )}
       </div>
 
       {/* Filters */}
@@ -255,7 +365,6 @@ export default function RankingsPage() {
                 <th>Volume</th>
                 <th>Difficulty</th>
                 <th>Group</th>
-                <th>URL</th>
               </tr>
             </thead>
             <tbody>
@@ -314,7 +423,9 @@ export default function RankingsPage() {
                       )}
                     </td>
                     <td>
-                      {kw.searchVolume?.toLocaleString() || "—"}
+                      <span className="font-semibold" style={{ color: kw.searchVolume ? "var(--text-primary)" : "var(--text-muted)" }}>
+                        {kw.searchVolume ? kw.searchVolume.toLocaleString() : "—"}
+                      </span>
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
@@ -348,14 +459,6 @@ export default function RankingsPage() {
                         }}
                       >
                         {kw.group || "—"}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className="text-xs"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {kw.targetUrl || "—"}
                       </span>
                     </td>
                   </tr>
@@ -409,7 +512,7 @@ export default function RankingsPage() {
                 style={{ color: "var(--text-muted)" }}
               >
                 {newKeywords.split("\n").filter((k) => k.trim()).length}{" "}
-                keywords
+                keywords · Search volume will be fetched automatically
               </p>
             </div>
 
