@@ -28,16 +28,21 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get Claude API key from settings
-  const settings = await prisma.agencySettings.findUnique({
-    where: { id: "default" },
-  });
+  // Get Claude API key: env vars first, DB settings as fallback
+  let apiKey = process.env.ANTHROPIC_API_KEY;
 
-  if (!settings?.claudeApiKey) {
+  if (!apiKey) {
+    const settings = await prisma.agencySettings.findUnique({
+      where: { id: "default" },
+    });
+    apiKey = settings?.claudeApiKey || undefined;
+  }
+
+  if (!apiKey) {
     return NextResponse.json(
       {
         error:
-          "Claude API key not configured. Go to Settings to add your API key.",
+          "Claude API key not configured. Set ANTHROPIC_API_KEY environment variable or add it in Settings.",
       },
       { status: 400 }
     );
@@ -109,7 +114,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": settings.claudeApiKey,
+          "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({

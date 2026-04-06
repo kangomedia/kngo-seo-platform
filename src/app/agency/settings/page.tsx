@@ -14,9 +14,15 @@ interface SettingsData {
   hasDataForSEO: boolean;
   hasClaude: boolean;
   hasGHL: boolean;
+  dataforseoSource: string | null;
+  claudeSource: string | null;
+  ghlSource: string | null;
 }
 
-function ConnectionBadge({ connected }: { connected: boolean }) {
+function ConnectionBadge({ connected, source }: { connected: boolean; source?: string | null }) {
+  const label = connected
+    ? source === "env" ? "Via Environment" : "Connected"
+    : "Not configured";
   return (
     <span
       className="flex items-center gap-1 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full"
@@ -26,7 +32,7 @@ function ConnectionBadge({ connected }: { connected: boolean }) {
       }}
     >
       {connected ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
-      {connected ? "Connected" : "Not configured"}
+      {label}
     </span>
   );
 }
@@ -154,7 +160,7 @@ export default function SettingsPage() {
             <h2 className="text-lg font-extrabold">DataForSEO</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>Rank tracking, keyword research & SERP data</p>
           </div>
-          <ConnectionBadge connected={settings?.hasDataForSEO || false} />
+          <ConnectionBadge connected={settings?.hasDataForSEO || false} source={settings?.dataforseoSource} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -201,7 +207,7 @@ export default function SettingsPage() {
             <h2 className="text-lg font-extrabold">Claude AI (Anthropic)</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>Content generation, topical maps & optimization</p>
           </div>
-          <ConnectionBadge connected={settings?.hasClaude || false} />
+          <ConnectionBadge connected={settings?.hasClaude || false} source={settings?.claudeSource} />
         </div>
 
         <div>
@@ -240,7 +246,7 @@ export default function SettingsPage() {
             <h2 className="text-lg font-extrabold">GoHighLevel</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>CRM integration for reviews & lead attribution</p>
           </div>
-          <ConnectionBadge connected={settings?.hasGHL || false} />
+          <ConnectionBadge connected={settings?.hasGHL || false} source={settings?.ghlSource} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
