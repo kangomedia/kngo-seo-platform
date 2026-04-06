@@ -12,6 +12,14 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
+  Settings2,
+  Save,
+  X,
+  Globe,
+  MapPin,
+  Phone,
+  Mail,
+  Building2,
 } from "lucide-react";
 import {
   XAxis,
@@ -26,6 +34,24 @@ import {
 interface ClientDetail {
   id: string;
   name: string;
+  domain: string | null;
+  tier: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  notes: string | null;
+  gbpName: string | null;
+  gbpUrl: string | null;
+  gbpPhone: string | null;
+  gbpAddress: string | null;
+  gbpCategory: string | null;
+  monthlyBlogs: number;
+  monthlyGbpPosts: number;
+  monthlyPressReleases: number;
   keywords: Array<{
     id: string;
     keyword: string;
@@ -104,11 +130,80 @@ function MiniStat({
   );
 }
 
+function EditField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  icon,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  icon?: React.ReactNode;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label
+        className="text-xs font-bold uppercase tracking-wide mb-1.5 block"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {label}
+      </label>
+      <div className="relative">
+        {icon && (
+          <span
+            className="absolute left-3 top-1/2 -translate-y-1/2"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {icon}
+          </span>
+        )}
+        <input
+          className="input-field"
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={icon ? { paddingLeft: 36 } : undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function ClientOverview() {
   const params = useParams();
   const clientId = params.clientId as string;
   const [data, setData] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Edit mode
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    domain: "",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    address: "",
+    city: "",
+    state: "",
+    zip: "",
+    notes: "",
+    gbpName: "",
+    gbpUrl: "",
+    gbpPhone: "",
+    gbpAddress: "",
+    gbpCategory: "",
+    monthlyBlogs: 4,
+    monthlyGbpPosts: 8,
+    monthlyPressReleases: 0,
+  });
 
   useEffect(() => {
     fetch(`/api/clients/${clientId}`)
@@ -119,6 +214,55 @@ export default function ClientOverview() {
       })
       .catch(() => setLoading(false));
   }, [clientId]);
+
+  const openEdit = () => {
+    if (!data) return;
+    setEditForm({
+      name: data.name || "",
+      domain: data.domain || "",
+      contactName: data.contactName || "",
+      contactEmail: data.contactEmail || "",
+      contactPhone: data.contactPhone || "",
+      address: data.address || "",
+      city: data.city || "",
+      state: data.state || "",
+      zip: data.zip || "",
+      notes: data.notes || "",
+      gbpName: data.gbpName || "",
+      gbpUrl: data.gbpUrl || "",
+      gbpPhone: data.gbpPhone || "",
+      gbpAddress: data.gbpAddress || "",
+      gbpCategory: data.gbpCategory || "",
+      monthlyBlogs: data.monthlyBlogs || 4,
+      monthlyGbpPosts: data.monthlyGbpPosts || 8,
+      monthlyPressReleases: data.monthlyPressReleases || 0,
+    });
+    setIsEditing(true);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setData((prev) => (prev ? { ...prev, ...updated } : prev));
+        setIsEditing(false);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateField = (field: string, value: string | number) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   if (loading) {
     return (
@@ -199,6 +343,255 @@ export default function ClientOverview() {
 
   return (
     <div className="max-w-6xl stagger">
+      {/* Edit Button */}
+      <div className="flex justify-end mb-4">
+        <button onClick={openEdit} className="btn-secondary text-sm">
+          <Settings2 size={14} />
+          Edit Client
+        </button>
+      </div>
+
+      {/* Edit Panel */}
+      {isEditing && (
+        <div
+          className="stat-card mb-6 animate-fade-in"
+          style={{ padding: 0, overflow: "hidden" }}
+        >
+          <div
+            className="flex items-center justify-between px-6 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <h3 className="text-lg font-extrabold">Edit Client</h3>
+            <button
+              onClick={() => setIsEditing(false)}
+              className="p-2 rounded-lg hover:bg-white/5"
+            >
+              <X size={18} style={{ color: "var(--text-muted)" }} />
+            </button>
+          </div>
+
+          <div className="p-6">
+            {/* Basic Info */}
+            <h4
+              className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+              style={{ color: "var(--accent)" }}
+            >
+              <Building2 size={14} />
+              Business Information
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <EditField
+                label="Business Name"
+                value={editForm.name}
+                onChange={(v) => updateField("name", v)}
+                placeholder="Company Name"
+              />
+              <EditField
+                label="Website Domain"
+                value={editForm.domain}
+                onChange={(v) => updateField("domain", v)}
+                placeholder="example.com"
+                icon={<Globe size={14} />}
+              />
+              <EditField
+                label="Contact Name"
+                value={editForm.contactName}
+                onChange={(v) => updateField("contactName", v)}
+                placeholder="John Smith"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <EditField
+                label="Email"
+                value={editForm.contactEmail}
+                onChange={(v) => updateField("contactEmail", v)}
+                placeholder="john@company.com"
+                type="email"
+                icon={<Mail size={14} />}
+              />
+              <EditField
+                label="Phone"
+                value={editForm.contactPhone}
+                onChange={(v) => updateField("contactPhone", v)}
+                placeholder="(555) 123-4567"
+                icon={<Phone size={14} />}
+              />
+              <EditField
+                label="Address"
+                value={editForm.address}
+                onChange={(v) => updateField("address", v)}
+                placeholder="123 Main St"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <EditField
+                label="City"
+                value={editForm.city}
+                onChange={(v) => updateField("city", v)}
+                placeholder="Denver"
+              />
+              <EditField
+                label="State"
+                value={editForm.state}
+                onChange={(v) => updateField("state", v)}
+                placeholder="CO"
+              />
+              <EditField
+                label="ZIP"
+                value={editForm.zip}
+                onChange={(v) => updateField("zip", v)}
+                placeholder="80202"
+              />
+              <div>
+                <label
+                  className="text-xs font-bold uppercase tracking-wide mb-1.5 block"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Notes
+                </label>
+                <input
+                  className="input-field"
+                  value={editForm.notes}
+                  onChange={(e) => updateField("notes", e.target.value)}
+                  placeholder="Internal notes..."
+                />
+              </div>
+            </div>
+
+            {/* GBP Info */}
+            <h4
+              className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+              style={{ color: "#4285F4" }}
+            >
+              <MapPin size={14} />
+              Google Business Profile
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <EditField
+                label="GBP Listing Name"
+                value={editForm.gbpName}
+                onChange={(v) => updateField("gbpName", v)}
+                placeholder="Business Name on Google"
+              />
+              <EditField
+                label="GBP Profile URL"
+                value={editForm.gbpUrl}
+                onChange={(v) => updateField("gbpUrl", v)}
+                placeholder="https://maps.google.com/..."
+                icon={<Globe size={14} />}
+              />
+              <EditField
+                label="GBP Category"
+                value={editForm.gbpCategory}
+                onChange={(v) => updateField("gbpCategory", v)}
+                placeholder="e.g. HVAC Contractor"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              <EditField
+                label="GBP Phone"
+                value={editForm.gbpPhone}
+                onChange={(v) => updateField("gbpPhone", v)}
+                placeholder="(555) 123-4567"
+                icon={<Phone size={14} />}
+              />
+              <EditField
+                label="GBP Address"
+                value={editForm.gbpAddress}
+                onChange={(v) => updateField("gbpAddress", v)}
+                placeholder="Address listed on GBP"
+                icon={<MapPin size={14} />}
+              />
+            </div>
+
+            {/* Deliverable Defaults */}
+            <h4
+              className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+              style={{ color: "var(--accent)" }}
+            >
+              <ListChecks size={14} />
+              Monthly Deliverables
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <EditField
+                label="Blog Posts / Month"
+                value={String(editForm.monthlyBlogs)}
+                onChange={(v) => updateField("monthlyBlogs", parseInt(v) || 0)}
+                type="number"
+              />
+              <EditField
+                label="GBP Posts / Month"
+                value={String(editForm.monthlyGbpPosts)}
+                onChange={(v) => updateField("monthlyGbpPosts", parseInt(v) || 0)}
+                type="number"
+              />
+              <EditField
+                label="Press Releases / Month"
+                value={String(editForm.monthlyPressReleases)}
+                onChange={(v) => updateField("monthlyPressReleases", parseInt(v) || 0)}
+                type="number"
+              />
+            </div>
+
+            {/* Save */}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setIsEditing(false)}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="btn-primary text-sm"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} /> Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Client Info Summary (visible when not editing) */}
+      {!isEditing && (data.gbpName || data.contactEmail || data.contactPhone) && (
+        <div
+          className="stat-card mb-6 flex flex-wrap items-center gap-4"
+          style={{ padding: "14px 20px" }}
+        >
+          {data.domain && (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+              <Globe size={12} /> {data.domain}
+            </span>
+          )}
+          {data.contactEmail && (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+              <Mail size={12} /> {data.contactEmail}
+            </span>
+          )}
+          {data.contactPhone && (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+              <Phone size={12} /> {data.contactPhone}
+            </span>
+          )}
+          {data.gbpName && (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: "#4285F4" }}>
+              <MapPin size={12} /> {data.gbpName}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Key Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <MiniStat

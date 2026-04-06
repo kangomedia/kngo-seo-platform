@@ -76,6 +76,23 @@ model Client {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  // Contact / Business info
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  city         String?
+  state        String?
+  zip          String?
+  notes        String?
+
+  // Google Business Profile
+  gbpName      String?   // GBP listing name
+  gbpUrl       String?   // GBP profile URL (maps.google.com link)
+  gbpPhone     String?   // GBP phone number
+  gbpAddress   String?   // GBP listed address
+  gbpCategory  String?   // Primary GBP category
+
   // Deliverable template defaults
   monthlyBlogs        Int @default(4)
   monthlyGbpPosts     Int @default(8)

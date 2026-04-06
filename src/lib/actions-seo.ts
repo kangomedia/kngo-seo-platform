@@ -26,15 +26,18 @@ async function getCredentials() {
   return { login, password };
 }
 
-async function callDataForSEO(endpoint: string, body: unknown) {
+function getAuthHeader(login: string, password: string): string {
+  return `Basic ${Buffer.from(`${login}:${password}`).toString("base64")}`;
+}
+
+async function postDataForSEO(endpoint: string, body: unknown) {
   const { login, password } = await getCredentials();
-  const encoded = Buffer.from(`${login}:${password}`).toString("base64");
 
   const response = await fetch(`${DATAFORSEO_API}${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Basic ${encoded}`,
+      Authorization: getAuthHeader(login, password),
     },
     body: JSON.stringify(body),
   });
@@ -45,6 +48,43 @@ async function callDataForSEO(endpoint: string, body: unknown) {
   }
 
   return response.json();
+}
+
+async function getDataForSEO(endpoint: string) {
+  const { login, password } = await getCredentials();
+
+  const response = await fetch(`${DATAFORSEO_API}${endpoint}`, {
+    method: "GET",
+    headers: {
+      Authorization: getAuthHeader(login, password),
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`DataForSEO error: ${response.status} ${error}`);
+  }
+
+  return response.json();
+}
+
+/** Normalize a domain for comparison: strip protocol, www, trailing slash */
+function normalizeDomain(domain: string): string {
+  return domain
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "");
+}
+
+/** Check if a SERP result domain matches the client's domain */
+function domainMatches(resultDomain: string, clientDomain: string): boolean {
+  const normResult = normalizeDomain(resultDomain);
+  const normClient = normalizeDomain(clientDomain);
+  // Match if either contains the other (handles subdomains)
+  return normResult === normClient ||
+    normResult.endsWith(`.${normClient}`) ||
+    normClient.endsWith(`.${normResult}`);
 }
 
 export async function checkRankings(clientId: string) {
@@ -61,6 +101,8 @@ export async function checkRankings(clientId: string) {
   if (!client || !client.domain) throw new Error("Client or domain not found");
   if (client.keywords.length === 0) throw new Error("No keywords to track");
 
+  console.log(`[RANK CHECK] Starting for ${client.name} (${client.domain}), ${client.keywords.length} keywords`);
+
   // Build SERP tasks — one task per keyword
   const tasks = client.keywords.map((kw) => ({
     keyword: kw.keyword,
@@ -72,65 +114,129 @@ export async function checkRankings(clientId: string) {
   }));
 
   // Post tasks
-  const taskResult = await callDataForSEO("/serp/google/organic/task_post", tasks);
+  const taskResult = await postDataForSEO("/serp/google/organic/task_post", tasks);
 
   if (!taskResult?.tasks) {
     throw new Error("Failed to create SERP tasks");
   }
 
-  // Wait a moment for tasks to process (in production, use webhooks or polling)
-  await new Promise((resolve) => setTimeout(resolve, 15000));
-
-  // Collect task IDs and fetch results
-  const taskIds = taskResult.tasks
+  // Collect task IDs
+  const taskEntries = taskResult.tasks
     .filter((t: { status_code: number }) => t.status_code === 20100)
-    .map((t: { id: string }) => t.id);
+    .map((t: { id: string }, idx: number) => ({
+      taskId: t.id,
+      keywordIndex: idx,
+    }));
+
+  console.log(`[RANK CHECK] Created ${taskEntries.length} tasks, polling for results...`);
 
   let successCount = 0;
 
-  for (let i = 0; i < taskIds.length; i++) {
-    try {
-      const result = await callDataForSEO(`/serp/google/organic/task_get/regular/${taskIds[i]}`, null);
+  // Poll each task with retries instead of a fixed wait
+  for (const entry of taskEntries) {
+    const keyword = client.keywords[entry.keywordIndex];
+    if (!keyword) continue;
 
-      const searchedKeyword = client.keywords[i];
-      if (!searchedKeyword) continue;
+    let result = null;
+    const maxAttempts = 8;
 
-      const items = result?.tasks?.[0]?.result?.[0]?.items || [];
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Wait between attempts (exponential backoff: 5s, 8s, 12s, 18s, 27s...)
+      const waitMs = Math.min(5000 * Math.pow(1.5, attempt - 1), 30000);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-      // Find our domain in results
-      const match = items.find(
-        (item: { type: string; domain: string }) =>
-          item.type === "organic" && item.domain?.includes(client.domain!)
-      );
+      try {
+        // task_get is a GET endpoint
+        const response = await getDataForSEO(
+          `/serp/google/organic/task_get/regular/${entry.taskId}`
+        );
 
-      // Get previous snapshot for delta
-      const prevSnapshot = await prisma.rankSnapshot.findFirst({
-        where: { keywordId: searchedKeyword.id },
-        orderBy: { checkedAt: "desc" },
-      });
+        const taskStatus = response?.tasks?.[0]?.status_code;
 
-      // Save snapshot
+        if (taskStatus === 20000) {
+          // Task completed successfully
+          result = response;
+          console.log(`[RANK CHECK] "${keyword.keyword}" — result ready (attempt ${attempt})`);
+          break;
+        } else if (taskStatus === 20100) {
+          // Still processing
+          console.log(`[RANK CHECK] "${keyword.keyword}" — still processing (attempt ${attempt}/${maxAttempts})`);
+          continue;
+        } else {
+          console.log(`[RANK CHECK] "${keyword.keyword}" — unexpected status ${taskStatus}`);
+          break;
+        }
+      } catch (err) {
+        console.error(`[RANK CHECK] "${keyword.keyword}" — error on attempt ${attempt}:`, err);
+        if (attempt === maxAttempts) break;
+      }
+    }
+
+    if (!result) {
+      console.log(`[RANK CHECK] "${keyword.keyword}" — no result after ${maxAttempts} attempts`);
+      // Still save a snapshot with null position so we have a record
       await prisma.rankSnapshot.create({
         data: {
           clientId,
-          keywordId: searchedKeyword.id,
-          position: match ? match.rank_group : null,
-          previousPos: prevSnapshot?.position || null,
-          url: match?.url || null,
+          keywordId: keyword.id,
+          position: null,
+          previousPos: null,
+          url: null,
           localPack: false,
         },
       });
-
-      successCount++;
-    } catch (err) {
-      console.error(`Failed to fetch results for task ${taskIds[i]}:`, err);
+      continue;
     }
+
+    const items = result?.tasks?.[0]?.result?.[0]?.items || [];
+    const totalResults = items.length;
+
+    // Find our domain in results using normalized matching
+    const match = items.find(
+      (item: { type: string; domain: string; url: string }) =>
+        item.type === "organic" && domainMatches(item.domain || "", client.domain!)
+    );
+
+    console.log(
+      `[RANK CHECK] "${keyword.keyword}" — scanned ${totalResults} results, ` +
+      `match: ${match ? `#${match.rank_group} (${match.domain})` : "NOT FOUND"}`
+    );
+
+    // Debug: log first 5 domains if no match found
+    if (!match && totalResults > 0) {
+      const topDomains = items
+        .filter((i: { type: string }) => i.type === "organic")
+        .slice(0, 5)
+        .map((i: { rank_group: number; domain: string }) => `#${i.rank_group} ${i.domain}`);
+      console.log(`[RANK CHECK]   Top 5 domains: ${topDomains.join(", ")}`);
+    }
+
+    // Get previous snapshot for delta
+    const prevSnapshot = await prisma.rankSnapshot.findFirst({
+      where: { keywordId: keyword.id },
+      orderBy: { checkedAt: "desc" },
+    });
+
+    // Save snapshot
+    await prisma.rankSnapshot.create({
+      data: {
+        clientId,
+        keywordId: keyword.id,
+        position: match ? match.rank_group : null,
+        previousPos: prevSnapshot?.position || null,
+        url: match?.url || null,
+        localPack: false,
+      },
+    });
+
+    successCount++;
   }
 
   revalidatePath(`/agency/clients/${clientId}/rankings`);
   revalidatePath(`/agency/clients/${clientId}`);
   revalidatePath("/agency/dashboard");
 
+  console.log(`[RANK CHECK] Completed: ${successCount}/${client.keywords.length} keywords checked`);
   return { checked: successCount, total: client.keywords.length };
 }
 
@@ -157,7 +263,7 @@ export async function getKeywordMetrics(keyword: string) {
     throw new Error("Unauthorized");
   }
 
-  const result = await callDataForSEO("/keywords_data/google_ads/search_volume/live", [
+  const result = await postDataForSEO("/keywords_data/google_ads/search_volume/live", [
     {
       keywords: [keyword],
       location_code: 2840,

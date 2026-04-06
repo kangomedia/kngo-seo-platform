@@ -46,3 +46,44 @@ export async function GET(
 
   return NextResponse.json(client);
 }
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  const body = await request.json();
+
+  // Whitelist editable fields
+  const allowed: Record<string, unknown> = {};
+  const editableFields = [
+    "name", "domain", "logoUrl", "tier", "isActive",
+    "contactName", "contactEmail", "contactPhone",
+    "address", "city", "state", "zip", "notes",
+    "gbpName", "gbpUrl", "gbpPhone", "gbpAddress", "gbpCategory",
+    "monthlyBlogs", "monthlyGbpPosts", "monthlyPressReleases",
+    "includesAudit", "includesReporting",
+  ];
+
+  for (const field of editableFields) {
+    if (body[field] !== undefined) {
+      allowed[field] = body[field];
+    }
+  }
+
+  if (Object.keys(allowed).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+  }
+
+  const updated = await prisma.client.update({
+    where: { id: clientId },
+    data: allowed,
+  });
+
+  return NextResponse.json(updated);
+}
