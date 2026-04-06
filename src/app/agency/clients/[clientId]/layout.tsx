@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { clients } from "@/lib/mock-data";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   BarChart3,
   FileText,
   ListChecks,
-  Shield,
   FileBarChart,
   ArrowLeft,
+  Loader2,
 } from "lucide-react";
 
 const subNav = [
@@ -29,7 +29,30 @@ export default function ClientDetailLayout({
   const pathname = usePathname();
   const params = useParams();
   const clientId = params.clientId as string;
-  const client = clients.find((c) => c.id === clientId);
+  const [client, setClient] = useState<{ name: string; domain: string | null; tier: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/clients/${clientId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) {
+          setClient(null);
+        } else {
+          setClient(data);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [clientId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
 
   if (!client) {
     return (
@@ -64,7 +87,7 @@ export default function ClientDetailLayout({
           <div>
             <h1 className="text-2xl font-extrabold">{client.name}</h1>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              {client.domain}
+              {client.domain || "No domain set"}
             </p>
           </div>
           <span

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Users,
@@ -24,6 +25,7 @@ export default function AgencyLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   // Determine active section for breadcrumb
   const activeNav = navItems.find((item) => pathname.startsWith(item.href));
@@ -31,6 +33,11 @@ export default function AgencyLayout({
   const clientSlug = isClientDetail
     ? pathname.split("/agency/clients/")[1]?.split("/")[0]
     : null;
+
+  // User initials and display
+  const userName = session?.user?.name || session?.user?.email?.split("@")[0] || "User";
+  const userInitials = userName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+  const userRole = session?.user?.role === "AGENCY_ADMIN" ? "Admin" : session?.user?.role === "AGENCY_MEMBER" ? "Member" : "User";
 
   return (
     <div className="dark flex min-h-screen" style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
@@ -65,20 +72,28 @@ export default function AgencyLayout({
           })}
         </nav>
 
-        {/* Footer */}
+        {/* Footer — User Profile + Logout */}
         <div className="px-3 py-4" style={{ borderTop: "1px solid var(--border)" }}>
-          <div className="flex items-center gap-3 px-3 py-2">
+          <div className="flex items-center gap-3 px-3 py-2 mb-2">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
               style={{ background: "var(--accent)", color: "#fff" }}
             >
-              FR
+              {userInitials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>Freddy R.</p>
-              <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>Admin</p>
+              <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{userName}</p>
+              <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{userRole}</p>
             </div>
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="sidebar-link w-full text-left"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
         </div>
       </aside>
 
@@ -116,3 +131,4 @@ export default function AgencyLayout({
     </div>
   );
 }
+

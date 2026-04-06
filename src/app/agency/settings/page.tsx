@@ -1,18 +1,105 @@
 "use client";
 
-import { useState } from "react";
-import { Save, Eye, EyeOff, Key, Database, Globe, Wand2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Save, Eye, EyeOff, Key, Database, Globe, Wand2, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+
+interface SettingsData {
+  agencyName: string;
+  logoUrl: string;
+  dataforseoLogin: string;
+  dataforseoPwd: string;
+  claudeApiKey: string;
+  ghlApiKey: string;
+  ghlLocationId: string;
+  hasDataForSEO: boolean;
+  hasClaude: boolean;
+  hasGHL: boolean;
+}
+
+function ConnectionBadge({ connected }: { connected: boolean }) {
+  return (
+    <span
+      className="flex items-center gap-1 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full"
+      style={{
+        background: connected ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+        color: connected ? "#10B981" : "#EF4444",
+      }}
+    >
+      {connected ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+      {connected ? "Connected" : "Not configured"}
+    </span>
+  );
+}
 
 export default function SettingsPage() {
   const [showDataForSEO, setShowDataForSEO] = useState(false);
   const [showClaude, setShowClaude] = useState(false);
   const [showGHL, setShowGHL] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<SettingsData | null>(null);
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // Form state
+  const [agencyName, setAgencyName] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [dataforseoLogin, setDataforseoLogin] = useState("");
+  const [dataforseoPwd, setDataforseoPwd] = useState("");
+  const [claudeApiKey, setClaudeApiKey] = useState("");
+  const [ghlApiKey, setGhlApiKey] = useState("");
+  const [ghlLocationId, setGhlLocationId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        setSettings(data);
+        setAgencyName(data.agencyName || "");
+        setLogoUrl(data.logoUrl || "");
+        setDataforseoLogin(data.dataforseoLogin || "");
+        setDataforseoPwd(data.dataforseoPwd || "");
+        setClaudeApiKey(data.claudeApiKey || "");
+        setGhlApiKey(data.ghlApiKey || "");
+        setGhlLocationId(data.ghlLocationId || "");
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agencyName,
+          logoUrl,
+          dataforseoLogin,
+          dataforseoPwd,
+          claudeApiKey,
+          ghlApiKey,
+          ghlLocationId,
+        }),
+      });
+      const data = await res.json();
+      setSettings((prev) => prev ? { ...prev, ...data } : prev);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto stagger">
@@ -43,13 +130,13 @@ export default function SettingsPage() {
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               Agency Name
             </label>
-            <input className="input-field" defaultValue="KangoMedia" />
+            <input className="input-field" value={agencyName} onChange={(e) => setAgencyName(e.target.value)} />
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               Logo URL
             </label>
-            <input className="input-field" defaultValue="/brand/logo-white.svg" />
+            <input className="input-field" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} />
           </div>
         </div>
       </div>
@@ -63,10 +150,11 @@ export default function SettingsPage() {
           >
             <Database size={20} />
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-lg font-extrabold">DataForSEO</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>Rank tracking, keyword research & SERP data</p>
           </div>
+          <ConnectionBadge connected={settings?.hasDataForSEO || false} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -74,7 +162,7 @@ export default function SettingsPage() {
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               Login
             </label>
-            <input className="input-field" placeholder="your-login@email.com" />
+            <input className="input-field" value={dataforseoLogin} onChange={(e) => setDataforseoLogin(e.target.value)} placeholder="your-login@email.com" />
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
@@ -84,6 +172,8 @@ export default function SettingsPage() {
               <input
                 className="input-field pr-10"
                 type={showDataForSEO ? "text" : "password"}
+                value={dataforseoPwd}
+                onChange={(e) => setDataforseoPwd(e.target.value)}
                 placeholder="••••••••••"
               />
               <button
@@ -107,10 +197,11 @@ export default function SettingsPage() {
           >
             <Wand2 size={20} />
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-lg font-extrabold">Claude AI (Anthropic)</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>Content generation, topical maps & optimization</p>
           </div>
+          <ConnectionBadge connected={settings?.hasClaude || false} />
         </div>
 
         <div>
@@ -121,6 +212,8 @@ export default function SettingsPage() {
             <input
               className="input-field pr-10"
               type={showClaude ? "text" : "password"}
+              value={claudeApiKey}
+              onChange={(e) => setClaudeApiKey(e.target.value)}
               placeholder="sk-ant-api..."
             />
             <button
@@ -134,8 +227,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* GoHighLevel (Phase 2) */}
-      <div className="stat-card mb-6" style={{ padding: 24, opacity: 0.6 }}>
+      {/* GoHighLevel */}
+      <div className="stat-card mb-6" style={{ padding: 24 }}>
         <div className="flex items-center gap-3 mb-5">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -147,9 +240,7 @@ export default function SettingsPage() {
             <h2 className="text-lg font-extrabold">GoHighLevel</h2>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>CRM integration for reviews & lead attribution</p>
           </div>
-          <span className="text-[10px] font-bold uppercase px-3 py-1 rounded-full" style={{ background: "var(--bg-card-hover)", color: "var(--text-muted)" }}>
-            Phase 2
-          </span>
+          <ConnectionBadge connected={settings?.hasGHL || false} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -157,22 +248,37 @@ export default function SettingsPage() {
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               API Key
             </label>
-            <input className="input-field" disabled placeholder="Coming in Phase 2..." />
+            <div className="relative">
+              <input
+                className="input-field pr-10"
+                type={showGHL ? "text" : "password"}
+                value={ghlApiKey}
+                onChange={(e) => setGhlApiKey(e.target.value)}
+                placeholder="ghl-api-key..."
+              />
+              <button
+                onClick={() => setShowGHL(!showGHL)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {showGHL ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               Location ID
             </label>
-            <input className="input-field" disabled placeholder="Coming in Phase 2..." />
+            <input className="input-field" value={ghlLocationId} onChange={(e) => setGhlLocationId(e.target.value)} placeholder="location-id..." />
           </div>
         </div>
       </div>
 
       {/* Save Button */}
       <div className="flex justify-end">
-        <button onClick={handleSave} className="btn-primary">
-          <Save size={16} />
-          {saved ? "Saved ✓" : "Save Settings"}
+        <button onClick={handleSave} disabled={saving} className="btn-primary">
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {saved ? "Saved ✓" : saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
     </div>
