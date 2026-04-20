@@ -576,8 +576,43 @@ export default function ClientOverview() {
               />
             </div>
 
+            {/* ─── Danger Zone (inside edit panel) ────────── */}
+            <div className="mt-4 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
+              <h4
+                className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+                style={{ color: "var(--danger)" }}
+              >
+                <AlertTriangle size={14} />
+                Danger Zone
+              </h4>
+              <div className="rounded-xl" style={{ border: "1px solid rgba(239,68,68,0.2)", overflow: "hidden" }}>
+                {/* Archive */}
+                <div className="flex items-center justify-between p-4" style={{ borderBottom: "1px solid rgba(239,68,68,0.1)" }}>
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Archive this client</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Hides from dashboard. Data preserved & restorable.</p>
+                  </div>
+                  <button onClick={() => setShowArchiveModal(true)} className="btn-secondary text-xs" style={{ borderColor: "#F59E0B", color: "#F59E0B", padding: "6px 12px" }}>
+                    <Archive size={12} />
+                    Archive
+                  </button>
+                </div>
+                {/* Permanently Delete */}
+                <div className="flex items-center justify-between p-4">
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Permanently delete</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Irreversibly removes all data.</p>
+                  </div>
+                  <button onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(""); }} className="btn-secondary text-xs" style={{ borderColor: "var(--danger)", color: "var(--danger)", padding: "6px 12px" }}>
+                    <Trash2 size={12} />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Save */}
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-2 justify-end mt-6">
               <button
                 onClick={() => setIsEditing(false)}
                 className="btn-secondary text-sm"
@@ -968,38 +1003,7 @@ export default function ClientOverview() {
         </div>
       </div>
 
-      {/* ─── Danger Zone ──────────────────────────────────── */}
-      <div className="mt-10">
-        <h3 className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: "var(--danger)" }}>
-          <AlertTriangle size={14} />
-          Danger Zone
-        </h3>
-        <div className="rounded-xl" style={{ border: "1px solid rgba(239,68,68,0.2)", overflow: "hidden" }}>
-          {/* Archive */}
-          <div className="flex items-center justify-between p-5" style={{ borderBottom: "1px solid rgba(239,68,68,0.1)" }}>
-            <div>
-              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Archive this client</p>
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Hides client from your dashboard. All data is preserved and can be restored.</p>
-            </div>
-            <button onClick={() => setShowArchiveModal(true)} className="btn-secondary text-sm" style={{ borderColor: "#F59E0B", color: "#F59E0B" }}>
-              <Archive size={14} />
-              Archive
-            </button>
-          </div>
 
-          {/* Permanently Delete */}
-          <div className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Permanently delete this client</p>
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Irreversibly removes all data including keywords, rankings, content, audits, and reports.</p>
-            </div>
-            <button onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(""); }} className="btn-secondary text-sm" style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>
-              <Trash2 size={14} />
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Archive Confirmation Modal */}
       {showArchiveModal && (

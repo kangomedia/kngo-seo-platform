@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Plus, ChevronRight, TrendingUp, TrendingDown, X, Loader2, MoreVertical, Archive } from "lucide-react";
+import { Search, Plus, ChevronRight, TrendingUp, TrendingDown, X, Loader2, Archive, RotateCcw } from "lucide-react";
 
 interface ClientData {
   id: string;
@@ -79,46 +79,18 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
-function ArchiveConfirmModal({ clientName, onClose, onConfirm, archiving }: { clientName: string; onClose: () => void; onConfirm: () => void; archiving: boolean }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
-      <div className="stat-card w-full max-w-md" style={{ padding: 24 }}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-extrabold">Archive Client</h2>
-          <button onClick={onClose} style={{ color: "var(--text-muted)" }}><X size={20} /></button>
-        </div>
-        <div className="flex items-center gap-3 mb-4 p-3 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
-          <Archive size={18} style={{ color: "#F59E0B", flexShrink: 0 }} />
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            Are you sure you want to archive <strong style={{ color: "var(--text-primary)" }}>{clientName}</strong>? They will be hidden from your dashboard but all data will be preserved.
-          </p>
-        </div>
-        <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
-          You can restore this client later from the database if needed.
-        </p>
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="btn-secondary">Cancel</button>
-          <button onClick={onConfirm} disabled={archiving} className="btn-primary" style={{ background: "#F59E0B" }}>
-            {archiving ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
-            {archiving ? "Archiving..." : "Archive Client"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function ClientsListPage() {
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
-  const [archiveTarget, setArchiveTarget] = useState<ClientData | null>(null);
-  const [archiving, setArchiving] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"active" | "archived">("active");
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
-  const fetchClients = () => {
-    fetch("/api/clients")
+  const fetchClients = (status?: string) => {
+    setLoading(true);
+    const url = status === "archived" ? "/api/clients?status=archived" : "/api/clients";
+    fetch(url)
       .then((r) => r.json())
       .then((data) => {
         setClients(data);
@@ -127,35 +99,25 @@ export default function ClientsListPage() {
       .catch(() => setLoading(false));
   };
 
-  const handleArchive = async () => {
-    if (!archiveTarget) return;
-    setArchiving(true);
+  const handleRestore = async (clientId: string) => {
+    setRestoringId(clientId);
     try {
-      const res = await fetch(`/api/clients/${archiveTarget.id}`, {
+      const res = await fetch(`/api/clients/${clientId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isActive: false }),
+        body: JSON.stringify({ isActive: true }),
       });
       if (res.ok) {
-        setClients((prev) => prev.filter((c) => c.id !== archiveTarget.id));
-        setArchiveTarget(null);
+        setClients((prev) => prev.filter((c) => c.id !== clientId));
       }
     } finally {
-      setArchiving(false);
+      setRestoringId(null);
     }
   };
 
   useEffect(() => {
-    fetchClients();
-  }, []);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!openMenuId) return;
-    const handleClick = () => setOpenMenuId(null);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, [openMenuId]);
+    fetchClients(tab);
+  }, [tab]);
 
   const filtered = clients.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -178,19 +140,45 @@ export default function ClientsListPage() {
 
   return (
     <div className="max-w-5xl mx-auto stagger">
-      {showAddModal && <AddClientModal onClose={() => setShowAddModal(false)} onCreated={fetchClients} />}
-      {archiveTarget && <ArchiveConfirmModal clientName={archiveTarget.name} onClose={() => setArchiveTarget(null)} onConfirm={handleArchive} archiving={archiving} />}
+      {showAddModal && <AddClientModal onClose={() => setShowAddModal(false)} onCreated={() => fetchClients(tab)} />}
 
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-extrabold mb-1">Clients</h1>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {clients.length} active client{clients.length !== 1 ? "s" : ""}
+            {clients.length} {tab === "archived" ? "archived" : "active"} client{clients.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <button className="btn-primary" onClick={() => setShowAddModal(true)}>
-          <Plus size={16} />
-          Add Client
+        {tab === "active" && (
+          <button className="btn-primary" onClick={() => setShowAddModal(true)}>
+            <Plus size={16} />
+            Add Client
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-6 p-1 rounded-xl" style={{ background: "var(--card-bg)", border: "1px solid var(--border)", width: "fit-content" }}>
+        <button
+          onClick={() => setTab("active")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: tab === "active" ? "var(--accent)" : "transparent",
+            color: tab === "active" ? "#fff" : "var(--text-muted)",
+          }}
+        >
+          Active
+        </button>
+        <button
+          onClick={() => setTab("archived")}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: tab === "archived" ? "rgba(245,158,11,0.15)" : "transparent",
+            color: tab === "archived" ? "#F59E0B" : "var(--text-muted)",
+          }}
+        >
+          <Archive size={14} />
+          Archived
         </button>
       </div>
 
@@ -199,7 +187,7 @@ export default function ClientsListPage() {
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--text-muted)" }} />
         <input
           className="input-field pl-10"
-          placeholder="Search clients..."
+          placeholder={tab === "archived" ? "Search archived clients..." : "Search clients..."}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -286,7 +274,17 @@ export default function ClientsListPage() {
                     </div>
                   </td>
                   <td>
-                    <div className="flex items-center gap-2 justify-end">
+                    {tab === "archived" ? (
+                      <button
+                        onClick={() => handleRestore(client.id)}
+                        disabled={restoringId === client.id}
+                        className="btn-secondary text-xs"
+                        style={{ padding: "6px 12px", borderColor: "var(--success)", color: "var(--success)" }}
+                      >
+                        {restoringId === client.id ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                        Restore
+                      </button>
+                    ) : (
                       <Link
                         href={`/agency/clients/${client.id}`}
                         className="btn-secondary text-xs"
@@ -295,35 +293,7 @@ export default function ClientsListPage() {
                         View
                         <ChevronRight size={12} />
                       </Link>
-                      <div className="relative">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === client.id ? null : client.id); }}
-                          className="p-1.5 rounded-lg transition-colors"
-                          style={{ color: "var(--text-muted)" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {openMenuId === client.id && (
-                          <div
-                            className="absolute right-0 top-full mt-1 w-44 rounded-xl shadow-xl z-50"
-                            style={{ background: "var(--card-bg)", border: "1px solid var(--border)", padding: 4 }}
-                          >
-                            <button
-                              onClick={() => { setArchiveTarget(client); setOpenMenuId(null); }}
-                              className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors"
-                              style={{ color: "#F59E0B" }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(245,158,11,0.08)")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                            >
-                              <Archive size={14} />
-                              Archive Client
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    )}
                   </td>
                 </tr>
               ))}

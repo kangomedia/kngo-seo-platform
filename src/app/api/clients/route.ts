@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   if (!session || (session.user.role !== "AGENCY_ADMIN" && session.user.role !== "AGENCY_MEMBER")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const status = searchParams.get("status"); // "archived" or default (active)
+
   const clients = await prisma.client.findMany({
-    where: { isActive: true },
+    where: { isActive: status === "archived" ? false : true },
     orderBy: { name: "asc" },
     include: {
       keywords: {
