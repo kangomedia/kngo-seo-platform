@@ -88,3 +88,53 @@ export async function PUT(
 
   return NextResponse.json(updated);
 }
+
+// ─── Soft Delete (Archive) ──────────────────────────────
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  const body = await request.json();
+
+  // Only allow toggling isActive via PATCH
+  if (typeof body.isActive !== "boolean") {
+    return NextResponse.json({ error: "isActive (boolean) is required" }, { status: 400 });
+  }
+
+  const updated = await prisma.client.update({
+    where: { id: clientId },
+    data: { isActive: body.isActive },
+  });
+
+  return NextResponse.json(updated);
+}
+
+// ─── Permanent Delete ───────────────────────────────────
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+
+  // Verify client exists before deleting
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) {
+    return NextResponse.json({ error: "Client not found" }, { status: 404 });
+  }
+
+  // Cascade delete handles all related data (keywords, snapshots, content plans, etc.)
+  await prisma.client.delete({ where: { id: clientId } });
+
+  return NextResponse.json({ success: true, deleted: client.name });
+}

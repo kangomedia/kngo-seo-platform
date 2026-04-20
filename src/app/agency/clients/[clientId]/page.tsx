@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
   TrendingUp,
@@ -20,6 +20,9 @@ import {
   Phone,
   Mail,
   Building2,
+  Archive,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   XAxis,
@@ -177,6 +180,7 @@ function EditField({
 
 export default function ClientOverview() {
   const params = useParams();
+  const router = useRouter();
   const clientId = params.clientId as string;
   const [data, setData] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -184,6 +188,13 @@ export default function ClientOverview() {
   // Edit mode
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Archive & Delete
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     domain: "",
@@ -257,6 +268,36 @@ export default function ClientOverview() {
       // silently fail
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    setArchiving(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+      });
+      if (res.ok) {
+        router.push("/agency/clients");
+      }
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        router.push("/agency/clients");
+      }
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -926,6 +967,113 @@ export default function ClientOverview() {
           )}
         </div>
       </div>
+
+      {/* ─── Danger Zone ──────────────────────────────────── */}
+      <div className="mt-10">
+        <h3 className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: "var(--danger)" }}>
+          <AlertTriangle size={14} />
+          Danger Zone
+        </h3>
+        <div className="rounded-xl" style={{ border: "1px solid rgba(239,68,68,0.2)", overflow: "hidden" }}>
+          {/* Archive */}
+          <div className="flex items-center justify-between p-5" style={{ borderBottom: "1px solid rgba(239,68,68,0.1)" }}>
+            <div>
+              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Archive this client</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Hides client from your dashboard. All data is preserved and can be restored.</p>
+            </div>
+            <button onClick={() => setShowArchiveModal(true)} className="btn-secondary text-sm" style={{ borderColor: "#F59E0B", color: "#F59E0B" }}>
+              <Archive size={14} />
+              Archive
+            </button>
+          </div>
+
+          {/* Permanently Delete */}
+          <div className="flex items-center justify-between p-5">
+            <div>
+              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Permanently delete this client</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Irreversibly removes all data including keywords, rankings, content, audits, and reports.</p>
+            </div>
+            <button onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(""); }} className="btn-secondary text-sm" style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Archive Confirmation Modal */}
+      {showArchiveModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
+          <div className="stat-card w-full max-w-md" style={{ padding: 24 }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-extrabold">Archive Client</h2>
+              <button onClick={() => setShowArchiveModal(false)} style={{ color: "var(--text-muted)" }}><X size={20} /></button>
+            </div>
+            <div className="flex items-center gap-3 mb-4 p-3 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
+              <Archive size={18} style={{ color: "#F59E0B", flexShrink: 0 }} />
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Are you sure you want to archive <strong style={{ color: "var(--text-primary)" }}>{data.name}</strong>? They will be hidden but all data will be preserved.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowArchiveModal(false)} className="btn-secondary">Cancel</button>
+              <button onClick={handleArchive} disabled={archiving} className="btn-primary" style={{ background: "#F59E0B" }}>
+                {archiving ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
+                {archiving ? "Archiving..." : "Archive Client"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
+          <div className="stat-card w-full max-w-md" style={{ padding: 24 }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-extrabold" style={{ color: "var(--danger)" }}>Permanently Delete Client</h2>
+              <button onClick={() => setShowDeleteModal(false)} style={{ color: "var(--text-muted)" }}><X size={20} /></button>
+            </div>
+            <div className="flex items-start gap-3 mb-4 p-3 rounded-xl" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
+              <AlertTriangle size={18} style={{ color: "var(--danger)", flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p className="text-sm font-bold mb-1" style={{ color: "var(--danger)" }}>This action cannot be undone.</p>
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  This will permanently delete <strong style={{ color: "var(--text-primary)" }}>{data.name}</strong> and all associated data — keywords, ranking history, content plans, deliverables, site audits, and reports.
+                </p>
+              </div>
+            </div>
+            <div className="mb-6">
+              <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
+                Type <strong style={{ color: "var(--text-primary)" }}>{data.name}</strong> to confirm
+              </label>
+              <input
+                className="input-field"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={data.name}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowDeleteModal(false)} className="btn-secondary">Cancel</button>
+              <button
+                onClick={handlePermanentDelete}
+                disabled={deleting || deleteConfirmText !== data.name}
+                className="btn-primary text-sm"
+                style={{
+                  background: deleteConfirmText === data.name ? "var(--danger)" : "rgba(239,68,68,0.3)",
+                  cursor: deleteConfirmText === data.name ? "pointer" : "not-allowed",
+                  opacity: deleteConfirmText === data.name ? 1 : 0.5,
+                }}
+              >
+                {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                {deleting ? "Deleting..." : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

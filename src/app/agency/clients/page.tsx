@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Plus, ChevronRight, TrendingUp, TrendingDown, X, Loader2 } from "lucide-react";
+import { Search, Plus, ChevronRight, TrendingUp, TrendingDown, X, Loader2, MoreVertical, Archive } from "lucide-react";
 
 interface ClientData {
   id: string;
@@ -79,11 +79,43 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
   );
 }
 
+function ArchiveConfirmModal({ clientName, onClose, onConfirm, archiving }: { clientName: string; onClose: () => void; onConfirm: () => void; archiving: boolean }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
+      <div className="stat-card w-full max-w-md" style={{ padding: 24 }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-extrabold">Archive Client</h2>
+          <button onClick={onClose} style={{ color: "var(--text-muted)" }}><X size={20} /></button>
+        </div>
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-xl" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
+          <Archive size={18} style={{ color: "#F59E0B", flexShrink: 0 }} />
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Are you sure you want to archive <strong style={{ color: "var(--text-primary)" }}>{clientName}</strong>? They will be hidden from your dashboard but all data will be preserved.
+          </p>
+        </div>
+        <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
+          You can restore this client later from the database if needed.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="btn-secondary">Cancel</button>
+          <button onClick={onConfirm} disabled={archiving} className="btn-primary" style={{ background: "#F59E0B" }}>
+            {archiving ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
+            {archiving ? "Archiving..." : "Archive Client"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClientsListPage() {
   const [clients, setClients] = useState<ClientData[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<ClientData | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const fetchClients = () => {
     fetch("/api/clients")
@@ -95,9 +127,35 @@ export default function ClientsListPage() {
       .catch(() => setLoading(false));
   };
 
+  const handleArchive = async () => {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    try {
+      const res = await fetch(`/api/clients/${archiveTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+      });
+      if (res.ok) {
+        setClients((prev) => prev.filter((c) => c.id !== archiveTarget.id));
+        setArchiveTarget(null);
+      }
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   useEffect(() => {
     fetchClients();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handleClick = () => setOpenMenuId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [openMenuId]);
 
   const filtered = clients.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -121,6 +179,7 @@ export default function ClientsListPage() {
   return (
     <div className="max-w-5xl mx-auto stagger">
       {showAddModal && <AddClientModal onClose={() => setShowAddModal(false)} onCreated={fetchClients} />}
+      {archiveTarget && <ArchiveConfirmModal clientName={archiveTarget.name} onClose={() => setArchiveTarget(null)} onConfirm={handleArchive} archiving={archiving} />}
 
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -227,14 +286,44 @@ export default function ClientsListPage() {
                     </div>
                   </td>
                   <td>
-                    <Link
-                      href={`/agency/clients/${client.id}`}
-                      className="btn-secondary text-xs"
-                      style={{ padding: "6px 12px" }}
-                    >
-                      View
-                      <ChevronRight size={12} />
-                    </Link>
+                    <div className="flex items-center gap-2 justify-end">
+                      <Link
+                        href={`/agency/clients/${client.id}`}
+                        className="btn-secondary text-xs"
+                        style={{ padding: "6px 12px" }}
+                      >
+                        View
+                        <ChevronRight size={12} />
+                      </Link>
+                      <div className="relative">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === client.id ? null : client.id); }}
+                          className="p-1.5 rounded-lg transition-colors"
+                          style={{ color: "var(--text-muted)" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        {openMenuId === client.id && (
+                          <div
+                            className="absolute right-0 top-full mt-1 w-44 rounded-xl shadow-xl z-50"
+                            style={{ background: "var(--card-bg)", border: "1px solid var(--border)", padding: 4 }}
+                          >
+                            <button
+                              onClick={() => { setArchiveTarget(client); setOpenMenuId(null); }}
+                              className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors"
+                              style={{ color: "#F59E0B" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(245,158,11,0.08)")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                            >
+                              <Archive size={14} />
+                              Archive Client
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ))}
