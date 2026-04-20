@@ -93,12 +93,14 @@ model Client {
   gbpAddress   String?   // GBP listed address
   gbpCategory  String?   // Primary GBP category
 
-  // Deliverable template defaults
-  monthlyBlogs        Int @default(4)
-  monthlyGbpPosts     Int @default(8)
-  monthlyPressReleases Int @default(0)
-  includesAudit       Boolean @default(true)
-  includesReporting   Boolean @default(true)
+  // Deliverable template defaults (Local Visibility tier defaults)
+  monthlyBlogs             Int @default(2)
+  monthlyGbpPosts          Int @default(2)
+  monthlyGbpQAs            Int @default(2)
+  monthlyPressReleases     Int @default(1)
+  monthlyDirectoryListings Int @default(25)
+  includesAudit            Boolean @default(true)
+  includesReporting        Boolean @default(true)
 
   // Google Integration
   gscProperty   String?  // GSC property URL (e.g. "sc-domain:example.com")
@@ -166,6 +168,7 @@ model RankSnapshot {
 enum ContentType {
   BLOG_POST
   GBP_POST
+  GBP_QA
   PRESS_RELEASE
 }
 

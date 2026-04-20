@@ -61,9 +61,9 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
           <div>
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>Tier</label>
             <select className="input-field" value={tier} onChange={(e) => setTier(e.target.value)}>
-              <option value="STARTER">Starter</option>
-              <option value="GROWTH">Growth</option>
-              <option value="PRO">Pro</option>
+              <option value="STARTER">Local Visibility — $400/mo</option>
+              <option value="GROWTH">Growth SEO — $800/mo</option>
+              <option value="PRO">Authority SEO — $1,500/mo</option>
             </select>
           </div>
           <div className="flex gap-3 justify-end mt-2">

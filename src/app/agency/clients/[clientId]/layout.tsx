@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 import {
   LayoutDashboard,
   BarChart3,
@@ -95,15 +96,9 @@ export default function ClientDetailLayout({
             </p>
           </div>
           <span
-            className={`tier-badge ml-2 ${
-              client.tier === "PRO"
-                ? "tier-pro"
-                : client.tier === "GROWTH"
-                ? "tier-growth"
-                : "tier-starter"
-            }`}
+            className={`tier-badge ml-2 ${TIER_COLORS[client.tier] || "tier-starter"}`}
           >
-            {client.tier}
+            {TIER_LABELS[client.tier] || client.tier}
           </span>
         </div>
       </div>

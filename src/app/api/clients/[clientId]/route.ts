@@ -66,8 +66,8 @@ export async function PUT(
     "contactName", "contactEmail", "contactPhone",
     "address", "city", "state", "zip", "notes",
     "gbpName", "gbpUrl", "gbpPhone", "gbpAddress", "gbpCategory",
-    "monthlyBlogs", "monthlyGbpPosts", "monthlyPressReleases",
-    "includesAudit", "includesReporting",
+    "monthlyBlogs", "monthlyGbpPosts", "monthlyGbpQAs", "monthlyPressReleases",
+    "monthlyDirectoryListings", "includesAudit", "includesReporting",
     "gscProperty", "ga4PropertyId",
   ];
 

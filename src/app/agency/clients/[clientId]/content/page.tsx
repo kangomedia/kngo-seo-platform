@@ -7,6 +7,7 @@ import {
   FileText,
   MapPin,
   Megaphone,
+  HelpCircle,
   Send,
   Eye,
   CheckCircle2,
@@ -50,6 +51,7 @@ export default function ContentHubPage() {
   const [seedKeyword, setSeedKeyword] = useState("");
   const [blogCount, setBlogCount] = useState(4);
   const [gbpCount, setGbpCount] = useState(8);
+  const [gbpQACount, setGbpQACount] = useState(2);
   const [prCount, setPrCount] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -89,6 +91,7 @@ export default function ContentHubPage() {
   const typeIcons: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
     BLOG_POST: { icon: <FileText size={14} />, label: "Blog", color: "#3B82F6" },
     GBP_POST: { icon: <MapPin size={14} />, label: "GBP", color: "#10B981" },
+    GBP_QA: { icon: <HelpCircle size={14} />, label: "Q&A", color: "#06B6D4" },
     PRESS_RELEASE: { icon: <Megaphone size={14} />, label: "PR", color: "#8B5CF6" },
   };
 
@@ -122,6 +125,7 @@ export default function ContentHubPage() {
           seedKeyword: seedKeyword.trim(),
           blogCount,
           gbpCount,
+          gbpQACount,
           pressReleaseCount: prCount,
         }),
       });
@@ -340,7 +344,7 @@ export default function ContentHubPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
               <div className="lg:col-span-2">
                 <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
                   Seed Keyword
@@ -363,6 +367,12 @@ export default function ContentHubPage() {
                   GBP Posts
                 </label>
                 <input className="input-field" type="number" min={0} max={30} value={gbpCount} onChange={(e) => setGbpCount(parseInt(e.target.value) || 0)} />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
+                  GBP Q&As
+                </label>
+                <input className="input-field" type="number" min={0} max={20} value={gbpQACount} onChange={(e) => setGbpQACount(parseInt(e.target.value) || 0)} />
               </div>
               <div>
                 <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
@@ -410,6 +420,7 @@ export default function ContentHubPage() {
                 {plan.pieces.length} topics planned ·{" "}
                 {plan.pieces.filter((p) => p.type === "BLOG_POST").length} blog posts ·{" "}
                 {plan.pieces.filter((p) => p.type === "GBP_POST").length} GBP posts ·{" "}
+                {plan.pieces.filter((p) => p.type === "GBP_QA").length} Q&As ·{" "}
                 {plan.pieces.filter((p) => p.type === "PRESS_RELEASE").length} press releases
               </p>
             </div>

@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import { TIER_LABELS } from "@/lib/tier-config";
 import {
   TrendingUp,
   TrendingDown,
@@ -54,7 +55,9 @@ interface ClientDetail {
   gbpCategory: string | null;
   monthlyBlogs: number;
   monthlyGbpPosts: number;
+  monthlyGbpQAs: number;
   monthlyPressReleases: number;
+  monthlyDirectoryListings: number;
   keywords: Array<{
     id: string;
     keyword: string;
@@ -211,9 +214,11 @@ export default function ClientOverview() {
     gbpPhone: "",
     gbpAddress: "",
     gbpCategory: "",
-    monthlyBlogs: 4,
-    monthlyGbpPosts: 8,
-    monthlyPressReleases: 0,
+    monthlyBlogs: 2,
+    monthlyGbpPosts: 2,
+    monthlyGbpQAs: 2,
+    monthlyPressReleases: 1,
+    monthlyDirectoryListings: 25,
   });
 
   useEffect(() => {
@@ -244,9 +249,11 @@ export default function ClientOverview() {
       gbpPhone: data.gbpPhone || "",
       gbpAddress: data.gbpAddress || "",
       gbpCategory: data.gbpCategory || "",
-      monthlyBlogs: data.monthlyBlogs || 4,
-      monthlyGbpPosts: data.monthlyGbpPosts || 8,
-      monthlyPressReleases: data.monthlyPressReleases || 0,
+      monthlyBlogs: data.monthlyBlogs || 2,
+      monthlyGbpPosts: data.monthlyGbpPosts || 2,
+      monthlyGbpQAs: data.monthlyGbpQAs || 2,
+      monthlyPressReleases: data.monthlyPressReleases || 1,
+      monthlyDirectoryListings: data.monthlyDirectoryListings || 25,
     });
     setIsEditing(true);
   };
@@ -555,7 +562,7 @@ export default function ClientOverview() {
               <ListChecks size={14} />
               Monthly Deliverables
             </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <EditField
                 label="Blog Posts / Month"
                 value={String(editForm.monthlyBlogs)}
@@ -569,9 +576,23 @@ export default function ClientOverview() {
                 type="number"
               />
               <EditField
+                label="GBP Q&As / Month"
+                value={String(editForm.monthlyGbpQAs)}
+                onChange={(v) => updateField("monthlyGbpQAs", parseInt(v) || 0)}
+                type="number"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <EditField
                 label="Press Releases / Month"
                 value={String(editForm.monthlyPressReleases)}
                 onChange={(v) => updateField("monthlyPressReleases", parseInt(v) || 0)}
+                type="number"
+              />
+              <EditField
+                label="Directory Listings / Month"
+                value={String(editForm.monthlyDirectoryListings)}
+                onChange={(v) => updateField("monthlyDirectoryListings", parseInt(v) || 0)}
                 type="number"
               />
             </div>

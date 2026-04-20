@@ -15,6 +15,7 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
 interface ClientMetrics {
   id: string;
@@ -89,12 +90,6 @@ function StatCard({
 }
 
 function ClientCard({ client, index }: { client: ClientMetrics; index: number }) {
-  const tierColors: Record<string, string> = {
-    STARTER: "tier-starter",
-    GROWTH: "tier-growth",
-    PRO: "tier-pro",
-  };
-
   return (
     <Link
       href={`/agency/clients/${client.id}`}
@@ -112,8 +107,8 @@ function ClientCard({ client, index }: { client: ClientMetrics; index: number })
               {client.domain || "No domain set"}
             </p>
           </div>
-          <span className={`tier-badge ${tierColors[client.tier] || "tier-starter"}`}>
-            {client.tier}
+          <span className={`tier-badge ${TIER_COLORS[client.tier] || "tier-starter"}`}>
+            {TIER_LABELS[client.tier] || client.tier}
           </span>
         </div>
 
@@ -228,9 +223,9 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
               Tier
             </label>
             <select className="input-field" value={tier} onChange={(e) => setTier(e.target.value)}>
-              <option value="STARTER">Starter</option>
-              <option value="GROWTH">Growth</option>
-              <option value="PRO">Pro</option>
+              <option value="STARTER">Local Visibility — $400/mo</option>
+              <option value="GROWTH">Growth SEO — $800/mo</option>
+              <option value="PRO">Authority SEO — $1,500/mo</option>
             </select>
           </div>
           <div className="flex gap-3 justify-end mt-2">

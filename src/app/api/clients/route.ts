@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { TIER_DEFAULTS } from "@/lib/tier-config";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -78,7 +79,9 @@ export async function GET(request: Request) {
       logoUrl: client.logoUrl,
       monthlyBlogs: client.monthlyBlogs,
       monthlyGbpPosts: client.monthlyGbpPosts,
+      monthlyGbpQAs: client.monthlyGbpQAs,
       monthlyPressReleases: client.monthlyPressReleases,
+      monthlyDirectoryListings: client.monthlyDirectoryListings,
       accessToken: client.accessToken,
       metrics: {
         keywordsTracked: keywords.length,
@@ -107,14 +110,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Client name is required" }, { status: 400 });
   }
 
+  const tier = body.tier || "STARTER";
+  const defaults = TIER_DEFAULTS[tier] || TIER_DEFAULTS.STARTER;
+
   const client = await prisma.client.create({
     data: {
       name: body.name,
       domain: body.domain || null,
-      tier: body.tier || "STARTER",
-      monthlyBlogs: body.monthlyBlogs || 4,
-      monthlyGbpPosts: body.monthlyGbpPosts || 8,
-      monthlyPressReleases: body.monthlyPressReleases || 0,
+      tier,
+      monthlyBlogs: defaults.monthlyBlogs,
+      monthlyGbpPosts: defaults.monthlyGbpPosts,
+      monthlyGbpQAs: defaults.monthlyGbpQAs,
+      monthlyPressReleases: defaults.monthlyPressReleases,
+      monthlyDirectoryListings: defaults.monthlyDirectoryListings,
     },
   });
 

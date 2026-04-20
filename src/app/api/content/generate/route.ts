@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     seedKeyword,
     blogCount = 4,
     gbpCount = 8,
+    gbpQACount = 0,
     pressReleaseCount = 0,
   } = body;
 
@@ -88,22 +89,25 @@ Month: ${monthLabel}
 Generate the following content pieces:
 - ${blogCount} blog posts (type: BLOG_POST)
 - ${gbpCount} Google Business Profile posts (type: GBP_POST)
-- ${pressReleaseCount > 0 ? `${pressReleaseCount} press releases (type: PRESS_RELEASE)` : ""}
+${gbpQACount > 0 ? `- ${gbpQACount} Google Business Profile Q&As (type: GBP_QA)` : ""}
+${pressReleaseCount > 0 ? `- ${pressReleaseCount} press releases (type: PRESS_RELEASE)` : ""}
 
 For each piece, provide:
 1. title - compelling, SEO-optimized title
 2. description - 1-2 sentence brief/angle for the content
 3. keyword - the specific target keyword for this piece (related to "${seedKeyword}")
-4. type - BLOG_POST, GBP_POST, or PRESS_RELEASE
+4. type - BLOG_POST, GBP_POST, GBP_QA, or PRESS_RELEASE
 
 Blog posts should be comprehensive pillar/cluster content targeting long-tail variations.
 GBP posts should be short, local-focused updates with calls to action.
+GBP Q&As should be common customer questions with authoritative answers for the Google Business Profile.
 Press releases should be newsworthy announcements related to the industry.
 
 Respond ONLY with a valid JSON array. No markdown, no explanation. Example format:
 [
   {"title": "...", "description": "...", "keyword": "...", "type": "BLOG_POST"},
-  {"title": "...", "description": "...", "keyword": "...", "type": "GBP_POST"}
+  {"title": "...", "description": "...", "keyword": "...", "type": "GBP_POST"},
+  {"title": "...", "description": "...", "keyword": "...", "type": "GBP_QA"}
 ]`;
 
   try {
@@ -189,6 +193,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
     // Auto-create deliverables from the generated plan
     const blogPieces = pieces.filter((p) => p.type === "BLOG_POST").length;
     const gbpPieces = pieces.filter((p) => p.type === "GBP_POST").length;
+    const gbpQAPieces = pieces.filter((p) => p.type === "GBP_QA").length;
     const prPieces = pieces.filter((p) => p.type === "PRESS_RELEASE").length;
 
     const deliverablesToCreate = [];
@@ -210,6 +215,17 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
         year: currentYear,
         name: "GBP Posts",
         targetCount: gbpPieces,
+        currentCount: 0,
+        status: "PENDING" as const,
+      });
+    }
+    if (gbpQAPieces > 0) {
+      deliverablesToCreate.push({
+        clientId,
+        month: currentMonth,
+        year: currentYear,
+        name: "GBP Q&As",
+        targetCount: gbpQAPieces,
         currentCount: 0,
         status: "PENDING" as const,
       });
