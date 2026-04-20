@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Search, Plus, ChevronRight, TrendingUp, TrendingDown, X, Loader2, Archive, RotateCcw } from "lucide-react";
+import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
 interface ClientData {
   id: string;
@@ -124,11 +125,6 @@ export default function ClientsListPage() {
     c.domain?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const tierColors: Record<string, string> = {
-    STARTER: "tier-starter",
-    GROWTH: "tier-growth",
-    PRO: "tier-pro",
-  };
 
   if (loading) {
     return (
@@ -237,7 +233,7 @@ export default function ClientsListPage() {
                     </div>
                   </td>
                   <td>
-                    <span className={`tier-badge ${tierColors[client.tier] || "tier-starter"}`}>{client.tier}</span>
+                    <span className={`tier-badge ${TIER_COLORS[client.tier] || "tier-starter"}`}>{TIER_LABELS[client.tier] || client.tier}</span>
                   </td>
                   <td className="font-semibold">{client.metrics.keywordsTracked}</td>
                   <td>
