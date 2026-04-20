@@ -107,14 +107,16 @@ model Client {
   ga4PropertyId String?  // GA4 property ID (e.g. "123456789")
 
   // Relations
-  users          ClientUser[]
-  keywords       Keyword[]
-  rankSnapshots  RankSnapshot[]
-  contentPlans   ContentPlan[]
-  deliverables   Deliverable[]
-  reports        Report[]
-  siteAudits     SiteAudit[]
-  googleToken    GoogleToken?
+  users              ClientUser[]
+  keywords           Keyword[]
+  rankSnapshots      RankSnapshot[]
+  contentPlans       ContentPlan[]
+  deliverables       Deliverable[]
+  reports            Report[]
+  siteAudits         SiteAudit[]
+  googleToken        GoogleToken?
+  keywordResearch    KeywordResearch[]
+  contentMaps        ContentMap[]
 }
 
 model ClientUser {
@@ -161,6 +163,40 @@ model RankSnapshot {
 
   @@index([clientId, checkedAt])
   @@index([keywordId, checkedAt])
+}
+
+// ─── Keyword Research ─────────────────────────────────
+
+model KeywordResearch {
+  id            String   @id @default(cuid())
+  clientId      String
+  seedTopics    String   @db.Text  // comma-separated seed topics used
+  location      String   @default("United States")
+  results       String   @db.Text  // JSON: array of discovered keywords with metrics + ROI
+  aiAnalysis    String?  @db.Text  // Claude's strategic analysis and recommendations
+  keywordsFound Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+}
+
+// ─── Content Maps ─────────────────────────────────────
+
+model ContentMap {
+  id         String   @id @default(cuid())
+  clientId   String
+  title      String   // e.g. "Q2 2026 Content Strategy"
+  mapData    String   @db.Text  // JSON: pillar topics, supporting content, keyword clusters
+  aiSummary  String?  @db.Text  // Claude's strategic summary
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
 }
 
 // ─── Content ──────────────────────────────────────────

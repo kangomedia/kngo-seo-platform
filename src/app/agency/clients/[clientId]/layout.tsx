@@ -14,11 +14,13 @@ import {
   Loader2,
   Search,
   TrendingUp,
+  Microscope,
 } from "lucide-react";
 
 const subNav = [
   { href: "", label: "Overview", icon: LayoutDashboard },
   { href: "/rankings", label: "Rankings", icon: BarChart3 },
+  { href: "/research", label: "Research", icon: Microscope },
   { href: "/audit", label: "Site Audit", icon: Search },
   { href: "/content", label: "Content Hub", icon: FileText },
   { href: "/deliverables", label: "Deliverables", icon: ListChecks },
