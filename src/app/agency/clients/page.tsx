@@ -589,6 +589,7 @@ interface ClientData {
   name: string;
   domain: string | null;
   tier: string;
+  onboardingStatus: string | null;
   metrics: {
     keywordsTracked: number;
     avgPosition: number;
@@ -756,6 +757,15 @@ export default function ClientsListPage() {
                         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                           {client.domain || "—"}
                         </p>
+                        {(client.onboardingStatus === "DISCOVERING" || client.onboardingStatus === "PENDING") && (
+                          <span
+                            className="inline-flex items-center gap-1 text-xs font-semibold mt-1"
+                            style={{ color: "#7C3AED" }}
+                          >
+                            <Loader2 size={10} className="animate-spin" />
+                            {client.onboardingStatus === "DISCOVERING" ? "Discovering..." : "Pending setup"}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>

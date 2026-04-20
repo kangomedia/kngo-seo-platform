@@ -592,6 +592,8 @@ export default function ClientOverview() {
         const updated = await res.json();
         setData((prev) => (prev ? { ...prev, ...updated } : prev));
         setIsEditing(false);
+        // Notify layout to refresh header (name, domain, tier)
+        window.dispatchEvent(new CustomEvent("client-updated"));
       }
     } catch {
       // silently fail

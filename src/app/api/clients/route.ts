@@ -83,6 +83,7 @@ export async function GET(request: Request) {
       monthlyPressReleases: client.monthlyPressReleases,
       monthlyDirectoryListings: client.monthlyDirectoryListings,
       accessToken: client.accessToken,
+      onboardingStatus: client.onboardingStatus,
       metrics: {
         keywordsTracked: keywords.length,
         avgPosition,
