@@ -106,6 +106,12 @@ model Client {
   gscProperty   String?  // GSC property URL (e.g. "sc-domain:example.com")
   ga4PropertyId String?  // GA4 property ID (e.g. "123456789")
 
+  // Onboarding
+  onboardingStatus  String?  @default("PENDING")  // PENDING, DISCOVERING, COMPLETE
+  serviceAreas      String?  @db.Text              // JSON array: ["plumbing", "water heater repair"]
+  targetCities      String?  @db.Text              // JSON array: ["McAllen, TX", "Mission, TX"]
+  competitors       String?  @db.Text              // JSON array: ["competitor1.com", "competitor2.com"]
+
   // Relations
   users              ClientUser[]
   keywords           Keyword[]

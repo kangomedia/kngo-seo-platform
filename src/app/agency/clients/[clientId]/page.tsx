@@ -24,6 +24,12 @@ import {
   Archive,
   Trash2,
   AlertTriangle,
+  Microscope,
+  Zap,
+  Sparkles,
+  Search,
+  Plus,
+  ArrowRight,
 } from "lucide-react";
 import {
   XAxis,
@@ -58,6 +64,7 @@ interface ClientDetail {
   monthlyGbpQAs: number;
   monthlyPressReleases: number;
   monthlyDirectoryListings: number;
+  onboardingStatus: string | null;
   keywords: Array<{
     id: string;
     keyword: string;
@@ -177,6 +184,319 @@ function EditField({
           style={icon ? { paddingLeft: 36 } : undefined}
         />
       </div>
+    </div>
+  );
+}
+
+// ─── Onboarding Progress Tracker ─────────────────────────
+
+function OnboardingTracker({
+  clientId,
+  clientName,
+  domain,
+  status,
+}: {
+  clientId: string;
+  clientName: string;
+  domain: string | null;
+  status: string;
+}) {
+  const [discoveryData, setDiscoveryData] = useState<{
+    onboardingStatus: string;
+    latestAudit: { id: string; status: string; taskId: string } | null;
+    latestResearch: {
+      id: string;
+      results: string;
+      aiAnalysis: string | null;
+      keywordsFound: number;
+    } | null;
+  } | null>(null);
+  const [polling, setPolling] = useState(status === "DISCOVERING");
+  const [suggestedKeywords, setSuggestedKeywords] = useState<
+    Array<{ keyword: string; searchVolume: number; competition: number; cpc: number }>
+  >([]);
+  const [trackedKeywords, setTrackedKeywords] = useState<Set<string>>(new Set());
+  const [trackingAll, setTrackingAll] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/discover`);
+        if (res.ok) {
+          const data = await res.json();
+          setDiscoveryData(data);
+
+          if (data.latestResearch?.results) {
+            try {
+              const parsed = JSON.parse(data.latestResearch.results);
+              setSuggestedKeywords(parsed.slice(0, 20));
+            } catch { /* silently fail */ }
+          }
+
+          if (data.onboardingStatus === "COMPLETE") {
+            setPolling(false);
+          }
+        }
+      } catch { /* silently fail */ }
+    };
+
+    fetchStatus();
+
+    if (polling) {
+      const interval = setInterval(fetchStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [clientId, polling]);
+
+  const isDiscovering = status === "DISCOVERING" || discoveryData?.onboardingStatus === "DISCOVERING";
+  const isComplete = discoveryData?.onboardingStatus === "COMPLETE";
+
+  const handleTrackKeyword = async (kw: { keyword: string; searchVolume: number; competition: number }) => {
+    try {
+      await fetch(`/api/clients/${clientId}/keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keywords: [{ keyword: kw.keyword, searchVolume: kw.searchVolume, difficulty: kw.competition, group: "Discovery" }],
+        }),
+      });
+      setTrackedKeywords((prev) => new Set([...prev, kw.keyword]));
+    } catch { /* silently fail */ }
+  };
+
+  const handleTrackAll = async () => {
+    setTrackingAll(true);
+    const top = suggestedKeywords.slice(0, 15);
+    try {
+      await fetch(`/api/clients/${clientId}/keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keywords: top.map((kw) => ({
+            keyword: kw.keyword,
+            searchVolume: kw.searchVolume,
+            difficulty: kw.competition,
+            group: "Discovery",
+          })),
+        }),
+      });
+      setTrackedKeywords(new Set(top.map((k) => k.keyword)));
+    } catch { /* silently fail */ } finally {
+      setTrackingAll(false);
+    }
+  };
+
+  const getCompColor = (c: number) => (c <= 30 ? "#10B981" : c <= 60 ? "#F59E0B" : "#EF4444");
+  const getCompLabel = (c: number) => (c <= 30 ? "Low" : c <= 60 ? "Med" : "High");
+
+  return (
+    <div className="mb-6 animate-fade-in">
+      <div
+        className="stat-card"
+        style={{
+          padding: 0,
+          overflow: "hidden",
+          borderLeft: isComplete ? "3px solid #10B981" : "3px solid var(--accent)",
+        }}
+      >
+        {/* Header */}
+        <div className="p-5" style={{ borderBottom: suggestedKeywords.length > 0 ? "1px solid var(--border)" : "none" }}>
+          <div className="flex items-center gap-3 mb-4">
+            {isDiscovering ? (
+              <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+            ) : isComplete ? (
+              <CheckCircle2 size={24} style={{ color: "#10B981" }} />
+            ) : (
+              <Zap size={24} style={{ color: "var(--accent)" }} />
+            )}
+            <div>
+              <h3 className="text-lg font-extrabold">
+                {isDiscovering
+                  ? `Setting Up ${clientName}...`
+                  : isComplete
+                  ? "Discovery Complete!"
+                  : "Ready to Launch Discovery"}
+              </h3>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {isDiscovering
+                  ? "Crawling website + discovering keywords — this may take 2-5 minutes"
+                  : isComplete
+                  ? `Found ${discoveryData?.latestResearch?.keywordsFound || 0} keywords from your site and competitors`
+                  : "Click Launch to start automatic site analysis and keyword discovery"}
+              </p>
+            </div>
+          </div>
+
+          {/* Steps Checklist */}
+          <div className="flex flex-col gap-2 ml-1">
+            <StepItem
+              label="Business profile saved"
+              done={true}
+            />
+            <StepItem
+              label={`Site audit ${isDiscovering ? "running" : isComplete ? "complete" : "pending"}...`}
+              done={isComplete}
+              loading={isDiscovering}
+              detail={domain ? `Crawling ${domain}` : undefined}
+            />
+            <StepItem
+              label={`Keyword discovery ${isDiscovering ? "running" : isComplete ? "complete" : "pending"}...`}
+              done={isComplete}
+              loading={isDiscovering}
+              detail={
+                discoveryData?.latestResearch
+                  ? `${discoveryData.latestResearch.keywordsFound} keywords found`
+                  : undefined
+              }
+            />
+            <StepItem
+              label="Review suggested keywords"
+              done={trackedKeywords.size > 0}
+              loading={false}
+            />
+          </div>
+
+          {/* Action Links */}
+          {isComplete && (
+            <div className="flex gap-3 mt-4">
+              <a
+                href={`/agency/clients/${clientId}/audit`}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+              >
+                <Search size={12} className="inline mr-1" /> View Site Audit
+              </a>
+              <a
+                href={`/agency/clients/${clientId}/research`}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ background: "rgba(139,92,246,0.15)", color: "#8B5CF6" }}
+              >
+                <Microscope size={12} className="inline mr-1" /> View Full Research
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Suggested Keywords Table */}
+        {isComplete && suggestedKeywords.length > 0 && (
+          <div>
+            <div
+              className="flex items-center justify-between px-5 py-3"
+              style={{ borderBottom: "1px solid var(--border)" }}
+            >
+              <h4 className="text-sm font-extrabold flex items-center gap-2">
+                <Sparkles size={14} style={{ color: "var(--accent)" }} />
+                Top Suggested Keywords
+              </h4>
+              <button
+                onClick={handleTrackAll}
+                disabled={trackingAll || trackedKeywords.size >= 15}
+                className="text-[11px] font-bold px-3 py-1 rounded-lg transition-all"
+                style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+              >
+                {trackingAll ? (
+                  <Loader2 size={10} className="animate-spin inline mr-1" />
+                ) : (
+                  <Plus size={10} className="inline mr-1" />
+                )}
+                Track Top 15
+              </button>
+            </div>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Keyword</th>
+                    <th>Volume</th>
+                    <th>Competition</th>
+                    <th>CPC</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suggestedKeywords.map((kw) => (
+                    <tr key={kw.keyword}>
+                      <td>
+                        <span className="text-sm font-semibold">{kw.keyword}</span>
+                      </td>
+                      <td>
+                        <span className="text-sm font-bold">{kw.searchVolume.toLocaleString()}</span>
+                      </td>
+                      <td>
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold"
+                          style={{
+                            background: `${getCompColor(kw.competition)}20`,
+                            color: getCompColor(kw.competition),
+                          }}
+                        >
+                          {getCompLabel(kw.competition)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          ${kw.cpc.toFixed(2)}
+                        </span>
+                      </td>
+                      <td>
+                        {trackedKeywords.has(kw.keyword) ? (
+                          <span className="text-[10px] font-bold" style={{ color: "#10B981" }}>
+                            <CheckCircle2 size={12} className="inline mr-1" />
+                            Tracked
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleTrackKeyword(kw)}
+                            className="text-[10px] font-bold px-2 py-1 rounded transition-all hover:opacity-80"
+                            style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+                          >
+                            <Plus size={10} className="inline" /> Track
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepItem({
+  label,
+  done,
+  loading = false,
+  detail,
+}: {
+  label: string;
+  done: boolean;
+  loading?: boolean;
+  detail?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 text-sm">
+      {done ? (
+        <CheckCircle2 size={16} style={{ color: "#10B981", flexShrink: 0 }} />
+      ) : loading ? (
+        <Loader2 size={16} className="animate-spin" style={{ color: "var(--accent)", flexShrink: 0 }} />
+      ) : (
+        <div
+          className="w-4 h-4 rounded-full border-2"
+          style={{ borderColor: "var(--border)", flexShrink: 0 }}
+        />
+      )}
+      <span style={{ color: done ? "var(--text-primary)" : "var(--text-muted)" }}>
+        {label}
+      </span>
+      {detail && (
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          — {detail}
+        </span>
+      )}
     </div>
   );
 }
@@ -410,6 +730,11 @@ export default function ClientOverview() {
 
   return (
     <div className="max-w-6xl stagger">
+      {/* ─── Onboarding Progress Tracker ─── */}
+      {data.onboardingStatus && data.onboardingStatus !== "COMPLETE" && (
+        <OnboardingTracker clientId={clientId} clientName={data.name} domain={data.domain} status={data.onboardingStatus} />
+      )}
+
       {/* Edit Button */}
       <div className="flex justify-end mb-4">
         <button onClick={openEdit} className="btn-secondary text-sm">
