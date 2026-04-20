@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
@@ -26,6 +27,7 @@ function authHeader(login: string, password: string) {
  * Triggers concurrent site audit + keyword discovery for a new client.
  * Uses DataForSEO keywords_for_site on client domain + competitor domains,
  * then runs Claude AI analysis to surface quick wins and recommendations.
+ * Sends email notification when complete.
  */
 export async function POST(
   request: Request,
@@ -76,6 +78,22 @@ export async function POST(
     where: { id: clientId },
     data: { onboardingStatus: "COMPLETE" },
   });
+
+  // ---- Send Email Notification ----
+  const keywordsFound = keywordResult.status === "fulfilled" ? keywordResult.value.keywordsFound : 0;
+  const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://seo.kangomedia.com";
+  
+  if (session.user.email) {
+    const { subject, html } = discoveryCompleteEmail(
+      client.name,
+      client.domain,
+      keywordsFound,
+      clientId,
+      baseUrl,
+    );
+    // Fire and forget — don't block the response
+    sendEmail({ to: session.user.email, subject, html }).catch(() => {});
+  }
 
   return NextResponse.json({
     audit: auditResult.status === "fulfilled" ? auditResult.value : { error: "Audit failed" },
