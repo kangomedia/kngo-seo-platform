@@ -19,6 +19,8 @@ import {
   X,
   Copy,
   ClipboardList,
+  ExternalLink,
+  Calendar,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -29,6 +31,10 @@ interface ContentPiece {
   keyword: string;
   status: string;
   body: string | null;
+  publishedUrl: string | null;
+  publishedAt: string | null;
+  scheduledPublishDate: string | null;
+  dueDate: string | null;
   approval: { outcome: string; notes?: string } | null;
 }
 
@@ -55,7 +61,13 @@ export default function ContentHubPage() {
   const [prCount, setPrCount] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts">("plan");
+  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts" | "publishing">("plan");
+
+  // Publishing modal
+  const [publishingPiece, setPublishingPiece] = useState<ContentPiece | null>(null);
+  const [pubUrl, setPubUrl] = useState("");
+  const [pubDate, setPubDate] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Draft generation
   const [generatingPieceId, setGeneratingPieceId] = useState<string | null>(null);
@@ -303,6 +315,22 @@ export default function ContentHubPage() {
           {piecesWithDrafts.length > 0 && (
             <span className="ml-2 px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(16,185,129,0.2)", color: "#10B981" }}>
               {piecesWithDrafts.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("publishing")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: activeTab === "publishing" ? "var(--accent-muted)" : "transparent",
+            color: activeTab === "publishing" ? "var(--accent)" : "var(--text-muted)",
+          }}
+        >
+          <ExternalLink size={14} className="inline mr-2" />
+          Publishing
+          {plan && plan.pieces.filter((p) => p.status === "READY_TO_PUBLISH").length > 0 && (
+            <span className="ml-2 px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(139,92,246,0.2)", color: "#8b5cf6" }}>
+              {plan.pieces.filter((p) => p.status === "READY_TO_PUBLISH").length}
             </span>
           )}
         </button>
@@ -850,6 +878,208 @@ export default function ContentHubPage() {
           </div>
         </div>
       )}
+
+      {/* ═══════════ PUBLISHING TAB ═══════════ */}
+      {activeTab === "publishing" && plan && (() => {
+        const readyPieces = plan.pieces.filter((p) => p.status === "READY_TO_PUBLISH");
+        const publishedPieces = plan.pieces.filter((p) => p.status === "PUBLISHED");
+        const typeConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
+          BLOG_POST: { icon: <FileText size={12} />, label: "Blog", color: "#3B82F6" },
+          GBP_POST: { icon: <MapPin size={12} />, label: "GBP", color: "#10B981" },
+          GBP_QA: { icon: <HelpCircle size={12} />, label: "Q&A", color: "#06B6D4" },
+          PRESS_RELEASE: { icon: <Megaphone size={12} />, label: "PR", color: "#8B5CF6" },
+        };
+
+        const handleMarkPublished = async () => {
+          if (!publishingPiece) return;
+          setIsPublishing(true);
+          try {
+            const res = await fetch(`/api/content/pieces/${publishingPiece.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                status: "PUBLISHED",
+                publishedUrl: pubUrl || null,
+                publishedAt: pubDate || new Date().toISOString(),
+              }),
+            });
+            if (res.ok) {
+              loadData();
+              setPublishingPiece(null);
+              setPubUrl("");
+              setPubDate("");
+            }
+          } catch { /* silently fail */ } finally {
+            setIsPublishing(false);
+          }
+        };
+
+        return (
+          <div className="stagger">
+            {/* Ready to Publish */}
+            <div className="mb-8">
+              <h3 className="text-lg font-extrabold mb-4 flex items-center gap-2">
+                <Send size={18} style={{ color: "#8b5cf6" }} />
+                Ready to Publish
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(139,92,246,0.15)", color: "#8b5cf6" }}>
+                  {readyPieces.length}
+                </span>
+              </h3>
+              {readyPieces.length === 0 ? (
+                <div className="stat-card text-center py-10">
+                  <CheckCircle2 size={32} className="mx-auto mb-3" style={{ color: "var(--text-muted)" }} />
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-muted)" }}>
+                    No pieces waiting to be published
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    Approved drafts will appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {readyPieces.map((piece) => {
+                    const tc = typeConfig[piece.type] || typeConfig.BLOG_POST;
+                    return (
+                      <div key={piece.id} className="stat-card" style={{ padding: 0 }}>
+                        <div className="flex items-center gap-4 p-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase" style={{ background: `${tc.color}20`, color: tc.color }}>
+                                {tc.icon} {tc.label}
+                              </span>
+                              {piece.keyword && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--bg-card-hover)", color: "var(--text-muted)" }}>
+                                  🎯 {piece.keyword}
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                              {piece.title}
+                            </h4>
+                            {piece.description && (
+                              <p className="text-xs mt-0.5 line-clamp-1" style={{ color: "var(--text-muted)" }}>
+                                {piece.description}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => {
+                              setPublishingPiece(piece);
+                              setPubDate(new Date().toISOString().split("T")[0]);
+                            }}
+                            className="btn-primary text-xs whitespace-nowrap"
+                          >
+                            <ExternalLink size={14} />
+                            Mark Published
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Published Log */}
+            <div>
+              <h3 className="text-lg font-extrabold mb-4 flex items-center gap-2">
+                <CheckCircle2 size={18} style={{ color: "#10b981" }} />
+                Published Content
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "#10b981" }}>
+                  {publishedPieces.length}
+                </span>
+              </h3>
+              {publishedPieces.length === 0 ? (
+                <div className="stat-card text-center py-10">
+                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>No published content yet</p>
+                </div>
+              ) : (
+                <div className="stat-card" style={{ padding: 0, overflow: "hidden" }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th>Published</th>
+                        <th>URL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {publishedPieces.map((piece) => {
+                        const tc = typeConfig[piece.type] || typeConfig.BLOG_POST;
+                        return (
+                          <tr key={piece.id}>
+                            <td>
+                              <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>
+                                {piece.title}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase w-fit" style={{ background: `${tc.color}20`, color: tc.color }}>
+                                {tc.icon} {tc.label}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="text-xs font-semibold" style={{ color: "var(--text-muted)" }}>
+                                {piece.publishedAt ? new Date(piece.publishedAt).toLocaleDateString() : "—"}
+                              </span>
+                            </td>
+                            <td>
+                              {piece.publishedUrl ? (
+                                <a href={piece.publishedUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold flex items-center gap-1" style={{ color: "var(--accent)" }}>
+                                  <ExternalLink size={10} /> View
+                                </a>
+                              ) : (
+                                <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Publish Modal */}
+            {publishingPiece && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => { if (e.target === e.currentTarget) setPublishingPiece(null); }}>
+                <div className="stat-card w-full max-w-md mx-4 animate-fade-in" style={{ padding: 24 }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-extrabold flex items-center gap-2">
+                      <ExternalLink size={20} style={{ color: "var(--success)" }} />
+                      Mark as Published
+                    </h3>
+                    <button onClick={() => setPublishingPiece(null)} className="p-1 rounded-lg hover:bg-white/5">
+                      <X size={20} style={{ color: "var(--text-muted)" }} />
+                    </button>
+                  </div>
+                  <div className="p-3 rounded-xl mb-4" style={{ background: "var(--bg-card-hover)" }}>
+                    <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{publishingPiece.title}</p>
+                  </div>
+                  <div className="mb-4">
+                    <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>Published URL (optional)</label>
+                    <input className="input-field" placeholder="https://example.com/blog/article" value={pubUrl} onChange={(e) => setPubUrl(e.target.value)} />
+                  </div>
+                  <div className="mb-6">
+                    <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
+                      <Calendar size={12} className="inline mr-1" /> Publish Date
+                    </label>
+                    <input type="date" className="input-field" value={pubDate} onChange={(e) => setPubDate(e.target.value)} />
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={handleMarkPublished} disabled={isPublishing} className="btn-primary flex-1">
+                      {isPublishing ? <><Loader2 size={16} className="animate-spin" /> Publishing...</> : <><CheckCircle2 size={16} /> Confirm Published</>}
+                    </button>
+                    <button onClick={() => setPublishingPiece(null)} className="btn-secondary">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
