@@ -150,10 +150,10 @@ async function triggerSiteAudit(
   const body = [
     {
       target: domain,
-      max_crawl_pages: 100,
+      max_crawl_pages: 30,
       enable_javascript: true,
-      load_resources: true,
-      enable_browser_rendering: true,
+      load_resources: false,
+      enable_browser_rendering: false,
       store_raw_html: false,
     },
   ];
@@ -165,11 +165,25 @@ async function triggerSiteAudit(
   });
 
   if (!response.ok) {
-    throw new Error(`DataForSEO audit error: ${await response.text()}`);
+    const errText = await response.text();
+    console.error(`[DISCOVER] Audit HTTP ${response.status}: ${errText}`);
+    throw new Error(`DataForSEO audit error: ${errText}`);
   }
 
   const result = await response.json();
+  const taskStatus = result?.tasks?.[0]?.status_code;
+  const taskMsg = result?.tasks?.[0]?.status_message;
   const taskId = result?.tasks?.[0]?.id;
+  
+  if (taskStatus && taskStatus !== 20100) {
+    console.error(`[DISCOVER] Audit task error: ${taskStatus} — ${taskMsg}`);
+    // Still create a record but mark it as failed
+    const audit = await prisma.siteAudit.create({
+      data: { clientId, taskId: taskId || "failed", status: "FAILED" },
+    });
+    return { auditId: audit.id, taskId, status: "FAILED", error: taskMsg };
+  }
+  
   if (!taskId) throw new Error("Failed to create crawl task");
 
   const audit = await prisma.siteAudit.create({
@@ -209,7 +223,7 @@ async function discoverKeywords(
           target: cleanDomain,
           location_name: "United States",
           language_name: "English",
-          include_seed_keyword: true,
+          include_serp_info: true,
           limit: 100,
         },
       ];
@@ -225,7 +239,15 @@ async function discoverKeywords(
 
       if (response.ok) {
         const result = await response.json();
+        const taskStatus = result?.tasks?.[0]?.status_code;
+        const taskMsg = result?.tasks?.[0]?.status_message;
+        
+        if (taskStatus && taskStatus !== 20000) {
+          console.error(`[DISCOVER] DataForSEO task error for ${d}: ${taskStatus} — ${taskMsg}`);
+        }
+        
         const items = result?.tasks?.[0]?.result?.[0]?.items || [];
+        console.log(`[DISCOVER] keywords_for_site "${d}": ${items.length} keywords returned`);
 
         for (const item of items) {
           const kw = item?.keyword_data?.keyword;
@@ -240,6 +262,9 @@ async function discoverKeywords(
             });
           }
         }
+      } else {
+        const errText = await response.text();
+        console.error(`[DISCOVER] keywords_for_site HTTP ${response.status} for ${d}: ${errText}`);
       }
     } catch (err) {
       console.error(`[DISCOVER] Error fetching keywords for ${d}:`, err);
