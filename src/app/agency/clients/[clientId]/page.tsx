@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { TIER_LABELS } from "@/lib/tier-config";
+import { TIER_LABELS, TIER_DEFAULTS } from "@/lib/tier-config";
 import {
   TrendingUp,
   TrendingDown,
@@ -200,6 +200,7 @@ export default function ClientOverview() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
+    tier: "STARTER",
     domain: "",
     contactName: "",
     contactEmail: "",
@@ -235,6 +236,7 @@ export default function ClientOverview() {
     if (!data) return;
     setEditForm({
       name: data.name || "",
+      tier: data.tier || "STARTER",
       domain: data.domain || "",
       contactName: data.contactName || "",
       contactEmail: data.contactEmail || "",
@@ -310,6 +312,23 @@ export default function ClientOverview() {
 
   const updateField = (field: string, value: string | number) => {
     setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleTierChange = (newTier: string) => {
+    const defaults = TIER_DEFAULTS[newTier];
+    if (defaults) {
+      setEditForm((prev) => ({
+        ...prev,
+        tier: newTier,
+        monthlyBlogs: defaults.monthlyBlogs,
+        monthlyGbpPosts: defaults.monthlyGbpPosts,
+        monthlyGbpQAs: defaults.monthlyGbpQAs,
+        monthlyPressReleases: defaults.monthlyPressReleases,
+        monthlyDirectoryListings: defaults.monthlyDirectoryListings,
+      }));
+    } else {
+      setEditForm((prev) => ({ ...prev, tier: newTier }));
+    }
   };
 
   if (loading) {
@@ -554,14 +573,28 @@ export default function ClientOverview() {
               />
             </div>
 
-            {/* Deliverable Defaults */}
+            {/* Service Plan */}
             <h4
               className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
               style={{ color: "var(--accent)" }}
             >
               <ListChecks size={14} />
-              Monthly Deliverables
+              Service Plan & Deliverables
             </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>Plan</label>
+                <select
+                  className="input-field"
+                  value={editForm.tier}
+                  onChange={(e) => handleTierChange(e.target.value)}
+                >
+                  <option value="STARTER">Local Visibility — $400/mo</option>
+                  <option value="GROWTH">Growth SEO — $800/mo</option>
+                  <option value="PRO">Authority SEO — $1,500/mo</option>
+                </select>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <EditField
                 label="Blog Posts / Month"
