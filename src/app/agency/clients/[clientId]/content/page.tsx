@@ -99,7 +99,9 @@ export default function ContentHubPage() {
     PLANNED: { class: "status-draft", icon: <Clock size={12} /> },
     WRITING: { class: "status-review", icon: <Edit3 size={12} /> },
     CLIENT_REVIEW: { class: "status-review", icon: <Eye size={12} /> },
+    DRAFT_REVIEW: { class: "status-review", icon: <Eye size={12} /> },
     APPROVED: { class: "status-approved", icon: <CheckCircle2 size={12} /> },
+    READY_TO_PUBLISH: { class: "status-approved", icon: <Send size={12} /> },
     PUBLISHED: { class: "status-published", icon: <CheckCircle2 size={12} /> },
     REJECTED: { class: "status-rejected", icon: <XCircle size={12} /> },
   };

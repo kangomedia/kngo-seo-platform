@@ -10,11 +10,13 @@ import {
   Settings,
   LogOut,
   ChevronRight,
+  Kanban,
 } from "lucide-react";
 
 const navItems = [
   { href: "/agency/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agency/clients", label: "Clients", icon: Users },
+  { href: "/agency/content-queue", label: "Content Queue", icon: Kanban },
   { href: "/agency/deliverables", label: "Deliverables", icon: ListChecks },
   { href: "/agency/settings", label: "Settings", icon: Settings },
 ];

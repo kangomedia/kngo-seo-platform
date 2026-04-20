@@ -178,6 +178,8 @@ enum ContentStatus {
   APPROVED
   REJECTED
   WRITING
+  DRAFT_REVIEW       // client reviewing final draft
+  READY_TO_PUBLISH   // draft approved, awaiting publish
   PUBLISHED
   ARCHIVED
 }
@@ -211,6 +213,10 @@ model ContentPiece {
   body          String?       @db.Text  // full content body (markdown/html)
   status        ContentStatus @default(PLANNED)
   sortOrder     Int           @default(0)
+  priority      Int           @default(0)  // higher = more urgent in queue
+  revisionCount Int           @default(0)  // tracks revision cycles
+  dueDate            DateTime?   // writing deadline
+  scheduledPublishDate DateTime? // target publish date
   publishedUrl  String?
   publishedAt   DateTime?
   createdAt     DateTime      @default(now())
