@@ -1,102 +1,113 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
-
-export const dynamic = "force-dynamic";
+import { sendEmail } from "@/lib/email";
+import { OnboardingEmailHtml } from "@/components/emails/onboarding-email";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
-async function getCredentials() {
+function getDataForSEOAuth() {
   let login = process.env.DATAFORSEO_LOGIN;
   let password = process.env.DATAFORSEO_PASSWORD;
-  if (!login || !password) {
-    const settings = await prisma.agencySettings.findUnique({ where: { id: "default" } });
-    login = settings?.dataforseoLogin || undefined;
-    password = settings?.dataforseoPwd || undefined;
-  }
-  if (!login || !password) throw new Error("DataForSEO credentials not configured");
-  return { login, password };
-}
 
-function authHeader(login: string, password: string) {
-  return `Basic ${Buffer.from(`${login}:${password}`).toString("base64")}`;
+  if (login && password) {
+    return `Basic ${Buffer.from(`${login}:${password}`).toString("base64")}`;
+  }
+  return null;
 }
 
 /**
  * POST /api/clients/[clientId]/discover
- * 
- * Triggers concurrent site audit + keyword discovery for a new client.
- * Uses DataForSEO keywords_for_site on client domain + competitor domains,
- * then runs Claude AI analysis to surface quick wins and recommendations.
- * Sends email notification when complete.
+ * Triggers the remote discovery process (Site Audit + Keyword Discovery + Content Map)
+ * Does not block the HTTP response since these tasks take >3-5 minutes.
  */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ clientId: string }> }
 ) {
   const session = await auth();
-  if (!session || session.user.role !== "AGENCY_ADMIN") {
+  if (!session || (session.user.role !== "AGENCY_ADMIN" && session.user.role !== "AGENCY_MEMBER")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { clientId } = await params;
-  const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client?.domain) {
-    return NextResponse.json({ error: "Client has no domain set" }, { status: 400 });
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      id: true,
+      name: true,
+      domain: true,
+      tier: true,
+      onboardingStatus: true,
+      serviceAreas: true,
+      targetCities: true,
+      competitors: true,
+    },
+  });
+
+  if (!client) {
+    return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Mark as discovering
+  if (!client.domain) {
+    return NextResponse.json({ error: "Client domain is required for discovery" }, { status: 400 });
+  }
+
+  const authHdr = getDataForSEOAuth();
+  if (!authHdr) {
+    console.warn("DataForSEO credentials missing. Discovery cannot proceed.");
+    return NextResponse.json({ error: "DataForSEO credentials missing" }, { status: 500 });
+  }
+
+  // Update status to DISCOVERING
   await prisma.client.update({
     where: { id: clientId },
     data: { onboardingStatus: "DISCOVERING" },
   });
 
-  const { login, password } = await getCredentials();
-  const authHdr = authHeader(login, password);
+  // Start background pipeline
+  const auditPromise = triggerSiteAudit(
+    clientId,
+    client.domain,
+    process.env.DATAFORSEO_LOGIN || "",
+    process.env.DATAFORSEO_PASSWORD || "",
+    authHdr
+  );
 
-  // Parse intake data
-  const serviceAreas: string[] = client.serviceAreas ? JSON.parse(client.serviceAreas) : [];
-  const targetCities: string[] = client.targetCities ? JSON.parse(client.targetCities) : [];
-  const competitors: string[] = client.competitors ? JSON.parse(client.competitors) : [];
-
-  // ---- CONCURRENT: Site Audit + Keyword Discovery ----
-
-  const auditPromise = triggerSiteAudit(clientId, client.domain, login, password, authHdr);
   const keywordPromise = discoverKeywords(
     clientId,
     client.domain,
-    competitors,
-    serviceAreas,
-    targetCities,
+    client.competitors,
+    client.serviceAreas,
+    client.targetCities,
     client.name,
     authHdr
   );
 
+  // Run them concurrently but wait for both
   const [auditResult, keywordResult] = await Promise.allSettled([auditPromise, keywordPromise]);
 
-  if (auditResult.status === "rejected") {
-    console.error("[DISCOVER] Site Audit completely failed:", auditResult.reason);
-  }
-  if (keywordResult.status === "rejected") {
-    console.error("[DISCOVER] Keyword Discovery completely failed:", keywordResult.reason);
-  }
+  const auditSuccess = auditResult.status === "fulfilled" && auditResult.value?.status !== "FAILED";
+  const keywordSuccess = keywordResult.status === "fulfilled";
 
-  // Update onboarding status
+  // Mark status as COMPLETE
   await prisma.client.update({
     where: { id: clientId },
-    data: { onboardingStatus: "COMPLETE" },
+    data: {
+      onboardingStatus: "COMPLETE",
+    },
   });
 
-  // ---- Send Email Notification ----
-  const keywordsFound = keywordResult.status === "fulfilled" ? keywordResult.value.keywordsFound : 0;
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://seo.kangomedia.com";
-
-  if (session.user.email) {
-    const { subject, html } = discoveryCompleteEmail(
+  // Fire off notification email to user that discovery is complete
+  if (session.user?.email) {
+    const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+    const host = request.headers.get("host") || "localhost:3000";
+    const baseUrl = `${protocol}://${host}`;
+    
+    const subject = `Discovery Complete: ${client.name}`;
+    const html = OnboardingEmailHtml(
       client.name,
-      client.domain,
-      keywordsFound,
+      auditSuccess && keywordSuccess ? "SUCCESS" : "PARTIAL",
       clientId,
       baseUrl,
     );
@@ -142,8 +153,8 @@ export async function GET(
 
   return NextResponse.json({
     onboardingStatus: client.onboardingStatus,
-    latestAudit: client.siteAudits[0] || null,
-    latestResearch: client.keywordResearch[0] || null,
+    audit: client.siteAudits[0] || null,
+    keywords: client.keywordResearch[0] || null,
   });
 }
 
@@ -232,7 +243,6 @@ async function discoverKeywords(
           target: cleanDomain,
           location_name: "United States",
           language_name: "English",
-          include_serp_info: true,
           limit: 100,
         },
       ];
