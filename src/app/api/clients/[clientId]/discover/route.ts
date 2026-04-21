@@ -174,6 +174,9 @@ export async function GET(
 
 // ─── Site Audit ───────────────────────────────────────────
 
+/** Small helper: wait N ms */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function triggerSiteAudit(
   clientId: string,
   domain: string,
@@ -181,6 +184,9 @@ async function triggerSiteAudit(
   password: string,
   authHdr: string,
 ) {
+  const headers = { "Content-Type": "application/json", Authorization: authHdr };
+
+  // ── Step 1: Create the crawl task ──
   const body = [
     {
       target: domain,
@@ -194,7 +200,7 @@ async function triggerSiteAudit(
 
   const response = await fetch(`${DATAFORSEO_API}/on_page/task_post`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: authHdr },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -208,23 +214,144 @@ async function triggerSiteAudit(
   const taskStatus = result?.tasks?.[0]?.status_code;
   const taskMsg = result?.tasks?.[0]?.status_message;
   const taskId = result?.tasks?.[0]?.id;
-  
+
   if (taskStatus && taskStatus !== 20100) {
     console.error(`[DISCOVER] Audit task error: ${taskStatus} — ${taskMsg}`);
-    // Still create a record but mark it as failed
     const audit = await prisma.siteAudit.create({
       data: { clientId, taskId: taskId || "failed", status: "FAILED" },
     });
     return { auditId: audit.id, taskId, status: "FAILED", error: taskMsg };
   }
-  
+
   if (!taskId) throw new Error("Failed to create crawl task");
 
   const audit = await prisma.siteAudit.create({
     data: { clientId, taskId, status: "CRAWLING" },
   });
-
   console.log(`[DISCOVER] Audit started for ${domain}, taskId: ${taskId}`);
+
+  // ── Step 2: Poll until crawl finishes (up to ~10 minutes) ──
+  const MAX_ATTEMPTS = 40; // 40 × 15s = 10 min
+  let crawlFinished = false;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    await sleep(15_000); // wait 15 seconds between polls
+
+    try {
+      const summaryRes = await fetch(`${DATAFORSEO_API}/on_page/summary/${taskId}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify([{ id: taskId }]),
+      });
+
+      if (!summaryRes.ok) {
+        console.warn(`[DISCOVER] Summary poll ${attempt} failed: HTTP ${summaryRes.status}`);
+        continue;
+      }
+
+      const summaryData = await summaryRes.json();
+      const summaryResult = summaryData?.tasks?.[0]?.result?.[0];
+
+      if (!summaryResult) {
+        console.log(`[DISCOVER] Poll ${attempt}/${MAX_ATTEMPTS}: no result yet`);
+        continue;
+      }
+
+      const progress = summaryResult.crawl_progress || "unknown";
+      const pagesCrawled = summaryResult.pages_crawled || 0;
+      console.log(`[DISCOVER] Poll ${attempt}/${MAX_ATTEMPTS}: ${progress}, ${pagesCrawled} pages`);
+
+      // Update the DB with progress
+      await prisma.siteAudit.update({
+        where: { id: audit.id },
+        data: { pagesCount: pagesCrawled },
+      });
+
+      if (progress === "finished") {
+        crawlFinished = true;
+
+        // ── Step 3: Fetch page-level data ──
+        const pagesRes = await fetch(`${DATAFORSEO_API}/on_page/pages`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify([
+            {
+              id: taskId,
+              limit: 100,
+              order_by: ["meta.external_links_count,desc"],
+              filters: ["resource_type", "=", "html"],
+            },
+          ]),
+        });
+
+        const pages = pagesRes.ok
+          ? (await pagesRes.json())?.tasks?.[0]?.result?.[0]?.items || []
+          : [];
+
+        // ── Step 4: Build + store page records ──
+        const pageRecords = pages.map((page: Record<string, unknown>) => {
+          const meta = (page.meta as Record<string, unknown>) || {};
+          const checks = (page.checks as Record<string, unknown>) || {};
+          const onpage = (page.onpage_score as number) || null;
+          return {
+            auditId: audit.id,
+            url: (page.url as string) || "",
+            statusCode: (page.status_code as number) || null,
+            title: (meta.title as string) || null,
+            description: (meta.description as string) || null,
+            h1Count: (meta.htags as Record<string, string[]>)?.h1?.length || 0,
+            wordCount: ((meta.content as Record<string, unknown>)?.plain_text_word_count as number) || 0,
+            imageCount: (meta.images_count as number) || 0,
+            imagesNoAlt: (meta.images_without_alt_count as number) || 0,
+            checks: JSON.stringify(checks),
+            onpageScore: onpage,
+          };
+        });
+
+        const onpageScore = summaryResult.onpage_score || null;
+
+        await prisma.$transaction([
+          prisma.siteAuditPage.deleteMany({ where: { auditId: audit.id } }),
+          ...pageRecords.map(
+            (p: { auditId: string; url: string; statusCode: number | null; title: string | null; description: string | null; h1Count: number; wordCount: number; imageCount: number; imagesNoAlt: number; checks: string; onpageScore: number | null }) =>
+              prisma.siteAuditPage.create({ data: p })
+          ),
+          prisma.siteAudit.update({
+            where: { id: audit.id },
+            data: {
+              status: "COMPLETED",
+              pagesCount: pages.length,
+              onpageScore,
+              summary: JSON.stringify({
+                crawl_progress: summaryResult.crawl_progress,
+                crawl_status: summaryResult.crawl_status,
+                pages_count: summaryResult.pages_count,
+                pages_crawled: summaryResult.pages_crawled,
+                onpage_score: summaryResult.onpage_score,
+                checks: summaryResult.page_metrics?.checks || {},
+              }),
+            },
+          }),
+        ]);
+
+        console.log(`[DISCOVER] Audit COMPLETED: ${pages.length} pages, score=${onpageScore}`);
+        return { auditId: audit.id, taskId, status: "COMPLETED", pagesCount: pages.length, onpageScore };
+      }
+    } catch (err) {
+      console.error(`[DISCOVER] Poll ${attempt} error:`, err);
+    }
+  }
+
+  // If we exhausted our attempts without finishing, mark as timed out
+  if (!crawlFinished) {
+    console.warn(`[DISCOVER] Audit timed out after ${MAX_ATTEMPTS} attempts for taskId=${taskId}`);
+    await prisma.siteAudit.update({
+      where: { id: audit.id },
+      data: { status: "COMPLETED" }, // Mark complete so it doesn't block — data is partial
+    });
+    return { auditId: audit.id, taskId, status: "TIMEOUT" };
+  }
+
   return { auditId: audit.id, taskId, status: "CRAWLING" };
 }
 
