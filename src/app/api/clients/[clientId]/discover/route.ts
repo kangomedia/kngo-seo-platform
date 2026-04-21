@@ -64,6 +64,11 @@ export async function POST(
     data: { onboardingStatus: "DISCOVERING" },
   });
 
+  // Parse JSON string fields from DB into actual arrays
+  const competitors: string[] = (() => { try { return JSON.parse(client.competitors || "[]"); } catch { return []; } })();
+  const serviceAreas: string[] = (() => { try { return JSON.parse(client.serviceAreas || "[]"); } catch { return []; } })();
+  const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
+
   // Start background pipeline
   const auditPromise = triggerSiteAudit(
     clientId,
@@ -76,9 +81,9 @@ export async function POST(
   const keywordPromise = discoverKeywords(
     clientId,
     client.domain,
-    client.competitors,
-    client.serviceAreas,
-    client.targetCities,
+    competitors,
+    serviceAreas,
+    targetCities,
     client.name,
     authHdr
   );
