@@ -69,7 +69,7 @@ export async function POST(
   const settings = await prisma.agencySettings.findUnique({
     where: { id: "default" },
   });
-  const claudeKey = process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
+  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
 
   if (!claudeKey) {
     return NextResponse.json(

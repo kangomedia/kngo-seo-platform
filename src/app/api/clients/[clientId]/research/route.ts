@@ -56,7 +56,7 @@ export async function POST(
 
   const dfLogin = process.env.DATAFORSEO_LOGIN || settings?.dataforseoLogin;
   const dfPassword = process.env.DATAFORSEO_PASSWORD || settings?.dataforseoPwd;
-  const claudeKey = process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
+  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
 
   // Step 1: Fetch keyword suggestions from DataForSEO
   let allKeywords: Array<{
