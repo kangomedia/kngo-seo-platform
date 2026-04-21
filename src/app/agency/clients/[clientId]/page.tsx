@@ -216,7 +216,9 @@ function OnboardingTracker({
     Array<{ keyword: string; searchVolume: number; competition: number; cpc: number }>
   >([]);
   const [trackedKeywords, setTrackedKeywords] = useState<Set<string>>(new Set());
+  const [trackingInProgress, setTrackingInProgress] = useState<Set<string>>(new Set());
   const [trackingAll, setTrackingAll] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -252,16 +254,25 @@ function OnboardingTracker({
   const isComplete = discoveryData?.onboardingStatus === "COMPLETE";
 
   const handleTrackKeyword = async (kw: { keyword: string; searchVolume: number; competition: number }) => {
+    setTrackingInProgress((prev) => new Set([...prev, kw.keyword]));
     try {
-      await fetch(`/api/clients/${clientId}/keywords`, {
+      const res = await fetch(`/api/clients/${clientId}/keywords`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           keywords: [{ keyword: kw.keyword, searchVolume: kw.searchVolume, difficulty: kw.competition, group: "Discovery" }],
         }),
       });
-      setTrackedKeywords((prev) => new Set([...prev, kw.keyword]));
-    } catch { /* silently fail */ }
+      if (res.ok) {
+        setTrackedKeywords((prev) => new Set([...prev, kw.keyword]));
+      }
+    } catch { /* silently fail */ } finally {
+      setTrackingInProgress((prev) => {
+        const next = new Set(prev);
+        next.delete(kw.keyword);
+        return next;
+      });
+    }
   };
 
   const handleTrackAll = async () => {
@@ -443,6 +454,11 @@ function OnboardingTracker({
                           <span className="text-[10px] font-bold" style={{ color: "#10B981" }}>
                             <CheckCircle2 size={12} className="inline mr-1" />
                             Tracked
+                          </span>
+                        ) : trackingInProgress.has(kw.keyword) ? (
+                          <span className="text-[10px] font-bold" style={{ color: "var(--accent)" }}>
+                            <Loader2 size={12} className="inline mr-1 animate-spin" />
+                            Tracking...
                           </span>
                         ) : (
                           <button
@@ -733,7 +749,7 @@ export default function ClientOverview() {
   return (
     <div className="max-w-6xl stagger">
       {/* ─── Onboarding Progress Tracker ─── */}
-      {data.onboardingStatus && data.onboardingStatus !== "COMPLETE" && (
+      {data.onboardingStatus && (
         <OnboardingTracker clientId={clientId} clientName={data.name} domain={data.domain} status={data.onboardingStatus} />
       )}
 

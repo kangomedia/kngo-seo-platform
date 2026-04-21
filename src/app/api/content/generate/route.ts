@@ -13,14 +13,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const {
-    clientId,
-    seedKeyword,
-    blogCount = 4,
-    gbpCount = 8,
-    gbpQACount = 0,
-    pressReleaseCount = 0,
-  } = body;
+  const { clientId, seedKeyword } = body;
 
   if (!clientId || !seedKeyword) {
     return NextResponse.json(
@@ -49,15 +42,30 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get client info for context
+  // Get client info for context — include monthly capacity fields
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { name: true, domain: true, tier: true },
+    select: {
+      name: true,
+      domain: true,
+      tier: true,
+      monthlyBlogs: true,
+      monthlyGbpPosts: true,
+      monthlyGbpQAs: true,
+      monthlyPressReleases: true,
+    },
   });
 
   if (!client) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
+
+  // Use client's DB-stored capacity as authoritative defaults;
+  // body params override only when explicitly provided
+  const blogCount = body.blogCount ?? client.monthlyBlogs;
+  const gbpCount = body.gbpCount ?? client.monthlyGbpPosts;
+  const gbpQACount = body.gbpQACount ?? client.monthlyGbpQAs;
+  const pressReleaseCount = body.pressReleaseCount ?? client.monthlyPressReleases;
 
   // Build Claude prompt
   const now = new Date();

@@ -161,10 +161,14 @@ export async function GET(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
+  const latestResearch = client.keywordResearch[0] || null;
   return NextResponse.json({
     onboardingStatus: client.onboardingStatus,
-    audit: client.siteAudits[0] || null,
-    keywords: client.keywordResearch[0] || null,
+    latestAudit: client.siteAudits[0] || null,
+    latestResearch: latestResearch ? {
+      ...latestResearch,
+      results: latestResearch.results || "[]",
+    } : null,
   });
 }
 
@@ -298,6 +302,73 @@ async function discoverKeywords(
       }
     } catch (err) {
       console.error(`[DISCOVER] Error fetching keywords for ${d}:`, err);
+    }
+  }
+
+  // ── Fallback: If keywords_for_site returned nothing, use seed-based discovery ──
+  if (allKeywords.length === 0) {
+    console.log(`[DISCOVER] keywords_for_site returned 0 results. Falling back to seed-based discovery.`);
+    
+    // Build seed topics from service areas, business name, and target cities
+    const seeds: string[] = [];
+    if (serviceAreas.length > 0) seeds.push(...serviceAreas.slice(0, 3));
+    if (seeds.length === 0) {
+      // Use business name + common industry terms as fallback seeds
+      seeds.push(clientName);
+    }
+    // Add location-qualified variations
+    const primaryCity = targetCities.length > 0 ? targetCities[0] : null;
+    if (primaryCity && seeds.length > 0) {
+      const locationSeeds = seeds.slice(0, 2).map(s => `${s} ${primaryCity}`);
+      seeds.push(...locationSeeds);
+    }
+    
+    console.log(`[DISCOVER] Seed-based fallback using: ${seeds.join(", ")}`);
+    
+    for (const seed of seeds.slice(0, 5)) {
+      try {
+        const body = [
+          {
+            keywords: [seed.trim()],
+            location_code: 2840, // United States
+            language_code: "en",
+            include_seed_keyword: true,
+            sort_by: "search_volume",
+          },
+        ];
+
+        const response = await fetch(
+          `${DATAFORSEO_API}/keywords_data/google_ads/keywords_for_keywords/live`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: authHdr },
+            body: JSON.stringify(body),
+          }
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          const items = result?.tasks?.[0]?.result || [];
+          console.log(`[DISCOVER] keywords_for_keywords "${seed}": ${items.length} keywords returned`);
+
+          for (const item of items) {
+            if (item.keyword && item.search_volume > 0) {
+              allKeywords.push({
+                keyword: item.keyword,
+                searchVolume: item.search_volume || 0,
+                competition: item.competition ? Math.round(item.competition * 100) : 0,
+                cpc: item.cpc || 0,
+                source: `seed:${seed}`,
+              });
+            }
+          }
+        } else {
+          const errText = await response.text();
+          console.error(`[DISCOVER] keywords_for_keywords HTTP ${response.status} for "${seed}": ${errText}`);
+        }
+      } catch (err) {
+        console.error(`[DISCOVER] Error in seed fallback for "${seed}":`, err);
+      }
     }
   }
 

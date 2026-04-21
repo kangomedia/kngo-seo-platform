@@ -55,10 +55,11 @@ export default function ContentHubPage() {
   const [plans, setPlans] = useState<ContentPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [seedKeyword, setSeedKeyword] = useState("");
-  const [blogCount, setBlogCount] = useState(4);
-  const [gbpCount, setGbpCount] = useState(8);
-  const [gbpQACount, setGbpQACount] = useState(2);
-  const [prCount, setPrCount] = useState(1);
+  const [blogCount, setBlogCount] = useState(0);
+  const [gbpCount, setGbpCount] = useState(0);
+  const [gbpQACount, setGbpQACount] = useState(0);
+  const [prCount, setPrCount] = useState(0);
+  const [clientTier, setClientTier] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts" | "publishing">("plan");
@@ -89,6 +90,12 @@ export default function ContentHubPage() {
       .then((r) => r.json())
       .then((data) => {
         setPlans(data.contentPlans || []);
+        // Initialize generate form counts from client's tier capacity
+        if (data.monthlyBlogs !== undefined) setBlogCount(data.monthlyBlogs);
+        if (data.monthlyGbpPosts !== undefined) setGbpCount(data.monthlyGbpPosts);
+        if (data.monthlyGbpQAs !== undefined) setGbpQACount(data.monthlyGbpQAs);
+        if (data.monthlyPressReleases !== undefined) setPrCount(data.monthlyPressReleases);
+        if (data.tier) setClientTier(data.tier);
         setLoading(false);
       })
       .catch(() => setLoading(false));

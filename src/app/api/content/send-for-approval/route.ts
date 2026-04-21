@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { sendEmail, contentReviewEmail } from "@/lib/email";
 
-/** POST: Mark all drafted content pieces as CLIENT_REVIEW and return the client portal URL */
+/** POST: Mark all drafted content pieces as CLIENT_REVIEW and send notification email */
 export async function POST(request: Request) {
   const session = await auth();
   if (!session || session.user.role !== "AGENCY_ADMIN") {
@@ -19,10 +20,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get the client's access token
+  // Get the client's access token and contact email
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { accessToken: true, name: true },
+    select: { accessToken: true, name: true, contactEmail: true },
   });
 
   if (!client) {
@@ -41,10 +42,28 @@ export async function POST(request: Request) {
     },
   });
 
+  // Build the client review URL
+  const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+  const host = request.headers.get("host") || "localhost:3000";
+  const reviewUrl = `${protocol}://${host}/client/${client.accessToken}/content`;
+
+  // Send notification email to client
+  if (client.contactEmail && updated.count > 0) {
+    const { subject, html } = contentReviewEmail(
+      client.name,
+      updated.count,
+      reviewUrl,
+    );
+    sendEmail({ to: client.contactEmail, subject, html }).catch((err) => {
+      console.error("[SEND-FOR-APPROVAL] Email send failed:", err);
+    });
+  }
+
   return NextResponse.json({
     updatedCount: updated.count,
     accessToken: client.accessToken,
     clientName: client.name,
-    message: `${updated.count} content piece(s) sent for approval`,
+    reviewUrl,
+    message: `${updated.count} content piece(s) sent for approval${client.contactEmail ? ` — email sent to ${client.contactEmail}` : " (no client email configured)"}`,
   });
 }
