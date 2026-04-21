@@ -1,10 +1,17 @@
-import { Resend } from "resend";
+import Mailgun from "mailgun.js";
+import FormData from "form-data";
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
+const mailgun = new Mailgun(FormData);
+
+const mg = process.env.MAILGUN_API_KEY
+  ? mailgun.client({
+      username: "api",
+      key: process.env.MAILGUN_API_KEY,
+    })
   : null;
 
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "KNGO SEO <notifications@kangomedia.com>";
+const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || "";
+const FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL || "KNGO SEO <notifications@kangomedia.com>";
 
 interface EmailOptions {
   to: string;
@@ -13,28 +20,23 @@ interface EmailOptions {
 }
 
 export async function sendEmail({ to, subject, html }: EmailOptions) {
-  if (!resend) {
-    console.log(`[EMAIL] Resend not configured — would have sent to ${to}: "${subject}"`);
+  if (!mg || !MAILGUN_DOMAIN) {
+    console.log(`[EMAIL] Mailgun not configured — would have sent to ${to}: "${subject}"`);
     return null;
   }
 
   try {
-    const { data, error } = await resend.emails.send({
+    const result = await mg.messages.create(MAILGUN_DOMAIN, {
       from: FROM_EMAIL,
-      to,
+      to: [to],
       subject,
       html,
     });
 
-    if (error) {
-      console.error("[EMAIL] Send error:", error);
-      return null;
-    }
-
-    console.log(`[EMAIL] Sent to ${to}: "${subject}" — id: ${data?.id}`);
-    return data;
+    console.log(`[EMAIL] Sent to ${to}: "${subject}" — id: ${result.id}`);
+    return { id: result.id };
   } catch (err) {
-    console.error("[EMAIL] Exception:", err);
+    console.error("[EMAIL] Send error:", err);
     return null;
   }
 }
