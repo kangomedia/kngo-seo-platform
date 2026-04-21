@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { sendEmail } from "@/lib/email";
-import { OnboardingEmailHtml } from "@/components/emails/onboarding-email";
+import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
@@ -104,13 +103,19 @@ export async function POST(
     const host = request.headers.get("host") || "localhost:3000";
     const baseUrl = `${protocol}://${host}`;
     
-    const subject = `Discovery Complete: ${client.name}`;
-    const html = OnboardingEmailHtml(
+    // Check keywords found safely by handling the successful promise result
+    const kwFound = keywordResult.status === "fulfilled" && keywordResult.value 
+      ? keywordResult.value.keywordsFound 
+      : 0;
+
+    const { subject, html } = discoveryCompleteEmail(
       client.name,
-      auditSuccess && keywordSuccess ? "SUCCESS" : "PARTIAL",
+      client.domain,
+      kwFound,
       clientId,
-      baseUrl,
+      baseUrl
     );
+    
     // Fire and forget — don't block the response
     sendEmail({ to: session.user.email, subject, html }).catch(() => {});
   }
