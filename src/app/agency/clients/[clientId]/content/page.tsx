@@ -21,6 +21,9 @@ import {
   ClipboardList,
   ExternalLink,
   Calendar,
+  Mail,
+  RefreshCw,
+  Link2,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -85,6 +88,26 @@ export default function ContentHubPage() {
   const [isSendingPlanApproval, setIsSendingPlanApproval] = useState(false);
   const [planApprovalLink, setPlanApprovalLink] = useState<string | null>(null);
 
+  // Client metadata for persistent review links
+  const [clientAccessToken, setClientAccessToken] = useState<string | null>(null);
+  const [clientContactEmail, setClientContactEmail] = useState<string | null>(null);
+  const [clientName, setClientName] = useState("");
+
+  // Email preview modal
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreviewType, setEmailPreviewType] = useState<"plan" | "drafts">("plan");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailHtml, setEmailHtml] = useState("");
+  const [isResending, setIsResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+
+  // Build client review URL from access token
+  const getReviewUrl = (mode?: string) => {
+    if (!clientAccessToken) return null;
+    const base = `${window.location.origin}/client/${clientAccessToken}/content`;
+    return mode ? `${base}?mode=${mode}` : base;
+  };
+
   const loadData = () => {
     fetch(`/api/clients/${clientId}`)
       .then((r) => r.json())
@@ -96,6 +119,10 @@ export default function ContentHubPage() {
         if (data.monthlyGbpQAs !== undefined) setGbpQACount(data.monthlyGbpQAs);
         if (data.monthlyPressReleases !== undefined) setPrCount(data.monthlyPressReleases);
         if (data.tier) setClientTier(data.tier);
+        // Store client metadata for persistent review links
+        if (data.accessToken) setClientAccessToken(data.accessToken);
+        if (data.contactEmail) setClientContactEmail(data.contactEmail);
+        if (data.name) setClientName(data.name);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -232,6 +259,54 @@ export default function ContentHubPage() {
       setError("Network error — please try again");
     } finally {
       setIsSendingPlanApproval(false);
+    }
+  };
+
+  // Open email preview modal
+  const handleOpenEmailPreview = (type: "plan" | "drafts") => {
+    setEmailPreviewType(type);
+    if (type === "plan" && plan) {
+      setEmailSubject(`📋 Content plan ready for your review — ${clientName}`);
+      const reviewUrl = getReviewUrl("plan") || "";
+      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, plan.pieces.length, reviewUrl));
+    } else {
+      const draftCount = plan?.pieces.filter((p) => p.body).length || 0;
+      setEmailSubject(`✍️ ${draftCount} content draft${draftCount !== 1 ? "s" : ""} ready for review — ${clientName}`);
+      const reviewUrl = getReviewUrl() || "";
+      setEmailHtml(buildDraftEmailHtml(clientName, draftCount, reviewUrl));
+    }
+    setResendSuccess(null);
+    setShowEmailPreview(true);
+  };
+
+  // Resend email from preview
+  const handleResendEmail = async () => {
+    if (!clientContactEmail) {
+      setError("No client email configured — update the client's contact email first.");
+      return;
+    }
+    setIsResending(true);
+    setResendSuccess(null);
+    try {
+      const res = await fetch("/api/content/resend-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: clientContactEmail,
+          subject: emailSubject,
+          html: emailHtml,
+        }),
+      });
+      if (res.ok) {
+        setResendSuccess(`Email sent to ${clientContactEmail}`);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to send email");
+      }
+    } catch {
+      setError("Network error — please try again");
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -477,7 +552,7 @@ export default function ContentHubPage() {
             )}
           </div>
 
-          {/* Plan approval link toast */}
+          {/* Plan approval link toast (one-time after sending) */}
           {planApprovalLink && (
             <div
               className="flex items-center gap-3 p-4 rounded-xl mb-4"
@@ -525,19 +600,58 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* Pending approval info */}
+          {/* ── Persistent Review Link Bar (PENDING_APPROVAL) ── */}
           {planPending && (
             <div
-              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              className="rounded-xl mb-4 overflow-hidden"
               style={{
-                background: "rgba(245,158,11,0.08)",
+                background: "rgba(245,158,11,0.06)",
                 border: "1px solid rgba(245,158,11,0.2)",
               }}
             >
-              <Clock size={18} style={{ color: "#f59e0b" }} className="flex-shrink-0" />
-              <p className="text-sm font-semibold" style={{ color: "#f59e0b" }}>
-                Waiting for client to review and approve this content plan…
-              </p>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <Clock size={18} style={{ color: "#f59e0b" }} className="flex-shrink-0" />
+                <p className="text-sm font-semibold flex-1" style={{ color: "#f59e0b" }}>
+                  Waiting for client to review and approve this content plan…
+                </p>
+              </div>
+              {/* Persistent client review link */}
+              {clientAccessToken && (
+                <div className="flex items-center gap-2 px-4 py-3" style={{ borderTop: "1px solid rgba(245,158,11,0.12)", background: "rgba(245,158,11,0.03)" }}>
+                  <Link2 size={14} style={{ color: "var(--text-muted)" }} className="flex-shrink-0" />
+                  <p className="text-xs truncate flex-1 font-mono" style={{ color: "var(--text-muted)" }}>
+                    {getReviewUrl("plan")}
+                  </p>
+                  <button
+                    onClick={() => { const url = getReviewUrl("plan"); if (url) navigator.clipboard.writeText(url); }}
+                    className="btn-secondary text-xs flex-shrink-0"
+                    style={{ padding: "4px 10px" }}
+                  >
+                    <Copy size={12} /> Copy Link
+                  </button>
+                  <button
+                    onClick={() => { const url = getReviewUrl("plan"); if (url) window.open(url, "_blank"); }}
+                    className="btn-secondary text-xs flex-shrink-0"
+                    style={{ padding: "4px 10px" }}
+                  >
+                    <Eye size={12} /> Preview
+                  </button>
+                  <button
+                    onClick={() => handleOpenEmailPreview("plan")}
+                    className="btn-secondary text-xs flex-shrink-0"
+                    style={{ padding: "4px 10px" }}
+                  >
+                    <Mail size={12} /> Email Preview
+                  </button>
+                  <button
+                    onClick={() => handleOpenEmailPreview("plan")}
+                    className="btn-secondary text-xs flex-shrink-0"
+                    style={{ padding: "4px 10px", color: "#f59e0b" }}
+                  >
+                    <RefreshCw size={12} /> Resend
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -642,7 +756,7 @@ export default function ContentHubPage() {
             </button>
           </div>
 
-          {/* Draft approval link toast */}
+          {/* Draft approval link toast (one-time after sending) */}
           {approvalLink && (
             <div
               className="flex items-center gap-3 p-4 rounded-xl mb-4"
@@ -670,6 +784,59 @@ export default function ContentHubPage() {
               <button onClick={() => { setApprovalLink(null); setApprovalMessage(""); }} className="p-1 flex-shrink-0">
                 <X size={14} style={{ color: "var(--text-muted)" }} />
               </button>
+            </div>
+          )}
+
+          {/* ── Persistent Draft Review Link Bar ── */}
+          {plan.pieces.some((p) => p.status === "CLIENT_REVIEW" || p.status === "DRAFT_REVIEW") && clientAccessToken && !approvalLink && (
+            <div
+              className="rounded-xl mb-4 overflow-hidden"
+              style={{
+                background: "rgba(16,185,129,0.06)",
+                border: "1px solid rgba(16,185,129,0.2)",
+              }}
+            >
+              <div className="flex items-center gap-3 px-4 py-3">
+                <Eye size={16} style={{ color: "#10b981" }} className="flex-shrink-0" />
+                <p className="text-sm font-semibold flex-1" style={{ color: "#10b981" }}>
+                  Drafts sent for client review
+                  {clientContactEmail && <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {clientContactEmail}</span>}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 px-4 py-3" style={{ borderTop: "1px solid rgba(16,185,129,0.12)", background: "rgba(16,185,129,0.03)" }}>
+                <Link2 size={14} style={{ color: "var(--text-muted)" }} className="flex-shrink-0" />
+                <p className="text-xs truncate flex-1 font-mono" style={{ color: "var(--text-muted)" }}>
+                  {getReviewUrl()}
+                </p>
+                <button
+                  onClick={() => { const url = getReviewUrl(); if (url) navigator.clipboard.writeText(url); }}
+                  className="btn-secondary text-xs flex-shrink-0"
+                  style={{ padding: "4px 10px" }}
+                >
+                  <Copy size={12} /> Copy Link
+                </button>
+                <button
+                  onClick={() => { const url = getReviewUrl(); if (url) window.open(url, "_blank"); }}
+                  className="btn-secondary text-xs flex-shrink-0"
+                  style={{ padding: "4px 10px" }}
+                >
+                  <Eye size={12} /> Preview
+                </button>
+                <button
+                  onClick={() => handleOpenEmailPreview("drafts")}
+                  className="btn-secondary text-xs flex-shrink-0"
+                  style={{ padding: "4px 10px" }}
+                >
+                  <Mail size={12} /> Email Preview
+                </button>
+                <button
+                  onClick={() => handleOpenEmailPreview("drafts")}
+                  className="btn-secondary text-xs flex-shrink-0"
+                  style={{ padding: "4px 10px", color: "#10b981" }}
+                >
+                  <RefreshCw size={12} /> Resend
+                </button>
+              </div>
             </div>
           )}
 
@@ -1087,6 +1254,99 @@ export default function ContentHubPage() {
           </div>
         );
       })()}
+
+      {/* ═══ EMAIL PREVIEW MODAL ═══ */}
+      {showEmailPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowEmailPreview(false); }}
+        >
+          <div
+            className="stat-card w-full max-w-2xl mx-4 animate-fade-in"
+            style={{ padding: 0, maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center"
+                  style={{ background: "rgba(124,58,237,0.15)", color: "#7c3aed" }}
+                >
+                  <Mail size={18} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold">Email Preview</h3>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {emailPreviewType === "plan" ? "Plan Approval" : "Draft Review"} · {clientContactEmail || "No email configured"}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowEmailPreview(false)} className="p-2 rounded-lg hover:bg-white/5">
+                <X size={20} style={{ color: "var(--text-muted)" }} />
+              </button>
+            </div>
+
+            {/* Subject line (editable) */}
+            <div className="px-6 py-3" style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-card-hover)" }}>
+              <label className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--text-muted)" }}>
+                Subject Line
+              </label>
+              <input
+                className="input-field text-sm"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}
+              />
+            </div>
+
+            {/* Email HTML preview */}
+            <div className="flex-1 overflow-y-auto px-6 py-5" style={{ background: "#1a1b23" }}>
+              <div
+                style={{
+                  maxWidth: 560,
+                  margin: "0 auto",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                }}
+                dangerouslySetInnerHTML={{ __html: emailHtml }}
+              />
+            </div>
+
+            {/* Footer with actions */}
+            <div className="px-6 py-4 flex items-center gap-3" style={{ borderTop: "1px solid var(--border)" }}>
+              {resendSuccess && (
+                <div className="flex items-center gap-2 flex-1">
+                  <CheckCircle2 size={14} style={{ color: "#22c55e" }} />
+                  <span className="text-xs font-bold" style={{ color: "#22c55e" }}>{resendSuccess}</span>
+                </div>
+              )}
+              {!resendSuccess && (
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {clientContactEmail ? `Will send to: ${clientContactEmail}` : "⚠️ No client email configured"}
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={handleResendEmail}
+                disabled={isResending || !clientContactEmail}
+                className="btn-primary text-sm"
+                style={{ opacity: clientContactEmail ? 1 : 0.4 }}
+              >
+                {isResending ? (
+                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                ) : (
+                  <><Send size={14} /> {resendSuccess ? "Send Again" : "Send Email"}</>
+                )}
+              </button>
+              <button onClick={() => setShowEmailPreview(false)} className="btn-secondary text-sm">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1116,4 +1376,80 @@ function simpleMarkdownToHtml(md: string): string {
 
   html = `<p style="margin-bottom:12px">${html}</p>`;
   return html;
+}
+
+/** Build the plan approval email HTML (client-side mirror of server template) */
+function buildPlanEmailHtml(clientName: string, planTitle: string, pieceCount: number, reviewUrl: string): string {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background: #0f1117; color: #e4e4e7; border-radius: 16px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-block; width: 48px; height: 48px; background: rgba(124,58,237,0.15); border-radius: 12px; line-height: 48px; font-size: 24px;">📋</div>
+      </div>
+      <h1 style="font-size: 22px; font-weight: 800; text-align: center; margin: 0 0 8px;">Content Plan Ready</h1>
+      <p style="font-size: 14px; color: #a1a1aa; text-align: center; margin: 0 0 24px;">
+        ${clientName} · ${planTitle}
+      </p>
+      <div style="background: #1a1b23; border: 1px solid #27272a; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <div style="text-align: center;">
+          <div style="font-size: 28px; font-weight: 800; color: #7c3aed;">${pieceCount}</div>
+          <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Content Pieces</div>
+        </div>
+      </div>
+      <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 13px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px;">What To Do</h3>
+        <div style="font-size: 14px; line-height: 2;">
+          1. Review each content topic and description<br>
+          2. Approve topics you'd like us to write<br>
+          3. Reject or request changes on any that don't fit<br>
+          4. We'll start drafting once you approve
+        </div>
+      </div>
+      <div style="text-align: center;">
+        <a href="${reviewUrl}" style="display: inline-block; background: #7c3aed; color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px;">
+          Review Content Plan →
+        </a>
+      </div>
+      <p style="font-size: 11px; color: #52525b; text-align: center; margin-top: 24px;">
+        KNGO SEO Platform · KangoMedia
+      </p>
+    </div>
+  `;
+}
+
+/** Build the draft review email HTML (client-side mirror of server template) */
+function buildDraftEmailHtml(clientName: string, pieceCount: number, reviewUrl: string): string {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; background: #0f1117; color: #e4e4e7; border-radius: 16px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="display: inline-block; width: 48px; height: 48px; background: rgba(16,185,129,0.15); border-radius: 12px; line-height: 48px; font-size: 24px;">✍️</div>
+      </div>
+      <h1 style="font-size: 22px; font-weight: 800; text-align: center; margin: 0 0 8px;">Content Drafts Ready</h1>
+      <p style="font-size: 14px; color: #a1a1aa; text-align: center; margin: 0 0 24px;">
+        ${clientName}
+      </p>
+      <div style="background: #1a1b23; border: 1px solid #27272a; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <div style="text-align: center;">
+          <div style="font-size: 28px; font-weight: 800; color: #10b981;">${pieceCount}</div>
+          <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">Drafts For Review</div>
+        </div>
+      </div>
+      <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 13px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px;">What To Do</h3>
+        <div style="font-size: 14px; line-height: 2;">
+          1. Read each content draft carefully<br>
+          2. Approve drafts that are ready to publish<br>
+          3. Request revisions with specific feedback<br>
+          4. Approved drafts will be scheduled for publishing
+        </div>
+      </div>
+      <div style="text-align: center;">
+        <a href="${reviewUrl}" style="display: inline-block; background: #10b981; color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px;">
+          Review Drafts →
+        </a>
+      </div>
+      <p style="font-size: 11px; color: #52525b; text-align: center; margin-top: 24px;">
+        KNGO SEO Platform · KangoMedia
+      </p>
+    </div>
+  `;
 }
