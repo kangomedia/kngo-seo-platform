@@ -189,6 +189,7 @@
 - [ ] Custom branding per agency
 - [ ] Custom domain support for client portals
 - [ ] Branded report templates
+- [ ] Branded HTML email templates (incorporate agency logo and brand colors)
 
 ### Multi-Agency
 - [ ] Support multiple agency accounts

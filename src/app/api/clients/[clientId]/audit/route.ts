@@ -59,10 +59,15 @@ export async function POST(
 
   const { login, password } = await getCredentials();
 
+  let targetDomain = client.domain;
+  if (!targetDomain.startsWith("http://") && !targetDomain.startsWith("https://")) {
+    targetDomain = `https://${targetDomain}`;
+  }
+
   // Submit crawl task to DataForSEO On-Page API
   const body = [
     {
-      target: client.domain,
+      target: targetDomain,
       max_crawl_pages: 100,
       enable_javascript: true,
       load_resources: true,

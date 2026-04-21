@@ -85,7 +85,7 @@ export async function POST(
   }
 
   // 2) Crawl finished — fetch page-level data
-  const pagesRes = await fetch(`${DATAFORSEO_API}/on_page/pages`, {
+  let pagesRes = await fetch(`${DATAFORSEO_API}/on_page/pages`, {
     method: "POST",
     headers,
     body: JSON.stringify([
@@ -102,8 +102,34 @@ export async function POST(
     return NextResponse.json({ error: "Failed to fetch pages" }, { status: 500 });
   }
 
-  const pagesData = await pagesRes.json();
-  const pages = pagesData?.tasks?.[0]?.result?.[0]?.items || [];
+  let pagesData = await pagesRes.json();
+  let pages = pagesData?.tasks?.[0]?.result?.[0]?.items || [];
+
+  console.log(`[AUDIT CHECK] Initial fetch with HTML filter returned ${pages.length} pages.`);
+
+  if (pages.length === 0 && result.pages_crawled > 0) {
+    console.log(`[AUDIT CHECK] Attempting fallback fetch without HTML filter...`);
+    pagesRes = await fetch(`${DATAFORSEO_API}/on_page/pages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify([{ id: audit.taskId, limit: 100, order_by: ["meta.external_links_count,desc"] }]),
+    });
+    if (pagesRes.ok) {
+      pagesData = await pagesRes.json();
+      pages = pagesData?.tasks?.[0]?.result?.[0]?.items || [];
+      console.log(`[AUDIT CHECK] Fallback fetch returned ${pages.length} pages.`);
+      if (pages.length > 0) {
+        console.log(`[AUDIT CHECK] First page resource_type: ${pages[0].resource_type}, status: ${pages[0].status_code}`);
+      }
+    }
+  }
+
+  if (pages.length === 0) {
+    console.error(`[AUDIT CHECK] CRITICAL: 0 pages returned. Summary:`, {
+      status: result.crawl_status,
+      crawled: result.pages_crawled,
+    });
+  }
 
   // 3) Build check results for each page
   const pageRecords = pages.map((page: Record<string, unknown>) => {
