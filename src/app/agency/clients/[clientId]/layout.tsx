@@ -67,7 +67,13 @@ export default function ClientDetailLayout({
 
   // ─── Listen for client updates from child pages ────────
   useEffect(() => {
-    const handler = () => fetchClient();
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setClient((prev) => (prev ? { ...prev, ...customEvent.detail } : prev));
+      }
+      fetchClient();
+    };
     window.addEventListener("client-updated", handler);
     return () => window.removeEventListener("client-updated", handler);
   }, [fetchClient]);
@@ -80,7 +86,7 @@ export default function ClientDetailLayout({
     
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/clients/${clientId}/discover`);
+        const res = await fetch(`/api/clients/${clientId}/discover`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           if (data.onboardingStatus === "COMPLETE") {

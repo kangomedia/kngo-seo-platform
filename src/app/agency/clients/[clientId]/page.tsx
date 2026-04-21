@@ -221,7 +221,7 @@ function OnboardingTracker({
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`/api/clients/${clientId}/discover`);
+        const res = await fetch(`/api/clients/${clientId}/discover`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           setDiscoveryData(data);
@@ -593,7 +593,7 @@ export default function ClientOverview() {
         setData((prev) => (prev ? { ...prev, ...updated } : prev));
         setIsEditing(false);
         // Notify layout to refresh header (name, domain, tier)
-        window.dispatchEvent(new CustomEvent("client-updated"));
+        window.dispatchEvent(new CustomEvent("client-updated", { detail: updated }));
       }
     } catch {
       // silently fail
