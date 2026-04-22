@@ -15,11 +15,9 @@
 const POSITIVE_CHECKS = new Set([
   "is_https",
   "has_html_doctype",
-  "has_meta_title",
   "has_meta_description",
   "has_micromarkup",
   "from_sitemap",
-  "high_content_rate",
   "canonical",                               // page HAS a canonical tag
   "meta_charset_consistency",                 // charset is consistent
   "seo_friendly_url",
@@ -31,11 +29,18 @@ const POSITIVE_CHECKS = new Set([
 
 /**
  * Checks that should be IGNORED entirely (not shown as issues or passes).
- * These are either always informational, ambiguous, or not actionable.
+ * These are either non-actionable, redundant, or not meaningful for most sites.
  */
 const IGNORED_CHECKS = new Set([
-  "is_www",          // Neither good nor bad — just a preference
-  "small_page_size", // Not necessarily an issue
+  "is_www",              // Neither good nor bad — just a preference
+  "small_page_size",     // Not necessarily an issue
+  "has_meta_title",      // Refers to <meta name="title">, NOT <title>. Almost no sites use this — not actionable.
+  "high_content_rate",   // Inverse of low_content_rate — redundant. Not an issue if false.
+  "frame",              // Common due to YouTube/Google Maps embeds — not an SEO issue
+  "no_image_title",     // Image `title` attribute is extremely minor — not worth flagging
+  "is_http",            // Redundant with is_https positive check
+  "high_character_count", // Not necessarily an issue — informational only
+  "irrelevant_meta_keywords", // Meta keywords are deprecated — Google ignores them
 ]);
 
 /**
