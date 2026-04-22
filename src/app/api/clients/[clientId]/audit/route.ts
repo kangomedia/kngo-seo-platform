@@ -70,6 +70,10 @@ export async function POST(
     targetDomain = `https://${targetDomain}`;
   }
 
+  // Auto-detect common sitemap paths
+  // WordPress sites typically use /post-sitemap.xml via Yoast/RankMath
+  const sitemapUrl = `${targetDomain}/sitemap.xml`;
+
   // Submit crawl task to DataForSEO On-Page API
   const body = [
     {
@@ -79,6 +83,7 @@ export async function POST(
       load_resources: true,
       enable_browser_rendering: true,
       store_raw_html: false,
+      custom_sitemap: sitemapUrl,
     },
   ];
 

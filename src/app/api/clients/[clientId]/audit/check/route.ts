@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { sendEmail, auditCompleteEmail } from "@/lib/email";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
@@ -194,10 +195,19 @@ export async function POST(
       };
     });
 
-    // 4) Store results
-    const onpageScore = result.onpage_score || null;
+    // 4) Compute health score — use summary-level score or average of per-page scores
+    let onpageScore = result.onpage_score || null;
+    
+    if (onpageScore === null && pageRecords.length > 0) {
+      const validScores = pageRecords
+        .map((p: { onpageScore: number | null }) => p.onpageScore)
+        .filter((s: number | null): s is number => s !== null);
+      if (validScores.length > 0) {
+        onpageScore = Math.round(validScores.reduce((a: number, b: number) => a + b, 0) / validScores.length * 10) / 10;
+      }
+    }
 
-    console.log(`[AUDIT CHECK] Saving ${pageRecords.length} page records to DB...`);
+    console.log(`[AUDIT CHECK] Saving ${pageRecords.length} page records to DB. Score=${onpageScore}`);
 
     await prisma.$transaction([
       prisma.siteAuditPage.deleteMany({ where: { auditId } }),
@@ -215,7 +225,7 @@ export async function POST(
             crawl_status: result.crawl_status,
             pages_count: result.pages_count,
             pages_crawled: result.pages_crawled,
-            onpage_score: result.onpage_score,
+            onpage_score: onpageScore,
             checks: result.page_metrics?.checks || {},
           }),
         },
@@ -223,6 +233,27 @@ export async function POST(
     ]);
 
     console.log(`[AUDIT COMPLETE] auditId=${auditId}, pages=${pages.length}, score=${onpageScore}`);
+
+    // 5) Send email notification
+    try {
+      const client = await prisma.client.findUnique({ where: { id: clientId } });
+      const user = await prisma.user.findFirst({ where: { role: "AGENCY_ADMIN" } });
+      if (user?.email && client) {
+        const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+        const { subject, html } = auditCompleteEmail(
+          client.name,
+          client.domain,
+          pages.length,
+          onpageScore,
+          clientId,
+          auditId,
+          baseUrl,
+        );
+        await sendEmail({ to: user.email, subject, html });
+      }
+    } catch (emailErr) {
+      console.error("[AUDIT CHECK] Email notification failed:", emailErr);
+    }
 
     return NextResponse.json({
       status: "COMPLETED",
