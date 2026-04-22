@@ -59,6 +59,8 @@ interface ClientDetail {
   gbpPhone: string | null;
   gbpAddress: string | null;
   gbpCategory: string | null;
+  gscProperty: string | null;
+  ga4PropertyId: string | null;
   monthlyBlogs: number;
   monthlyGbpPosts: number;
   monthlyGbpQAs: number;
@@ -551,6 +553,8 @@ export default function ClientOverview() {
     gbpPhone: "",
     gbpAddress: "",
     gbpCategory: "",
+    gscProperty: "",
+    ga4PropertyId: "",
     monthlyBlogs: 2,
     monthlyGbpPosts: 2,
     monthlyGbpQAs: 2,
@@ -587,6 +591,8 @@ export default function ClientOverview() {
       gbpPhone: data.gbpPhone || "",
       gbpAddress: data.gbpAddress || "",
       gbpCategory: data.gbpCategory || "",
+      gscProperty: data.gscProperty || "",
+      ga4PropertyId: data.ga4PropertyId || "",
       monthlyBlogs: data.monthlyBlogs || 2,
       monthlyGbpPosts: data.monthlyGbpPosts || 2,
       monthlyGbpQAs: data.monthlyGbpQAs || 2,
@@ -913,6 +919,34 @@ export default function ClientOverview() {
                 onChange={(v) => updateField("gbpAddress", v)}
                 placeholder="Address listed on GBP"
                 icon={<MapPin size={14} />}
+              />
+            </div>
+
+            {/* Google Integration */}
+            <h4
+              className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+              style={{ color: "#34a853" }}
+            >
+              <BarChart3 size={14} />
+              Google Analytics & Search Console
+            </h4>
+            <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+              Enter the GA4 Property ID and Search Console property for this client. Your Google account (freddy@kangomedia.com) must have manager access to these properties.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              <EditField
+                label="GA4 Property ID"
+                value={editForm.ga4PropertyId}
+                onChange={(v) => updateField("ga4PropertyId", v)}
+                placeholder="e.g. 123456789"
+                icon={<BarChart3 size={14} />}
+              />
+              <EditField
+                label="Search Console Property"
+                value={editForm.gscProperty}
+                onChange={(v) => updateField("gscProperty", v)}
+                placeholder="e.g. sc-domain:example.com"
+                icon={<Globe size={14} />}
               />
             </div>
 

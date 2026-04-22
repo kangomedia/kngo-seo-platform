@@ -83,36 +83,31 @@
 - [x] Track completion status as tasks are resolved (OPEN / FIXED / IGNORED)
 - [x] Re-crawl to verify fixes and update scores
 
-### WordPress Integration (for WP clients)
-- [ ] Detect WordPress sites automatically
-- [ ] Connect via WP REST API with Application Passwords
-- [ ] Read page/post content directly from WP
-- [ ] (Future) Push meta title/description updates directly to WP
+### WordPress Integration (for WP clients) — *Deferred to Phase 7*
 
 ---
 
-## 📋 Phase 4 — Google Analytics & Search Console Integration
+## ✅ Phase 4 — Google Analytics & Search Console Integration
 
 > **Goal:** Connect real traffic and indexing data per client. Each client
-> can have their own GA4 and GSC properties linked.
+> can have their own GA4 and GSC properties linked via the agency Google account.
 
 ### Google Search Console
-- [ ] OAuth2 connection flow (agency Google account)
-- [ ] Property selection per client
-- [ ] Pull search performance data (clicks, impressions, CTR, position)
+- [x] OAuth2 connection flow (agency Google account)
+- [x] Property selection per client (via client settings)
+- [x] Pull search performance data (clicks, impressions, CTR, position)
 - [ ] Pull indexing status and coverage issues
-- [ ] Pull Core Web Vitals data
 - [ ] URL inspection integration (check specific pages)
 - [ ] Sitemaps management (submit/check status)
 
 ### Google Analytics 4
-- [ ] OAuth2 connection flow
-- [ ] GA4 property selection per client
-- [ ] Pull traffic overview (sessions, users, bounce rate)
-- [ ] Pull traffic by source/medium
-- [ ] Pull landing page performance
+- [x] OAuth2 connection flow
+- [x] GA4 property selection per client (via client settings)
+- [x] Pull traffic overview (sessions, users, bounce rate)
+- [x] Pull traffic by source/medium
+- [x] Pull landing page performance
 - [ ] Pull conversions/goals data
-- [ ] Traffic trend charts on client dashboard
+- [x] Traffic trend charts on client dashboard
 
 ### Dashboard Integration
 - [ ] Merge GA4 + GSC data into client overview
