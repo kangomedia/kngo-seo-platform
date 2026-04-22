@@ -185,6 +185,24 @@
 - [ ] Compare rankings side-by-side
 - [ ] Identify keyword gaps (competitor ranks, client doesn't)
 
+### AI-Powered Keyword Research (High-Intent Focus)
+> **Goal:** Differentiate from generic keyword tools by delivering only high-ROI,
+> buying-intent keywords through an intelligent onboarding conversation.
+- [ ] AI-powered client onboarding interview that captures:
+  - Type of business and core services
+  - Ideal client profile (demographics, pain points, budget level)
+  - Service areas (cities, regions)
+  - Business differentiators and competitive positioning
+- [ ] Optional website scraping to pre-populate business context from client's existing site
+- [ ] High-intent keyword filtering that prioritizes:
+  - Buying-intent modifiers (e.g., "hire", "near me", "cost", "best")
+  - Service-specific long-tail keywords
+  - Location-modified keywords for local SEO
+- [ ] Automatic filtering out of:
+  - Low-intent/informational-only queries ("free", "DIY", "how to")
+  - Irrelevant keywords that don't match the business profile
+- [ ] AI-curated keyword suggestions with intent classification and ROI scoring
+
 ### White-Label
 - [ ] Custom branding per agency
 - [ ] Custom domain support for client portals

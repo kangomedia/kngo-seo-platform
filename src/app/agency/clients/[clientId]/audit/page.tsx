@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
+import { getRealFailedChecks, getRealPassedChecks, getCheckLabel } from "@/lib/audit-checks";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -97,36 +98,7 @@ function clearPendingAudit() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-const CHECK_LABELS: Record<string, string> = {
-  no_title: "Missing title tag",
-  title_too_long: "Title too long (>60 chars)",
-  title_too_short: "Title too short (<30 chars)",
-  no_description: "Missing meta description",
-  description_too_long: "Description too long (>160 chars)",
-  description_too_short: "Description too short (<70 chars)",
-  no_h1_tag: "Missing H1 tag",
-  duplicate_title_tag: "Duplicate title tag",
-  duplicate_description: "Duplicate meta description",
-  no_image_alt: "Images without alt text",
-  no_image_title: "Images without title",
-  seo_friendly_url: "URL not SEO-friendly",
-  no_favicon: "Missing favicon",
-  no_content_encoding: "No content encoding (gzip)",
-  is_redirect: "Page redirects",
-  is_4xx_code: "4xx error status",
-  is_5xx_code: "5xx error status",
-  is_broken: "Broken page",
-  has_redirect_chain: "Redirect chain detected",
-  low_content_rate: "Low content ratio",
-  high_loading_time: "Slow page load",
-  is_orphan_page: "Orphan page (no internal links)",
-  has_meta_refresh_redirect: "Meta refresh redirect",
-  large_page_size: "Large page size",
-  is_http: "Not using HTTPS",
-  no_doctype: "Missing DOCTYPE",
-  canonical: "Canonical issues",
-  no_encoding_meta_tag: "Missing encoding meta tag",
-};
+// CHECK_LABELS now imported from @/lib/audit-checks
 
 /* ─── Component ──────────────────────────────────────── */
 
@@ -291,10 +263,10 @@ export default function SiteAuditPage() {
   };
 
   const getFailedChecks = (checks: Record<string, boolean>) =>
-    Object.entries(checks).filter(([, v]) => v).map(([k]) => k);
+    getRealFailedChecks(checks);
 
   const getPassedChecks = (checks: Record<string, boolean>) =>
-    Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
+    getRealPassedChecks(checks);
 
   // Load previous audit for comparison
   const loadPrevAudit = useCallback(async () => {
@@ -536,13 +508,24 @@ export default function SiteAuditPage() {
                       }}
                     >
                       <div>
-                        <div style={{ color: "#e5e7eb", fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <a
+                          href={page.url.startsWith("http") ? page.url : `https://${page.url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ color: "#a5b4fc", fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none", display: "block" }}
+                          onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                          onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
+                        >
                           {page.url.replace(/^https?:\/\//, "")}
-                        </div>
+                        </a>
                         {page.title && <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{page.title}</div>}
                       </div>
-                      <div style={{ color: scoreColor(page.onpageScore), fontWeight: 700, fontSize: 14 }}>
-                        {page.onpageScore !== null ? Math.round(page.onpageScore) : "—"}
+                      <div style={{ color: scoreColor(page.onpageScore), fontWeight: 700, fontSize: 14, textAlign: "right" }}>
+                        {page.onpageScore !== null ? (
+                          <>{Math.round(page.onpageScore)}<span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280" }}>/100</span></>
+                        ) : "—"}
+                        <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 400 }}>Score</div>
                       </div>
                       <div style={{ fontSize: 12 }}>
                         <span style={{
@@ -720,7 +703,7 @@ export default function SiteAuditPage() {
                                   padding: "4px 10px", borderRadius: 6, fontSize: 12,
                                   border: "1px solid rgba(239,68,68,0.2)",
                                 }}>
-                                  {CHECK_LABELS[c] || c.replace(/_/g, " ")}
+                                  {getCheckLabel(c)}
                                 </span>
                               ))}
                             </div>
@@ -740,7 +723,7 @@ export default function SiteAuditPage() {
                                   padding: "4px 10px", borderRadius: 6, fontSize: 12,
                                   border: "1px solid rgba(34,197,94,0.15)",
                                 }}>
-                                  {CHECK_LABELS[c] || c.replace(/_/g, " ")}
+                                  {getCheckLabel(c)}
                                 </span>
                               ))}
                             </div>
@@ -803,7 +786,7 @@ export default function SiteAuditPage() {
                       <span style={{ fontSize: 16 }}>{statusIcon(issue.status)}</span>
                       <div>
                         <div style={{ color: "#e5e7eb", fontSize: 13, fontWeight: 500 }}>
-                          {CHECK_LABELS[issue.checkKey] || issue.checkKey.replace(/_/g, " ")}
+                          {getCheckLabel(issue.checkKey)}
                         </div>
                         <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {issue.page?.url?.replace(/^https?:\/\//, "") || ""}
@@ -862,7 +845,7 @@ export default function SiteAuditPage() {
                               borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: 500,
                             }}
                           >
-                            ⏭️
+                            ⏭️ Ignore
                           </button>
                         )}
                       </div>

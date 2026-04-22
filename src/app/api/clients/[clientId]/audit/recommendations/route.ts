@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { generateSEORecommendations, type AuditPageData } from "@/lib/claude";
+import { getRealFailedChecks, filterToRealFailures } from "@/lib/audit-checks";
 
 async function getClaudeApiKey(): Promise<string> {
   let apiKey = process.env.ANTHROPIC_API_KEY;
@@ -41,7 +42,7 @@ export async function POST(
   }
 
   const checks: Record<string, boolean> = page.checks ? JSON.parse(page.checks) : {};
-  const failedChecks = Object.entries(checks).filter(([, v]) => v);
+  const failedChecks = getRealFailedChecks(checks);
   if (failedChecks.length === 0) {
     return NextResponse.json({ recommendations: [], message: "No issues to fix" });
   }
@@ -57,7 +58,7 @@ export async function POST(
       wordCount: page.wordCount,
       imageCount: page.imageCount,
       imagesNoAlt: page.imagesNoAlt,
-      checks,
+      checks: filterToRealFailures(checks),
     };
 
     const recommendations = await generateSEORecommendations(

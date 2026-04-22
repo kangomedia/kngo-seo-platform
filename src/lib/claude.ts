@@ -3,6 +3,8 @@
  * Powers topical map generation, content drafting, and content briefs
  */
 
+import { getRealFailedChecks } from "@/lib/audit-checks";
+
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 
 interface ClaudeConfig {
@@ -175,14 +177,13 @@ export interface AuditRecommendation {
   explanation: string;
 }
 
+
 export async function generateSEORecommendations(
   page: AuditPageData,
   targetKeyword: string | null,
   config: ClaudeConfig
 ): Promise<AuditRecommendation[]> {
-  const failedChecks = Object.entries(page.checks)
-    .filter(([, failed]) => failed)
-    .map(([key]) => key);
+  const failedChecks = getRealFailedChecks(page.checks);
 
   if (failedChecks.length === 0) return [];
 
