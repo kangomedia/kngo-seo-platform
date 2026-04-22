@@ -186,15 +186,22 @@ async function triggerSiteAudit(
 ) {
   const headers = { "Content-Type": "application/json", Authorization: authHdr };
 
+  // Ensure domain has protocol
+  let targetDomain = domain;
+  if (!targetDomain.startsWith("http://") && !targetDomain.startsWith("https://")) {
+    targetDomain = `https://${targetDomain}`;
+  }
+
   // ── Step 1: Create the crawl task ──
   const body = [
     {
-      target: domain,
+      target: targetDomain,
       max_crawl_pages: 30,
       enable_javascript: true,
       load_resources: false,
       enable_browser_rendering: false,
       store_raw_html: false,
+      custom_sitemap: `${targetDomain}/sitemap.xml`,
     },
   ];
 
@@ -239,9 +246,8 @@ async function triggerSiteAudit(
 
     try {
       const summaryRes = await fetch(`${DATAFORSEO_API}/on_page/summary/${taskId}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify([{ id: taskId }]),
+        method: "GET",
+        headers: { Authorization: authHdr },
       });
 
       if (!summaryRes.ok) {
@@ -308,7 +314,16 @@ async function triggerSiteAudit(
           };
         });
 
-        const onpageScore = summaryResult.onpage_score || null;
+        // Compute health score with fallback from per-page scores
+        let onpageScore = summaryResult.onpage_score || null;
+        if (onpageScore === null && pageRecords.length > 0) {
+          const validScores = pageRecords
+            .map((p: { onpageScore: number | null }) => p.onpageScore)
+            .filter((s: number | null): s is number => s !== null);
+          if (validScores.length > 0) {
+            onpageScore = Math.round(validScores.reduce((a: number, b: number) => a + b, 0) / validScores.length * 10) / 10;
+          }
+        }
 
         await prisma.$transaction([
           prisma.siteAuditPage.deleteMany({ where: { auditId: audit.id } }),
@@ -327,7 +342,7 @@ async function triggerSiteAudit(
                 crawl_status: summaryResult.crawl_status,
                 pages_count: summaryResult.pages_count,
                 pages_crawled: summaryResult.pages_crawled,
-                onpage_score: summaryResult.onpage_score,
+                onpage_score: onpageScore,
                 checks: summaryResult.page_metrics?.checks || {},
               }),
             },
