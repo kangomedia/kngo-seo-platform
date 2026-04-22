@@ -61,6 +61,7 @@ interface ClientDetail {
   gbpCategory: string | null;
   gscProperty: string | null;
   ga4PropertyId: string | null;
+  sitemapUrl: string | null;
   monthlyBlogs: number;
   monthlyGbpPosts: number;
   monthlyGbpQAs: number;
@@ -555,6 +556,7 @@ export default function ClientOverview() {
     gbpCategory: "",
     gscProperty: "",
     ga4PropertyId: "",
+    sitemapUrl: "",
     monthlyBlogs: 2,
     monthlyGbpPosts: 2,
     monthlyGbpQAs: 2,
@@ -593,6 +595,7 @@ export default function ClientOverview() {
       gbpCategory: data.gbpCategory || "",
       gscProperty: data.gscProperty || "",
       ga4PropertyId: data.ga4PropertyId || "",
+      sitemapUrl: data.sitemapUrl || "",
       monthlyBlogs: data.monthlyBlogs || 2,
       monthlyGbpPosts: data.monthlyGbpPosts || 2,
       monthlyGbpQAs: data.monthlyGbpQAs || 2,
@@ -946,6 +949,15 @@ export default function ClientOverview() {
                 value={editForm.gscProperty}
                 onChange={(v) => updateField("gscProperty", v)}
                 placeholder="e.g. sc-domain:example.com"
+                icon={<Globe size={14} />}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 mb-8">
+              <EditField
+                label="Sitemap URL (optional — defaults to /sitemap.xml)"
+                value={editForm.sitemapUrl}
+                onChange={(v) => updateField("sitemapUrl", v)}
+                placeholder="e.g. https://example.com/sitemap_index.xml"
                 icon={<Globe size={14} />}
               />
             </div>

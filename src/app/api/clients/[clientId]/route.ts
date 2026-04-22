@@ -70,7 +70,7 @@ export async function PUT(
     "gbpName", "gbpUrl", "gbpPhone", "gbpAddress", "gbpCategory",
     "monthlyBlogs", "monthlyGbpPosts", "monthlyGbpQAs", "monthlyPressReleases",
     "monthlyDirectoryListings", "includesAudit", "includesReporting",
-    "gscProperty", "ga4PropertyId",
+    "gscProperty", "ga4PropertyId", "sitemapUrl",
   ];
 
   for (const field of editableFields) {

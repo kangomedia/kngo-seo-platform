@@ -71,8 +71,8 @@ export async function POST(
   }
 
   // Auto-detect common sitemap paths
-  // WordPress sites typically use /post-sitemap.xml via Yoast/RankMath
-  const sitemapUrl = `${targetDomain}/sitemap.xml`;
+  // Uses client's custom sitemap URL if set, otherwise defaults to /sitemap.xml
+  const sitemapUrl = client.sitemapUrl || `${targetDomain}/sitemap.xml`;
 
   // Submit crawl task to DataForSEO On-Page API
   const body = [

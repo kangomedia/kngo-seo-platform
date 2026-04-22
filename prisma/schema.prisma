@@ -106,6 +106,9 @@ model Client {
   gscProperty   String?  // GSC property URL (e.g. "sc-domain:example.com")
   ga4PropertyId String?  // GA4 property ID (e.g. "123456789")
 
+  // SEO Configuration
+  sitemapUrl    String?  // Custom sitemap URL (defaults to /sitemap.xml if blank)
+
   // Onboarding
   onboardingStatus  String?  @default("PENDING")  // PENDING, DISCOVERING, COMPLETE
   serviceAreas      String?  @db.Text              // JSON array: ["plumbing", "water heater repair"]
