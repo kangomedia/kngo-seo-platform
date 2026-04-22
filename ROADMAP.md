@@ -170,6 +170,11 @@
 
 ## 📋 Phase 7 — Advanced Features & Scale
 
+### Client Reports (New Client Deliverables)
+- [ ] **Site Audit Report** — Exportable report summarizing all on-page issues, scores, and AI recommendations per page. Designed as the first deliverable for a brand-new client.
+- [ ] **Baseline Report** — Combines site audit data with Google Analytics and Search Console metrics to establish a performance baseline before SEO work begins. Includes traffic, impressions, top queries, and technical health.
+- [ ] Report PDF export / shareable link for both report types
+
 ### Email Notifications
 - [ ] Automated email on "Send for Approval" (Resend or SendGrid)
 - [ ] Weekly/monthly digest emails to clients
