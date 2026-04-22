@@ -62,26 +62,26 @@
 > websites and generate actionable optimization task lists.
 
 ### Site Crawler (DataForSEO On-Page API)
-- [ ] POST client domain to DataForSEO On-Page API for full-site crawl
-- [ ] Store crawl results in database (per-page analysis)
-- [ ] Dashboard showing overall site health score
-- [ ] Per-page breakdown with issues categorized by severity
+- [x] POST client domain to DataForSEO On-Page API for full-site crawl
+- [x] Store crawl results in database (per-page analysis)
+- [x] Dashboard showing overall site health score
+- [x] Per-page breakdown with issues categorized by severity
 
 ### On-Page Analysis Categories
-- [ ] **Meta Tags:** Missing/duplicate/too-long title tags and meta descriptions
-- [ ] **Headings:** H1 presence, H1 count, heading hierarchy issues
-- [ ] **Images:** Missing alt text, oversized images, no lazy loading
-- [ ] **Content:** Thin content detection, keyword density, readability
-- [ ] **Links:** Broken internal/external links, orphan pages, redirect chains
-- [ ] **Schema:** Missing structured data (LocalBusiness, FAQ, etc.)
-- [ ] **Technical:** Canonical issues, duplicate content, robots.txt problems
-- [ ] **Core Web Vitals:** Page speed, CLS, LCP, FID proxies
+- [x] **Meta Tags:** Missing/duplicate/too-long title tags and meta descriptions
+- [x] **Headings:** H1 presence, H1 count, heading hierarchy issues
+- [x] **Images:** Missing alt text, oversized images, no lazy loading
+- [x] **Content:** Thin content detection, keyword density, readability
+- [x] **Links:** Broken internal/external links, orphan pages, redirect chains
+- [x] **Schema:** Missing structured data (LocalBusiness, FAQ, etc.)
+- [x] **Technical:** Canonical issues, duplicate content, robots.txt problems
+- [ ] **Core Web Vitals:** Page speed, CLS, LCP, FID proxies *(partial — loading time available, full CWV metrics not yet)*
 
 ### Optimization Task List
-- [ ] Auto-generated task list per page (similar to Search Atlas Auto)
-- [ ] Priority scoring (Critical / High / Medium / Low)
-- [ ] Track completion status as tasks are resolved
-- [ ] Re-crawl to verify fixes and update scores
+- [x] Auto-generated task list per page (AI-powered recommendations)
+- [x] Priority scoring (Critical / Warning / Info)
+- [x] Track completion status as tasks are resolved (OPEN / FIXED / IGNORED)
+- [x] Re-crawl to verify fixes and update scores
 
 ### WordPress Integration (for WP clients)
 - [ ] Detect WordPress sites automatically
