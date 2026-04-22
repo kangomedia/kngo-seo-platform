@@ -47,6 +47,7 @@ export async function GET(
   return NextResponse.json({
     id: report.id,
     uuid: report.uuid,
+    type: (report as Record<string, unknown>).type || "MONTHLY",
     month: report.month,
     year: report.year,
     title: report.title,

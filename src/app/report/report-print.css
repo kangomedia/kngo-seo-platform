@@ -1,0 +1,47 @@
+/* ─── Print-optimized styles for reports ─── */
+
+@media print {
+  /* Hide non-essential elements */
+  .no-print,
+  button,
+  nav,
+  .btn-primary,
+  .btn-secondary {
+    display: none !important;
+  }
+
+  /* Force white backgrounds and remove shadows */
+  body {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Force proper page breaks */
+  .rounded-2xl {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Ensure colors print correctly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Remove max-width for full page use */
+  .max-w-3xl {
+    max-width: 100% !important;
+  }
+
+  /* Ensure header prints with dark background */
+  header {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove box shadows for cleaner print */
+  [style*="box-shadow"] {
+    box-shadow: none !important;
+  }
+}

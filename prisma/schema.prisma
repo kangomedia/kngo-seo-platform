@@ -316,6 +316,7 @@ model Report {
   id          String   @id @default(cuid())
   clientId    String
   uuid        String   @unique @default(cuid()) // public share link
+  type        String   @default("MONTHLY")       // MONTHLY, SITE_AUDIT, BASELINE
   month       Int
   year        Int
   title       String
