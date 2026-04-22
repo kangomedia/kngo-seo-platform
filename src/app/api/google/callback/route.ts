@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 function getOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
 
   return new google.auth.OAuth2(clientId, clientSecret, `${baseUrl}/api/google/callback`);
 }
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const state = url.searchParams.get("state"); // clientId
   const error = url.searchParams.get("error");
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = process.env.AUTH_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
 
   if (error) {
     console.error("[GOOGLE CALLBACK] OAuth error:", error);
