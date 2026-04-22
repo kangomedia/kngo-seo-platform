@@ -344,14 +344,15 @@ model AgencySettings {
 // ─── Site Audit (On-Page SEO) ─────────────────────────
 
 model SiteAudit {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   clientId    String
-  taskId      String?  // DataForSEO task ID
-  status      String   @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
-  pagesCount  Int      @default(0)
-  onpageScore Float?   // 0-100 overall health score
-  summary     String?  @db.Text // JSON: full crawl summary
-  crawledAt   DateTime @default(now())
+  taskId      String?   // DataForSEO task ID
+  status      String    @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
+  pagesCount  Int       @default(0)
+  onpageScore Float?    // 0-100 overall health score
+  summary     String?   @db.Text // JSON: full crawl summary
+  crawledAt   DateTime  @default(now())
+  archivedAt  DateTime? // null = active, set = archived
 
   client Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
   pages  SiteAuditPage[]

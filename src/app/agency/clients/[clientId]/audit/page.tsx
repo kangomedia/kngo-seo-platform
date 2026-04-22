@@ -119,16 +119,21 @@ export default function SiteAuditPage() {
   const [issueStats, setIssueStats] = useState({ total: 0, open: 0, fixed: 0, ignored: 0 });
   const [view, setView] = useState<"pages" | "issues">("pages");
   const [prevAudit, setPrevAudit] = useState<Audit | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAudits = useCallback(async () => {
-    const res = await fetch(`/api/clients/${clientId}/audit`);
+    const url = showArchived
+      ? `/api/clients/${clientId}/audit?archived=true`
+      : `/api/clients/${clientId}/audit`;
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       setAudits(data);
     }
     setLoading(false);
-  }, [clientId]);
+  }, [clientId, showArchived]);
 
   // Poll for results — runs in the background
   const pollResults = useCallback(async (auditId: string) => {
@@ -189,6 +194,32 @@ export default function SiteAuditPage() {
       pollResults(data.auditId);
     }
     setRunning(false);
+    loadAudits();
+  };
+
+  const archiveAudit = async (auditId: string) => {
+    await fetch(`/api/clients/${clientId}/audit/${auditId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive" }),
+    });
+    loadAudits();
+  };
+
+  const restoreAudit = async (auditId: string) => {
+    await fetch(`/api/clients/${clientId}/audit/${auditId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "restore" }),
+    });
+    loadAudits();
+  };
+
+  const deleteAudit = async (auditId: string) => {
+    await fetch(`/api/clients/${clientId}/audit/${auditId}`, {
+      method: "DELETE",
+    });
+    setConfirmDelete(null);
     loadAudits();
   };
 
@@ -301,22 +332,41 @@ export default function SiteAuditPage() {
             On-page SEO analysis with AI-powered recommendations
           </p>
         </div>
-        <button
-          onClick={startAudit}
-          disabled={running || polling}
-          style={{
-            padding: "10px 20px",
-            background: running || polling ? "#374151" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: running || polling ? "not-allowed" : "pointer",
-            fontWeight: 600,
-            fontSize: 14,
-          }}
-        >
-          {polling ? "⏳ Crawling…" : running ? "Starting…" : "Run New Audit"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => { setShowArchived(!showArchived); setActiveAudit(null); setConfirmDelete(null); }}
+            style={{
+              padding: "10px 16px",
+              background: showArchived ? "rgba(107,114,128,0.2)" : "transparent",
+              color: showArchived ? "#e5e7eb" : "#6b7280",
+              border: "1px solid #374151",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontWeight: 500,
+              fontSize: 13,
+            }}
+          >
+            📦 {showArchived ? "View Active" : "Archive"}
+          </button>
+          {!showArchived && (
+            <button
+              onClick={startAudit}
+              disabled={running || polling}
+              style={{
+                padding: "10px 20px",
+                background: running || polling ? "#374151" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                cursor: running || polling ? "not-allowed" : "pointer",
+                fontWeight: 600,
+                fontSize: 14,
+              }}
+            >
+              {polling ? "⏳ Crawling…" : running ? "Starting…" : "Run New Audit"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Crawl progress banner — non-blocking */}
@@ -359,10 +409,15 @@ export default function SiteAuditPage() {
           background: "#1f2937", borderRadius: 12, padding: 60,
           textAlign: "center", border: "1px solid #374151",
         }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
-          <h3 style={{ color: "#e5e7eb", margin: "0 0 8px" }}>No Audits Yet</h3>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>{showArchived ? "📦" : "🔍"}</div>
+          <h3 style={{ color: "#e5e7eb", margin: "0 0 8px" }}>
+            {showArchived ? "No Archived Audits" : "No Audits Yet"}
+          </h3>
           <p style={{ color: "#9ca3af", fontSize: 14 }}>
-            Click &quot;Run New Audit&quot; to crawl this client&apos;s website.
+            {showArchived
+              ? "Archived audits will appear here. You can restore or permanently delete them."
+              : "Click \"Run New Audit\" to crawl this client's website."
+            }
           </p>
         </div>
       )}
@@ -371,19 +426,18 @@ export default function SiteAuditPage() {
       {audits.length > 0 && !activeAudit && (
         <div style={{ display: "grid", gap: 12 }}>
           {audits.map((a) => (
-            <button
+            <div
               key={a.id}
-              onClick={() => loadAuditDetail(a.id)}
               style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 background: "#1f2937", border: "1px solid #374151", borderRadius: 12,
-                padding: "16px 20px", cursor: "pointer", textAlign: "left", width: "100%",
-                transition: "border-color 0.2s",
+                padding: "16px 20px", transition: "border-color 0.2s",
               }}
-              onMouseOver={(e) => (e.currentTarget.style.borderColor = "#6366f1")}
-              onMouseOut={(e) => (e.currentTarget.style.borderColor = "#374151")}
             >
-              <div>
+              <div
+                onClick={() => loadAuditDetail(a.id)}
+                style={{ flex: 1, cursor: "pointer" }}
+              >
                 <div style={{ color: "#e5e7eb", fontWeight: 600, fontSize: 15 }}>
                   {new Date(a.crawledAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
                 </div>
@@ -391,16 +445,85 @@ export default function SiteAuditPage() {
                   {a.pagesCount} pages · {a.status}
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                {a.onpageScore !== null ? (
-                  <div style={{ fontSize: 28, fontWeight: 800, color: scoreColor(a.onpageScore) }}>
-                    {Math.round(a.onpageScore)}<span style={{ fontSize: 14, fontWeight: 400 }}>/100</span>
-                  </div>
-                ) : (
-                  <span style={{ color: "#6b7280", fontSize: 14 }}>{a.status === "CRAWLING" ? "Crawling…" : "—"}</span>
-                )}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ textAlign: "right" }}>
+                  {a.onpageScore !== null ? (
+                    <div style={{ fontSize: 28, fontWeight: 800, color: scoreColor(a.onpageScore) }}>
+                      {Math.round(a.onpageScore)}<span style={{ fontSize: 14, fontWeight: 400 }}>/100</span>
+                    </div>
+                  ) : (
+                    <span style={{ color: "#6b7280", fontSize: 14 }}>{a.status === "CRAWLING" ? "Crawling…" : "—"}</span>
+                  )}
+                </div>
+                {/* Archive / Restore / Delete actions */}
+                <div style={{ display: "flex", gap: 4 }}>
+                  {showArchived ? (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); restoreAudit(a.id); }}
+                        title="Restore"
+                        style={{
+                          padding: "6px 10px", background: "rgba(34,197,94,0.15)",
+                          color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)",
+                          borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 500,
+                        }}
+                      >
+                        ↩ Restore
+                      </button>
+                      {confirmDelete === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <span style={{ color: "#ef4444", fontSize: 11 }}>Sure?</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteAudit(a.id); }}
+                            style={{
+                              padding: "4px 8px", background: "#ef4444",
+                              color: "#fff", border: "none",
+                              borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                            }}
+                          >
+                            Yes, delete
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+                            style={{
+                              padding: "4px 8px", background: "#374151",
+                              color: "#9ca3af", border: "none",
+                              borderRadius: 4, cursor: "pointer", fontSize: 11,
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDelete(a.id); }}
+                          title="Permanently delete"
+                          style={{
+                            padding: "6px 10px", background: "rgba(239,68,68,0.15)",
+                            color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)",
+                            borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 500,
+                          }}
+                        >
+                          🗑 Delete
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); archiveAudit(a.id); }}
+                      title="Archive this audit"
+                      style={{
+                        padding: "6px 10px", background: "rgba(107,114,128,0.15)",
+                        color: "#9ca3af", border: "1px solid rgba(107,114,128,0.3)",
+                        borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 500,
+                      }}
+                    >
+                      📦 Archive
+                    </button>
+                  )}
+                </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

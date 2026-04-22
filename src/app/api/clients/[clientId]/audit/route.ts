@@ -31,8 +31,14 @@ export async function GET(
   }
 
   const { clientId } = await params;
+  const { searchParams } = new URL(request.url);
+  const showArchived = searchParams.get("archived") === "true";
+
   const audits = await prisma.siteAudit.findMany({
-    where: { clientId },
+    where: {
+      clientId,
+      archivedAt: showArchived ? { not: null } : null,
+    },
     orderBy: { crawledAt: "desc" },
     take: 20,
     include: { _count: { select: { pages: true } } },
