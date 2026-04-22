@@ -20,12 +20,13 @@ const POSITIVE_CHECKS = new Set([
   "has_micromarkup",
   "from_sitemap",
   "high_content_rate",
+  "canonical",                               // page HAS a canonical tag
+  "meta_charset_consistency",                 // charset is consistent
   "seo_friendly_url",
   "seo_friendly_url_characters_check",
   "seo_friendly_url_dynamic_check",
   "seo_friendly_url_keywords_check",
   "seo_friendly_url_relative_length_check",
-  "has_render_blocking_resources", // inverted: false is better, but not necessarily a critical fail
 ]);
 
 /**
@@ -87,7 +88,6 @@ export const CHECK_LABELS: Record<string, string> = {
   has_render_blocking_resources: "Render-blocking resources",
   https_to_http_links: "HTTPS page links to HTTP",
   size_greater_than_3mb: "Page size exceeds 3MB",
-  meta_charset_consistency: "Meta charset inconsistency",
   deprecated_html_tags: "Deprecated HTML tags",
   flash: "Flash content detected",
   lorem_ipsum: "Lorem ipsum placeholder text",
@@ -103,6 +103,8 @@ export const CHECK_LABELS: Record<string, string> = {
   has_micromarkup: "Has structured data",
   from_sitemap: "Found in sitemap",
   high_content_rate: "Good content ratio",
+  canonical: "Has canonical tag",
+  meta_charset_consistency: "Charset is consistent",
   seo_friendly_url: "SEO-friendly URL",
   seo_friendly_url_characters_check: "URL characters check passed",
   seo_friendly_url_dynamic_check: "URL is not dynamic",
