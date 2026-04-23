@@ -9,7 +9,7 @@ import {
   Minus,
   Printer,
 } from "lucide-react";
-import { ReportFooter } from "./SiteAuditReport";
+import { ReportFooter, ReportHeader } from "./SiteAuditReport";
 
 interface KeywordEntry {
   keyword: string;
@@ -78,29 +78,12 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
   return (
     <div style={{ background: "#F5F5F5", minHeight: "100vh" }}>
       {/* Header */}
-      <header style={{ background: "#222222" }}>
-        <div className="max-w-3xl mx-auto px-6 py-8 text-center">
-          <img
-            src="/brand/logo-white.svg"
-            alt="KangoMedia"
-            className="h-6 w-auto mx-auto mb-6"
-          />
-          <p
-            className="text-xs font-bold uppercase tracking-widest mb-2"
-            style={{ color: "rgba(255,255,255,0.5)" }}
-          >
-            Monthly SEO Report
-          </p>
-          <h1 className="text-3xl font-extrabold text-white mb-2">
-            {d.clientName}
-          </h1>
-          <p className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
-            {d.monthName} {d.year}
-          </p>
-        </div>
-      </header>
+      <ReportHeader
+        clientName={d.clientName}
+        subtitle={`Monthly SEO Report — ${d.monthName} ${d.year}`}
+      />
 
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-3xl mx-auto px-6 py-10">
         {/* Key Wins */}
         {d.highlights.length > 0 && (
           <div

@@ -9,11 +9,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Printer,
-  ExternalLink,
   Globe,
   Zap,
 } from "lucide-react";
-import { StatCard, ReportFooter } from "./SiteAuditReport";
+import { StatCard, ReportFooter, ReportHeader } from "./SiteAuditReport";
 
 interface TopIssue {
   key: string;
@@ -109,35 +108,12 @@ export default function BaselineReport({ data }: { data: BaselineReportData }) {
   return (
     <div style={{ background: "#F5F5F5", minHeight: "100vh" }}>
       {/* Header */}
-      <header style={{ background: "#222222" }}>
-        <div className="max-w-3xl mx-auto px-6 py-8 text-center">
-          <img
-            src="/brand/logo-white.svg"
-            alt="KangoMedia"
-            className="h-6 w-auto mx-auto mb-6"
-          />
-          <p
-            className="text-xs font-bold uppercase tracking-widest mb-2"
-            style={{ color: "rgba(255,255,255,0.5)" }}
-          >
-            SEO Baseline Report
-          </p>
-          <h1 className="text-3xl font-extrabold text-white mb-1">
-            {data.clientName}
-          </h1>
-          {data.domain && (
-            <p
-              className="text-sm flex items-center justify-center gap-1"
-              style={{ color: "rgba(255,255,255,0.6)" }}
-            >
-              <ExternalLink size={12} />
-              {data.domain}
-            </p>
-          )}
-        </div>
-      </header>
+      <ReportHeader
+        clientName={data.clientName}
+        subtitle="SEO Baseline Report"
+      />
 
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-3xl mx-auto px-6 py-10">
         {/* Key Findings Hero */}
         {data.highlights.length > 0 && (
           <div

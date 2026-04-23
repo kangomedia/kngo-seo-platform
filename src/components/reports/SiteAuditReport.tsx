@@ -11,7 +11,6 @@ import {
   Printer,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -94,7 +93,7 @@ export default function SiteAuditReport({ data }: { data: AuditReportData }) {
   if (!data.hasAuditData) {
     return (
       <div style={{ background: "#F5F5F5", minHeight: "100vh" }}>
-        <Header clientName={data.clientName} domain={data.domain} subtitle="Site Audit Report" />
+        <ReportHeader clientName={data.clientName} subtitle="Site Audit Report" />
         <div className="max-w-3xl mx-auto px-6 py-12 text-center">
           <Shield size={48} className="mx-auto mb-4" style={{ color: "#ccc" }} />
           <h2 className="text-xl font-bold mb-2" style={{ color: "#222" }}>
@@ -112,9 +111,9 @@ export default function SiteAuditReport({ data }: { data: AuditReportData }) {
 
   return (
     <div style={{ background: "#F5F5F5", minHeight: "100vh" }}>
-      <Header clientName={data.clientName} domain={data.domain} subtitle="Site Audit Report" />
+      <ReportHeader clientName={data.clientName} subtitle="Site Audit Report" />
 
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-3xl mx-auto px-6 py-10">
         {/* Health Score Hero */}
         <div
           className="rounded-2xl p-8 mb-6 -mt-6 relative z-10 text-center"
@@ -419,22 +418,20 @@ export default function SiteAuditReport({ data }: { data: AuditReportData }) {
 
 // ─── Shared Components ────────────────────────────────────
 
-function Header({
+export function ReportHeader({
   clientName,
-  domain,
   subtitle,
 }: {
   clientName: string;
-  domain: string | null;
   subtitle: string;
 }) {
   return (
     <header style={{ background: "#222222" }}>
-      <div className="max-w-3xl mx-auto px-6 py-8 text-center">
+      <div className="max-w-3xl mx-auto px-6 py-10 text-center">
         <img
-          src="/brand/logo-white.svg"
+          src="/brand/kangomedia_horizontal_reversed.svg"
           alt="KangoMedia"
-          className="h-6 w-auto mx-auto mb-6"
+          className="h-10 w-auto mx-auto mb-6"
         />
         <p
           className="text-xs font-bold uppercase tracking-widest mb-2"
@@ -442,18 +439,24 @@ function Header({
         >
           {subtitle}
         </p>
-        <h1 className="text-3xl font-extrabold text-white mb-1">
+        <h1 className="text-3xl font-extrabold text-white">
           {clientName}
         </h1>
-        {domain && (
-          <p className="text-sm flex items-center justify-center gap-1" style={{ color: "rgba(255,255,255,0.6)" }}>
-            <ExternalLink size={12} />
-            {domain}
-          </p>
-        )}
       </div>
     </header>
   );
+}
+
+/** @deprecated Use ReportHeader instead */
+function Header({
+  clientName,
+  subtitle,
+}: {
+  clientName: string;
+  domain?: string | null;
+  subtitle: string;
+}) {
+  return <ReportHeader clientName={clientName} subtitle={subtitle} />;
 }
 
 export function StatCard({
@@ -496,13 +499,9 @@ export function ReportFooter() {
       />
       <p className="text-xs" style={{ color: "#888" }}>
         This report was prepared by{" "}
-        <a
-          href="https://kangomedia.com"
-          className="font-bold"
-          style={{ color: "#E34234" }}
-        >
+        <span className="font-bold" style={{ color: "#E34234" }}>
           KangoMedia
-        </a>
+        </span>
       </p>
       <p className="text-xs mt-1" style={{ color: "#ccc" }}>
         Questions? Reply to your email or contact us directly.

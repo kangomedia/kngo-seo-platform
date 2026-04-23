@@ -159,9 +159,6 @@ export async function POST(
   if (avgPosition != null) {
     highlights.push(`Average keyword position: ${avgPosition}`);
   }
-  if (totalSearchVolume > 0) {
-    highlights.push(`${totalSearchVolume.toLocaleString()} total monthly search volume tracked`);
-  }
   if (publishedPieces > 0) {
     highlights.push(`${publishedPieces} of ${totalPieces} content pieces published`);
   }
