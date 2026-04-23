@@ -193,16 +193,30 @@ async function triggerSiteAudit(
   }
 
   // ── Step 1: Create the crawl task ──
+  // Lightweight crawl for onboarding — full audit handles deep analysis
   const body = [
     {
       target: targetDomain,
       max_crawl_pages: 30,
+
+      // Rendering — lightweight (no browser rendering for speed)
       enable_javascript: true,
       load_resources: false,
       enable_browser_rendering: false,
-      store_raw_html: false,
+      support_cookies: true,
+
+      // Sitemap
       respect_sitemap: true,
       custom_sitemap: `${targetDomain}/sitemap.xml`,
+
+      // Storage
+      store_raw_html: false,
+
+      // Custom thresholds — match audit settings
+      checks_threshold: {
+        title_too_long: 60,
+        low_content_rate: 0.15,
+      },
     },
   ];
 

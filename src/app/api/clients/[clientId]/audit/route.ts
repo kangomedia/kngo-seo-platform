@@ -79,12 +79,30 @@ export async function POST(
     {
       target: targetDomain,
       max_crawl_pages: 100,
+
+      // Rendering — full browser rendering for accurate results
       enable_javascript: true,
       load_resources: true,
       enable_browser_rendering: true,
-      store_raw_html: false,
+      support_cookies: true,
+
+      // Sitemap — crawl pages in sitemap order, then discover others
       respect_sitemap: true,
       custom_sitemap: sitemapUrl,
+
+      // Analysis — enable structured data validation and spell-check
+      validate_micromarkup: true,
+      check_spell: true,
+      check_spell_language: "en",
+
+      // Storage
+      store_raw_html: false,
+
+      // Custom thresholds — tuned to reduce false positives
+      checks_threshold: {
+        title_too_long: 60,        // Google's actual display cutoff (DFS default: 65)
+        low_content_rate: 0.15,    // More lenient than DFS default of 0.1
+      },
     },
   ];
 
