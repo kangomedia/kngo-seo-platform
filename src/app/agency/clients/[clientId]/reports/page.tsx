@@ -167,9 +167,9 @@ export default function ReportsPage() {
             <div
               className="absolute right-0 mt-2 py-2 rounded-xl z-[100]"
               style={{
-                background: "var(--card-bg)",
+                background: "var(--bg-secondary)",
                 border: "1px solid var(--border)",
-                boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+                boxShadow: "0 8px 30px rgba(0,0,0,0.35)",
                 minWidth: 240,
               }}
             >
