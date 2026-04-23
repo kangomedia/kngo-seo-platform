@@ -18,6 +18,7 @@ import { useState } from "react";
 interface Issue {
   key: string;
   label: string;
+  description?: string | null;
 }
 
 interface PageData {
@@ -36,6 +37,7 @@ interface TopIssue {
   label: string;
   count: number;
   severity: string;
+  description?: string | null;
 }
 
 interface AuditReportData {
@@ -194,36 +196,46 @@ export default function SiteAuditReport({ data }: { data: AuditReportData }) {
             <p className="text-sm mb-4" style={{ color: "#888" }}>
               Issues found across {data.pagesCount} crawled pages, ordered by frequency
             </p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {data.topIssues.map((issue) => {
                 const config = severityConfig[issue.severity as keyof typeof severityConfig] || severityConfig.info;
                 const Icon = config.icon;
                 return (
                   <div
                     key={issue.key}
-                    className="flex items-center gap-3 p-3 rounded-xl"
+                    className="p-4 rounded-xl"
                     style={{ background: "#FAFAFA" }}
                   >
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: config.bg }}
-                    >
-                      <Icon size={16} style={{ color: config.color }} />
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ background: config.bg }}
+                      >
+                        <Icon size={16} style={{ color: config.color }} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold" style={{ color: "#222" }}>
+                          {issue.label}
+                        </p>
+                        <p className="text-xs" style={{ color: "#888" }}>
+                          {config.label} · Found on {issue.count} page{issue.count > 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      <span
+                        className="text-xs font-bold px-3 py-1 rounded-lg"
+                        style={{ background: config.bg, color: config.color }}
+                      >
+                        {issue.count}
+                      </span>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold" style={{ color: "#222" }}>
-                        {issue.label}
+                    {issue.description && (
+                      <p
+                        className="text-xs leading-relaxed mt-2 ml-11"
+                        style={{ color: "#666" }}
+                      >
+                        {issue.description}
                       </p>
-                      <p className="text-xs" style={{ color: "#888" }}>
-                        {config.label} · Found on {issue.count} page{issue.count > 1 ? "s" : ""}
-                      </p>
-                    </div>
-                    <span
-                      className="text-xs font-bold px-3 py-1 rounded-lg"
-                      style={{ background: config.bg, color: config.color }}
-                    >
-                      {issue.count}
-                    </span>
+                    )}
                   </div>
                 );
               })}
@@ -307,15 +319,24 @@ export default function SiteAuditReport({ data }: { data: AuditReportData }) {
                       className="ml-14 mt-1 mb-2 p-3 rounded-xl"
                       style={{ background: "#FAFAFA", border: "1px solid #f0f0f0" }}
                     >
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-col gap-2">
                         {page.issues.map((issue) => (
-                          <span
-                            key={issue.key}
-                            className="text-xs px-2 py-1 rounded-md"
-                            style={{ background: "#fee2e2", color: "#dc2626" }}
-                          >
-                            {issue.label}
-                          </span>
+                          <div key={issue.key}>
+                            <span
+                              className="text-xs font-semibold px-2 py-1 rounded-md inline-block"
+                              style={{ background: "#fee2e2", color: "#dc2626" }}
+                            >
+                              {issue.label}
+                            </span>
+                            {issue.description && (
+                              <p
+                                className="text-xs leading-relaxed mt-1 ml-1"
+                                style={{ color: "#666" }}
+                              >
+                                {issue.description}
+                              </p>
+                            )}
+                          </div>
                         ))}
                       </div>
                       {page.topRecommendation && (

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { getRealFailedChecks, getCheckLabel } from "@/lib/audit-checks";
+import { getReportFailedChecks, getCheckLabel, getCheckDescription } from "@/lib/audit-checks";
 
 /**
  * POST /api/clients/[clientId]/reports/generate
@@ -147,7 +147,7 @@ async function buildSiteAuditSnapshot(
   // Process pages
   const pages = audit.pages.map((p: PageRecord) => {
     const checksObj = p.checks ? JSON.parse(p.checks) : {};
-    const failedChecks = getRealFailedChecks(checksObj);
+    const failedChecks = getReportFailedChecks(checksObj);
     const recs = p.recommendations ? JSON.parse(p.recommendations) : [];
 
     return {
@@ -160,6 +160,7 @@ async function buildSiteAuditSnapshot(
       issues: failedChecks.map((key: string) => ({
         key,
         label: getCheckLabel(key),
+        description: getCheckDescription(key),
       })),
       topRecommendation: recs[0]?.recommendation || null,
     };
@@ -227,6 +228,7 @@ async function buildSiteAuditSnapshot(
       label: v.label,
       count: v.count,
       severity: v.severity,
+      description: getCheckDescription(key),
     })),
     worstPages: [...pages]
       .filter((p) => p.onpageScore != null)
