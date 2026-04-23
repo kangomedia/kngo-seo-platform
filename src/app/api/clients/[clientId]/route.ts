@@ -71,6 +71,9 @@ export async function PUT(
     "monthlyBlogs", "monthlyGbpPosts", "monthlyGbpQAs", "monthlyPressReleases",
     "monthlyDirectoryListings", "includesAudit", "includesReporting",
     "gscProperty", "ga4PropertyId", "sitemapUrl",
+    // Business Profile (AI keyword targeting)
+    "businessDescription", "primaryServices", "idealClientProfile",
+    "priceRange", "industryVertical",
   ];
 
   for (const field of editableFields) {

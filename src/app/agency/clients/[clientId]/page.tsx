@@ -68,6 +68,11 @@ interface ClientDetail {
   monthlyPressReleases: number;
   monthlyDirectoryListings: number;
   onboardingStatus: string | null;
+  businessDescription: string | null;
+  primaryServices: string | null;
+  idealClientProfile: string | null;
+  priceRange: string | null;
+  industryVertical: string | null;
   keywords: Array<{
     id: string;
     keyword: string;
@@ -562,6 +567,11 @@ export default function ClientOverview() {
     monthlyGbpQAs: 2,
     monthlyPressReleases: 1,
     monthlyDirectoryListings: 25,
+    businessDescription: "",
+    primaryServices: "",
+    idealClientProfile: "",
+    priceRange: "",
+    industryVertical: "",
   });
 
   useEffect(() => {
@@ -601,6 +611,11 @@ export default function ClientOverview() {
       monthlyGbpQAs: data.monthlyGbpQAs || 2,
       monthlyPressReleases: data.monthlyPressReleases || 1,
       monthlyDirectoryListings: data.monthlyDirectoryListings || 25,
+      businessDescription: data.businessDescription || "",
+      primaryServices: data.primaryServices || "",
+      idealClientProfile: data.idealClientProfile || "",
+      priceRange: data.priceRange || "",
+      industryVertical: data.industryVertical || "",
     });
     setIsEditing(true);
   };
@@ -960,6 +975,114 @@ export default function ClientOverview() {
                 placeholder="e.g. https://example.com/sitemap_index.xml"
                 icon={<Globe size={14} />}
               />
+            </div>
+
+            {/* Business Profile (AI Keyword Targeting) */}
+            <h4
+              className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2"
+              style={{ color: "#8b5cf6" }}
+            >
+              <Sparkles size={14} />
+              Business Profile (AI Keyword Targeting)
+            </h4>
+            <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+              These fields help the AI generate high-quality, business-relevant keyword research.
+              The more context you provide, the better the keyword recommendations will be.
+            </p>
+            <div className="grid grid-cols-1 gap-4 mb-4">
+              <div>
+                <label
+                  className="text-xs font-bold uppercase tracking-wide mb-2 block"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Business Description
+                </label>
+                <textarea
+                  className="input-field"
+                  rows={3}
+                  value={editForm.businessDescription}
+                  onChange={(e) => updateField("businessDescription", e.target.value)}
+                  placeholder="e.g. Custom website development and SEO services for contractors and home service companies. Typical project value $10K-50K."
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label
+                  className="text-xs font-bold uppercase tracking-wide mb-2 block"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Industry Vertical
+                </label>
+                <select
+                  className="input-field"
+                  value={editForm.industryVertical}
+                  onChange={(e) => updateField("industryVertical", e.target.value)}
+                >
+                  <option value="">Select industry...</option>
+                  <option value="Construction">Construction</option>
+                  <option value="HVAC">HVAC</option>
+                  <option value="Plumbing">Plumbing</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Roofing">Roofing</option>
+                  <option value="Landscaping">Landscaping</option>
+                  <option value="Home Services">Home Services</option>
+                  <option value="Medical">Medical / Healthcare</option>
+                  <option value="Dental">Dental</option>
+                  <option value="Legal">Legal</option>
+                  <option value="Real Estate">Real Estate</option>
+                  <option value="Automotive">Automotive</option>
+                  <option value="Restaurant">Restaurant / Food Service</option>
+                  <option value="Technology">Technology / SaaS</option>
+                  <option value="E-commerce">E-commerce</option>
+                  <option value="Professional Services">Professional Services</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  className="text-xs font-bold uppercase tracking-wide mb-2 block"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Price Range
+                </label>
+                <select
+                  className="input-field"
+                  value={editForm.priceRange}
+                  onChange={(e) => updateField("priceRange", e.target.value)}
+                >
+                  <option value="">Select price range...</option>
+                  <option value="budget">Budget (under $1K)</option>
+                  <option value="mid-range">Mid-range ($1K - $5K)</option>
+                  <option value="premium">Premium ($5K - $25K)</option>
+                  <option value="enterprise">Enterprise ($25K+)</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 mb-4">
+              <EditField
+                label="Primary Services (comma-separated)"
+                value={(() => { try { const arr = JSON.parse(editForm.primaryServices || "[]"); return Array.isArray(arr) ? arr.join(", ") : editForm.primaryServices; } catch { return editForm.primaryServices; } })()}
+                onChange={(v) => updateField("primaryServices", JSON.stringify(v.split(",").map(s => s.trim()).filter(Boolean)))}
+                placeholder="e.g. custom websites, SEO, web applications"
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 mb-8">
+              <div>
+                <label
+                  className="text-xs font-bold uppercase tracking-wide mb-2 block"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Ideal Client Profile
+                </label>
+                <textarea
+                  className="input-field"
+                  rows={2}
+                  value={editForm.idealClientProfile}
+                  onChange={(e) => updateField("idealClientProfile", e.target.value)}
+                  placeholder="e.g. Large contractor companies with $5M+ revenue looking for premium digital presence"
+                />
+              </div>
             </div>
 
             {/* Service Plan */}

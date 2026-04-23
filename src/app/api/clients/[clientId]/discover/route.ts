@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
+import {
+  type BusinessProfile,
+  type RawKeyword,
+  generateSmartSeeds,
+  filterByNegativePatterns,
+  filterByIntent,
+  scoreKeywordRelevance,
+  generateStrategicAnalysis,
+} from "@/lib/keyword-intelligence";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
@@ -41,6 +50,11 @@ export async function POST(
       serviceAreas: true,
       targetCities: true,
       competitors: true,
+      businessDescription: true,
+      primaryServices: true,
+      idealClientProfile: true,
+      priceRange: true,
+      industryVertical: true,
     },
   });
 
@@ -78,13 +92,26 @@ export async function POST(
     authHdr
   );
 
+  // Parse business profile fields
+  const primaryServices: string[] = (() => { try { return JSON.parse(client.primaryServices || "[]"); } catch { return []; } })();
+
+  const businessProfile: BusinessProfile = {
+    clientName: client.name,
+    domain: client.domain,
+    businessDescription: client.businessDescription || null,
+    primaryServices,
+    idealClientProfile: client.idealClientProfile || null,
+    priceRange: client.priceRange || null,
+    industryVertical: client.industryVertical || null,
+    serviceAreas,
+    targetCities,
+  };
+
   const keywordPromise = discoverKeywords(
     clientId,
     client.domain,
     competitors,
-    serviceAreas,
-    targetCities,
-    client.name,
+    businessProfile,
     authHdr
   );
 
@@ -391,22 +418,75 @@ async function discoverKeywords(
   clientId: string,
   domain: string,
   competitors: string[],
-  serviceAreas: string[],
-  targetCities: string[],
-  clientName: string,
+  profile: BusinessProfile,
   authHdr: string,
 ) {
-  // Collect keywords from domain + competitors using keywords_for_site
-  const domains = [domain, ...competitors.slice(0, 3)];
-  const allKeywords: Array<{
-    keyword: string;
-    searchVolume: number;
-    competition: number;
-    cpc: number;
-    source: string;
-  }> = [];
+  const allKeywords: RawKeyword[] = [];
 
-  for (const d of domains) {
+  // ── Stage 1: Smart Seed-Based Discovery (keyword_suggestions) ──
+  const seeds = generateSmartSeeds(profile);
+  console.log(`[DISCOVER] Generated ${seeds.length} smart seeds: ${seeds.slice(0, 5).join(", ")}...`);
+
+  for (const seed of seeds.slice(0, 15)) {
+    try {
+      const body = [
+        {
+          keyword: seed,
+          location_name: "United States",
+          language_name: "English",
+          include_seed_keyword: true,
+          limit: 50,
+        },
+      ];
+
+      const response = await fetch(
+        `${DATAFORSEO_API}/dataforseo_labs/google/keyword_suggestions/live`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHdr },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        const taskStatus = result?.tasks?.[0]?.status_code;
+        if (taskStatus && taskStatus !== 20000) {
+          console.error(`[DISCOVER] keyword_suggestions task error for "${seed}": ${taskStatus}`);
+          continue;
+        }
+
+        const items = result?.tasks?.[0]?.result?.[0]?.items || [];
+        console.log(`[DISCOVER] keyword_suggestions "${seed}": ${items.length} keywords returned`);
+
+        for (const item of items) {
+          const kw = item?.keyword;
+          const info = item?.keyword_info;
+          const intentInfo = item?.search_intent_info;
+          if (kw && info && info.search_volume > 0) {
+            allKeywords.push({
+              keyword: kw,
+              searchVolume: info.search_volume || 0,
+              competition: Math.round((info.competition || 0) * 100),
+              cpc: info.cpc || 0,
+              source: `seed:${seed}`,
+              intent: intentInfo?.main_intent || null,
+            });
+          }
+        }
+      } else {
+        const errText = await response.text();
+        console.error(`[DISCOVER] keyword_suggestions HTTP ${response.status} for "${seed}": ${errText}`);
+      }
+    } catch (err) {
+      console.error(`[DISCOVER] Error in keyword_suggestions for "${seed}":`, err);
+    }
+  }
+
+  // ── Stage 2: Competitor Gap Analysis (keywords_for_site) ──
+  // Still use keywords_for_site for competitor domains to find gap opportunities
+  const competitorDomains = competitors.slice(0, 3);
+  for (const d of competitorDomains) {
     try {
       const cleanDomain = d.replace(/^https?:\/\//, "").replace(/\/$/, "");
       const body = [
@@ -414,7 +494,7 @@ async function discoverKeywords(
           target: cleanDomain,
           location_name: "United States",
           language_name: "English",
-          limit: 100,
+          limit: 80,
         },
       ];
 
@@ -429,186 +509,102 @@ async function discoverKeywords(
 
       if (response.ok) {
         const result = await response.json();
-        const taskStatus = result?.tasks?.[0]?.status_code;
-        const taskMsg = result?.tasks?.[0]?.status_message;
-        
-        if (taskStatus && taskStatus !== 20000) {
-          console.error(`[DISCOVER] DataForSEO task error for ${d}: ${taskStatus} — ${taskMsg}`);
-        }
-        
         const items = result?.tasks?.[0]?.result?.[0]?.items || [];
-        console.log(`[DISCOVER] keywords_for_site "${d}": ${items.length} keywords returned`);
+        console.log(`[DISCOVER] keywords_for_site competitor "${d}": ${items.length} keywords`);
 
         for (const item of items) {
           const kwData = item?.keyword_data || item;
           const kw = kwData?.keyword;
           const info = kwData?.keyword_info;
+          const intentInfo = kwData?.search_intent_info || item?.search_intent_info;
           if (kw && info) {
             allKeywords.push({
               keyword: kw,
               searchVolume: info.search_volume || 0,
               competition: Math.round((info.competition || 0) * 100),
               cpc: info.cpc || 0,
-              source: d === domain ? "own_site" : `competitor:${d}`,
+              source: `competitor:${d}`,
+              intent: intentInfo?.main_intent || null,
             });
           }
         }
-      } else {
-        const errText = await response.text();
-        console.error(`[DISCOVER] keywords_for_site HTTP ${response.status} for ${d}: ${errText}`);
       }
     } catch (err) {
-      console.error(`[DISCOVER] Error fetching keywords for ${d}:`, err);
+      console.error(`[DISCOVER] Error fetching competitor keywords for ${d}:`, err);
     }
   }
 
-  // ── Fallback: If keywords_for_site returned nothing, use seed-based discovery ──
-  if (allKeywords.length === 0) {
-    console.log(`[DISCOVER] keywords_for_site returned 0 results. Falling back to seed-based discovery.`);
-    
-    // Build seed topics from service areas, business name, and target cities
-    const seeds: string[] = [];
-    if (serviceAreas.length > 0) seeds.push(...serviceAreas.slice(0, 3));
-    if (seeds.length === 0) {
-      // Use business name + common industry terms as fallback seeds
-      seeds.push(clientName);
-    }
-    // Add location-qualified variations
-    const primaryCity = targetCities.length > 0 ? targetCities[0] : null;
-    if (primaryCity && seeds.length > 0) {
-      const locationSeeds = seeds.slice(0, 2).map(s => `${s} ${primaryCity}`);
-      seeds.push(...locationSeeds);
-    }
-    
-    console.log(`[DISCOVER] Seed-based fallback using: ${seeds.join(", ")}`);
-    
-    for (const seed of seeds.slice(0, 5)) {
-      try {
-        const body = [
-          {
-            keywords: [seed.trim()],
-            location_code: 2840, // United States
-            language_code: "en",
-            include_seed_keyword: true,
-            sort_by: "search_volume",
-          },
-        ];
+  console.log(`[DISCOVER] Total raw keywords collected: ${allKeywords.length}`);
 
-        const response = await fetch(
-          `${DATAFORSEO_API}/keywords_data/google_ads/keywords_for_keywords/live`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: authHdr },
-            body: JSON.stringify(body),
-          }
-        );
-
-        if (response.ok) {
-          const result = await response.json();
-          const items = result?.tasks?.[0]?.result || [];
-          console.log(`[DISCOVER] keywords_for_keywords "${seed}": ${items.length} keywords returned`);
-
-          for (const item of items) {
-            if (item.keyword && item.search_volume > 0) {
-              allKeywords.push({
-                keyword: item.keyword,
-                searchVolume: item.search_volume || 0,
-                competition: item.competition ? Math.round(item.competition * 100) : 0,
-                cpc: item.cpc || 0,
-                source: `seed:${seed}`,
-              });
-            }
-          }
-        } else {
-          const errText = await response.text();
-          console.error(`[DISCOVER] keywords_for_keywords HTTP ${response.status} for "${seed}": ${errText}`);
-        }
-      } catch (err) {
-        console.error(`[DISCOVER] Error in seed fallback for "${seed}":`, err);
-      }
-    }
-  }
-
-  // Deduplicate by keyword
-  const seen = new Map<string, (typeof allKeywords)[number]>();
+  // ── Stage 3: Deduplicate ──
+  const seen = new Map<string, RawKeyword>();
   for (const kw of allKeywords) {
-    const existing = seen.get(kw.keyword.toLowerCase());
+    const key = kw.keyword.toLowerCase();
+    const existing = seen.get(key);
     if (!existing || kw.searchVolume > existing.searchVolume) {
-      seen.set(kw.keyword.toLowerCase(), kw);
+      seen.set(key, kw);
     }
   }
-  const uniqueKeywords = Array.from(seen.values())
-    .sort((a, b) => b.searchVolume - a.searchVolume)
-    .slice(0, 150);
+  let filtered = Array.from(seen.values());
+  console.log(`[DISCOVER] After dedup: ${filtered.length} keywords`);
 
-  // AI Analysis via Claude
+  // ── Stage 4: Negative Pattern Filter ──
+  filtered = filterByNegativePatterns(filtered);
+  console.log(`[DISCOVER] After negative pattern filter: ${filtered.length} keywords`);
+
+  // ── Stage 5: Intent Filter ──
+  filtered = filterByIntent(filtered);
+  console.log(`[DISCOVER] After intent filter: ${filtered.length} keywords`);
+
+  // ── Stage 6: AI Relevance Scoring ──
+  const anthropicKey =
+    process.env.ANTHROPIC_API_KEY ||
+    (await prisma.agencySettings.findUnique({ where: { id: "default" } }))?.claudeApiKey;
+
+  let scoredKeywords = filtered.map(kw => ({
+    ...kw,
+    intent: kw.intent || "unknown",
+    relevanceScore: 5,
+    relevanceReason: "Default score — AI scoring not available",
+    suggestedGroup: "General",
+  }));
+
+  if (anthropicKey && filtered.length > 0) {
+    console.log(`[DISCOVER] Running AI relevance scoring on ${filtered.length} keywords...`);
+    const aiScored = await scoreKeywordRelevance(filtered, profile, anthropicKey);
+    if (aiScored.length > 0) {
+      scoredKeywords = aiScored;
+      console.log(`[DISCOVER] AI scoring complete: ${aiScored.length} keywords passed (score ≥ 4)`);
+    }
+  }
+
+  // Limit to top 80
+  const finalKeywords = scoredKeywords.slice(0, 80);
+
+  // ── Stage 7: Strategic Analysis ──
   let aiAnalysis: string | null = null;
-  try {
-    const anthropicKey =
-      process.env.ANTHROPIC_API_KEY ||
-      (await prisma.agencySettings.findUnique({ where: { id: "default" } }))?.claudeApiKey;
-
-    if (anthropicKey && uniqueKeywords.length > 0) {
-      const topKeywords = uniqueKeywords.slice(0, 80);
-      const prompt = `You are an SEO strategist. A client named "${clientName}" has a website at ${domain}.
-
-Their service areas: ${serviceAreas.length > 0 ? serviceAreas.join(", ") : "Not specified"}
-Their target cities: ${targetCities.length > 0 ? targetCities.join(", ") : "Not specified"}
-Competitors analyzed: ${competitors.length > 0 ? competitors.join(", ") : "None"}
-
-Here are ${topKeywords.length} keywords discovered from their website and competitor sites:
-
-${topKeywords.map((k, i) => `${i + 1}. "${k.keyword}" — Volume: ${k.searchVolume}, Competition: ${k.competition}%, CPC: $${k.cpc.toFixed(2)}, Source: ${k.source}`).join("\n")}
-
-Provide a strategic analysis:
-1. **Top 15 Recommended Keywords** — the keywords they should start tracking immediately, prioritized by ROI potential (good volume + low competition)
-2. **Quick Wins** — keywords where they likely already have some presence and could rank with minimal effort
-3. **Content Gaps** — topics their competitors rank for that they should target
-4. **Local SEO Opportunities** — city-specific keywords they should create landing pages for
-5. **Monthly Content Themes** — suggested blog topics for the first 3 months based on these keywords
-
-Be specific, actionable, and focused on ROI.`;
-
-      const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 2000,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (anthropicRes.ok) {
-        const anthropicData = await anthropicRes.json();
-        aiAnalysis = anthropicData?.content?.[0]?.text || null;
-      }
-    }
-  } catch (err) {
-    console.error("[DISCOVER] AI analysis error:", err);
+  if (anthropicKey && finalKeywords.length > 0) {
+    console.log(`[DISCOVER] Generating strategic analysis...`);
+    aiAnalysis = await generateStrategicAnalysis(finalKeywords, profile, anthropicKey);
   }
 
-  // Save to KeywordResearch
+  // ── Save to KeywordResearch ──
   try {
     const research = await prisma.keywordResearch.create({
       data: {
         clientId,
-        seedTopics: `Site Discovery: ${domain}${competitors.length > 0 ? ` + ${competitors.join(", ")}` : ""}`,
-        location: targetCities.length > 0 ? targetCities[0] : "United States",
-        results: JSON.stringify(uniqueKeywords),
+        seedTopics: seeds.join(", "),
+        location: profile.targetCities.length > 0 ? profile.targetCities[0] : "United States",
+        results: JSON.stringify(finalKeywords),
         aiAnalysis,
-        keywordsFound: uniqueKeywords.length,
+        keywordsFound: finalKeywords.length,
       },
     });
-    console.log(`[DISCOVER] Successfully saved ${uniqueKeywords.length} keywords for ${domain} to DB.`);
+    console.log(`[DISCOVER] Saved ${finalKeywords.length} scored keywords for ${domain} to DB.`);
     return {
       researchId: research.id,
-      keywordsFound: uniqueKeywords.length,
-      keywords: uniqueKeywords.slice(0, 20), // Return top 20 for quick preview
+      keywordsFound: finalKeywords.length,
+      keywords: finalKeywords.slice(0, 20),
       aiAnalysis,
     };
   } catch (err) {
@@ -616,3 +612,4 @@ Be specific, actionable, and focused on ROI.`;
     throw err;
   }
 }
+

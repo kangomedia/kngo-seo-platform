@@ -27,6 +27,10 @@ interface KeywordData {
   competition: number;
   cpc: number;
   source: string;
+  intent?: string;
+  relevanceScore?: number;
+  relevanceReason?: string;
+  suggestedGroup?: string;
 }
 
 interface GSCQuery {
@@ -378,37 +382,71 @@ export default function BaselineReport({ data }: { data: BaselineReportData }) {
               style={{ color: "#222" }}
             >
               <Target size={20} style={{ color: "#f59e0b" }} />
-              Keyword Opportunities
+              AI-Curated Keyword Opportunities
             </h2>
             <p className="text-sm mb-4" style={{ color: "#888" }}>
-              {data.keywords.length} keywords discovered with SEO potential
+              {data.keywords.length} high-intent keywords matched to your business
             </p>
 
             <div className="flex flex-col gap-2">
-              {data.keywords.slice(0, 15).map((kw, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 p-3 rounded-xl"
-                  style={{ background: "#FAFAFA" }}
-                >
-                  <span
-                    className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{ background: "#fef3c7", color: "#b45309" }}
+              {data.keywords.slice(0, 20).map((kw, i) => {
+                const hasAiData = kw.relevanceScore != null && kw.relevanceScore > 0;
+                const intentColor = kw.intent === "commercial" ? "#16a34a"
+                  : kw.intent === "transactional" ? "#2563eb"
+                  : "#9ca3af";
+                const intentBg = kw.intent === "commercial" ? "#dcfce7"
+                  : kw.intent === "transactional" ? "#dbeafe"
+                  : "#f3f4f6";
+
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 p-3 rounded-xl"
+                    style={{ background: "#FAFAFA" }}
                   >
-                    {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: "#222" }}>
-                      {kw.keyword}
-                    </p>
-                    <p className="text-xs" style={{ color: "#888" }}>
-                      {kw.searchVolume.toLocaleString()} monthly searches ·{" "}
-                      {kw.competition}% competition
-                      {kw.cpc > 0 && ` · $${kw.cpc.toFixed(2)} CPC`}
-                    </p>
+                    <span
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0"
+                      style={{ background: "#fef3c7", color: "#b45309" }}
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="text-sm font-semibold truncate" style={{ color: "#222" }}>
+                          {kw.keyword}
+                        </p>
+                        {hasAiData && kw.intent && kw.intent !== "unknown" && (
+                          <span
+                            className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded flex-shrink-0"
+                            style={{ background: intentBg, color: intentColor }}
+                          >
+                            {kw.intent}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs" style={{ color: "#888" }}>
+                          {kw.searchVolume.toLocaleString()} monthly searches ·{" "}
+                          {kw.competition}% competition
+                          {kw.cpc > 0 && ` · $${kw.cpc.toFixed(2)} CPC`}
+                        </p>
+                        {hasAiData && (
+                          <span className="text-[10px] flex-shrink-0" style={{ color: "#b45309" }}>
+                            {"●".repeat(Math.min(kw.relevanceScore!, 5))}
+                            {"○".repeat(Math.max(0, 5 - Math.min(kw.relevanceScore!, 5)))}
+                          </span>
+                        )}
+                      </div>
+                      {hasAiData && kw.suggestedGroup && kw.suggestedGroup !== "General" && (
+                        <p className="text-[10px] mt-0.5" style={{ color: "#aaa" }}>
+                          {kw.suggestedGroup}
+                          {kw.relevanceReason && ` — ${kw.relevanceReason}`}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

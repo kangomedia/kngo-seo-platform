@@ -115,6 +115,13 @@ model Client {
   targetCities      String?  @db.Text              // JSON array: ["McAllen, TX", "Mission, TX"]
   competitors       String?  @db.Text              // JSON array: ["competitor1.com", "competitor2.com"]
 
+  // Business Profile (for AI keyword targeting)
+  businessDescription  String?  @db.Text  // "Custom website development for contractors $10K+"
+  primaryServices      String?  @db.Text  // JSON array: ["custom websites", "web apps", "SEO"]
+  idealClientProfile   String?  @db.Text  // "Large contractor companies, $5M+ revenue"
+  priceRange           String?            // "budget", "mid-range", "premium", "enterprise"
+  industryVertical     String?            // "Construction", "Medical", "Legal" etc.
+
   // Relations
   users              ClientUser[]
   keywords           Keyword[]
