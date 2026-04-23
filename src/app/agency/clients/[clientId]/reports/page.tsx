@@ -165,7 +165,7 @@ export default function ReportsPage() {
 
           {showDropdown && (
             <div
-              className="absolute right-0 mt-2 py-2 rounded-xl z-50"
+              className="absolute right-0 mt-2 py-2 rounded-xl z-[100]"
               style={{
                 background: "var(--card-bg)",
                 border: "1px solid var(--border)",
