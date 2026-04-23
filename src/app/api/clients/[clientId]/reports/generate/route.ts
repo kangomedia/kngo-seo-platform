@@ -25,7 +25,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { type } = body;
+  const { type, month: reqMonth, year: reqYear } = body;
   if (!type || !["SITE_AUDIT", "BASELINE"].includes(type)) {
     return NextResponse.json(
       { error: "type must be SITE_AUDIT or BASELINE" },
@@ -49,8 +49,8 @@ export async function POST(
   }
 
   const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
+  const month = reqMonth || now.getMonth() + 1;
+  const year = reqYear || now.getFullYear();
 
   try {
     if (type === "SITE_AUDIT") {

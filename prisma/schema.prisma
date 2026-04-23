@@ -324,6 +324,7 @@ model Report {
   highlights  String?  @db.Text // JSON array of key wins
   pdfUrl      String?
   isPublished Boolean  @default(false)
+  isArchived  Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

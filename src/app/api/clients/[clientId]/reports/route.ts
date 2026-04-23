@@ -16,10 +16,15 @@ export async function GET(
   }
 
   const { clientId } = await params;
+  const url = new URL(request.url);
+  const showArchived = url.searchParams.get("archived") === "true";
 
   const reports = await prisma.report.findMany({
-    where: { clientId },
-    orderBy: [{ year: "desc" }, { month: "desc" }],
+    where: {
+      clientId,
+      ...(showArchived ? {} : { isArchived: false }),
+    },
+    orderBy: [{ year: "desc" }, { month: "desc" }, { createdAt: "desc" }],
   });
 
   return NextResponse.json(reports);
@@ -63,9 +68,17 @@ export async function POST(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
+  // Accept optional month/year from request body
+  let bodyData: { month?: number; year?: number } = {};
+  try {
+    bodyData = await request.json();
+  } catch {
+    // No body — use current month
+  }
+
   const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
+  const month = bodyData.month || now.getMonth() + 1;
+  const year = bodyData.year || now.getFullYear();
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -216,4 +229,77 @@ export async function POST(
   });
 
   return NextResponse.json(report);
+}
+
+/** PATCH: Archive/unarchive or update a report */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const { reportId, isArchived } = body;
+  if (!reportId || typeof isArchived !== "boolean") {
+    return NextResponse.json(
+      { error: "reportId and isArchived (boolean) are required" },
+      { status: 400 }
+    );
+  }
+
+  // Ensure report belongs to this client
+  const report = await prisma.report.findFirst({
+    where: { id: reportId, clientId },
+  });
+  if (!report) {
+    return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  }
+
+  const updated = await prisma.report.update({
+    where: { id: reportId },
+    data: { isArchived },
+  });
+
+  return NextResponse.json(updated);
+}
+
+/** DELETE: Permanently delete a report */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  const url = new URL(request.url);
+  const reportId = url.searchParams.get("reportId");
+
+  if (!reportId) {
+    return NextResponse.json({ error: "reportId is required" }, { status: 400 });
+  }
+
+  // Ensure report belongs to this client
+  const report = await prisma.report.findFirst({
+    where: { id: reportId, clientId },
+  });
+  if (!report) {
+    return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  }
+
+  await prisma.report.delete({ where: { id: reportId } });
+
+  return NextResponse.json({ success: true });
 }
