@@ -83,6 +83,7 @@ export async function POST(
       load_resources: true,
       enable_browser_rendering: true,
       store_raw_html: false,
+      respect_sitemap: true,
       custom_sitemap: sitemapUrl,
     },
   ];

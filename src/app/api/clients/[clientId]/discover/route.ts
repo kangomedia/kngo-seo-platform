@@ -201,6 +201,7 @@ async function triggerSiteAudit(
       load_resources: false,
       enable_browser_rendering: false,
       store_raw_html: false,
+      respect_sitemap: true,
       custom_sitemap: `${targetDomain}/sitemap.xml`,
     },
   ];
