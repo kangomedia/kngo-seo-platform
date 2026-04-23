@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import { getRealFailedChecks, getRealPassedChecks, getCheckLabel } from "@/lib/audit-checks";
+import { getRealFailedChecks, getRealPassedChecks, getCheckLabel, getCheckDescription } from "@/lib/audit-checks";
 
 /* ─── Types ──────────────────────────────────────────── */
 
@@ -820,15 +820,19 @@ export default function SiteAuditPage() {
                               ❌ Issues ({failed.length})
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                              {failed.map((c) => (
-                                <span key={c} style={{
-                                  background: "rgba(239,68,68,0.1)", color: "#fca5a5",
-                                  padding: "4px 10px", borderRadius: 6, fontSize: 12,
-                                  border: "1px solid rgba(239,68,68,0.2)",
-                                }}>
-                                  {getCheckLabel(c)}
-                                </span>
-                              ))}
+                              {failed.map((c) => {
+                                const desc = getCheckDescription(c);
+                                return (
+                                  <span key={c} title={desc || undefined} style={{
+                                    background: "rgba(239,68,68,0.1)", color: "#fca5a5",
+                                    padding: "4px 10px", borderRadius: 6, fontSize: 12,
+                                    border: "1px solid rgba(239,68,68,0.2)",
+                                    cursor: desc ? "help" : "default",
+                                  }}>
+                                    {getCheckLabel(c)}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -911,6 +915,11 @@ export default function SiteAuditPage() {
                         <div style={{ color: "#e5e7eb", fontSize: 13, fontWeight: 500 }}>
                           {getCheckLabel(issue.checkKey)}
                         </div>
+                        {getCheckDescription(issue.checkKey) && (
+                          <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
+                            {getCheckDescription(issue.checkKey)}
+                          </div>
+                        )}
                         <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {issue.page?.url?.replace(/^https?:\/\//, "") || ""}
                         </div>
