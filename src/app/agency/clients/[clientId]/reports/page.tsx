@@ -144,7 +144,7 @@ export default function ReportsPage() {
     <div className="max-w-4xl stagger">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-extrabold">Client Reports</h2>
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative z-50" ref={dropdownRef}>
           <button
             className="btn-primary text-sm flex items-center gap-2"
             onClick={() => setShowDropdown(!showDropdown)}
