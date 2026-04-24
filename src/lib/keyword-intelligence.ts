@@ -43,65 +43,38 @@ export interface ScoredKeyword extends RawKeyword {
 // ─── Negative Keyword Patterns ───────────────────────────
 
 /**
- * Keywords matching any of these patterns are immediately dropped.
- * These represent queries that are never relevant for a service-based
- * business client (DIY, tutorials, competitor platforms, games, jobs, etc.)
+ * UNIVERSAL negative patterns — only things that are NEVER relevant
+ * for ANY legitimate business client. Industry-specific filtering
+ * is handled by the AI relevance scorer (Stage 6) which has full
+ * business context.
+ *
+ * DO NOT add industry-specific terms here (e.g. "wix", "shopify",
+ * "freelance", "template", "game"). A Shopify agency WANTS "shopify"
+ * keywords, a game studio WANTS "game" keywords, etc.
  */
 const NEGATIVE_PATTERNS: RegExp[] = [
-  /\bfree\b/i,
-  /\bdiy\b/i,
-  /\btutorial[s]?\b/i,
-  /\bhow to\b/i,
-  /\bhow do\b/i,
-  /\bwhat is\b/i,
+  // Piracy / illegal
+  /\bcrack(ed)?\b/i,
+  /\btorrent[s]?\b/i,
+  /\bpirat(e|ed|ing)\b/i,
+  /\bkeygen\b/i,
+
+  // Explicit / spam
+  /\bxxx\b/i,
+  /\bporn\b/i,
+
+  // Noise that pollutes any business keyword list
+  /\bwordle\b/i,
   /\breddit\b/i,
   /\bquora\b/i,
-  /\bwix\b/i,
-  /\bwordpress\.com\b/i,
-  /\bsquarespace\b/i,
-  /\bweebly\b/i,
-  /\bwixsite\b/i,
-  /\bgodaddy\b/i,
-  /\bshopify\b/i,
-  /\btemplate[s]?\b/i,
-  /\bcourse[s]?\b/i,
-  /\blearn\b/i,
-  /\bsalary\b/i,
-  /\bjob[s]?\b/i,
-  /\bhiring\b/i,
-  /\bintern(ship)?\b/i,
-  /\bcareer[s]?\b/i,
-  /\bresume\b/i,
-  /\bopen[\s-]?source\b/i,
-  /\bgithub\b/i,
-  /\bstack[\s-]?overflow\b/i,
-  /\bwordle\b/i,
-  /\bgame[s]?\b/i,
-  /\bdownload\b/i,
-  /\bcrack\b/i,
-  /\btorrent\b/i,
-  /\bplugin[s]?\b/i,
-  /\bextension[s]?\b/i,
-  /\blogo[\s-]?maker\b/i,
-  /\bai\s+(generator|maker|creator|builder|writer)\b/i,
-  /\bonline\s+(free|tool|maker|generator|converter)\b/i,
-  /\b(make|create|build)\s+(your\s+own|a|my)\b/i,
-  /\bfreelance[r]?\b/i,
-  /\bcheap(est)?\b/i,
-  /\b(example|sample|demo)[s]?\b/i,
-  /\bmeaning\b/i,
-  /\bdefinition\b/i,
-  /\bvs\b/i,
-  /\bcomparison\b/i,
-  /\balternative[s]?\b/i,
-  /\breview[s]?\b/i,
-  /\bpdf\b/i,
   /\b(youtube|tiktok|instagram)\b/i,
 ];
 
 /**
- * Filter out keywords that match negative patterns.
- * Returns only keywords that pass all pattern checks.
+ * Filter out keywords that match universal negative patterns.
+ * This is intentionally a SMALL list — business-specific relevance
+ * filtering is handled by the AI scorer, which knows the client's
+ * industry, services, and ideal customer profile.
  */
 export function filterByNegativePatterns(keywords: RawKeyword[]): RawKeyword[] {
   return keywords.filter((kw) => {
@@ -266,7 +239,7 @@ For each keyword, provide:
 Respond ONLY with a JSON array. No markdown, no explanation. Just the array:
 [{"index":1,"score":8,"reason":"Directly matches their core offering","group":"Core Services"},...]
 
-IMPORTANT: Be strict. If a keyword wouldn't bring a qualified lead to THIS business, score it low. A web development company doesn't need keywords about "wordle" or "build website with wix" — those are DIY searches, not buyers.`;
+IMPORTANT: Be strict. If a keyword wouldn't bring a qualified lead to THIS specific business based on their profile above, score it low. Consider their industry, services, price range, and ideal client when scoring.`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
