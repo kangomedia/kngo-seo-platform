@@ -19,6 +19,7 @@ interface AuditPage {
   checks: string | null;
   onpageScore: number | null;
   recommendations: string | null;
+  excludedFromReport?: boolean;
 }
 
 interface Audit {
@@ -281,6 +282,42 @@ export default function SiteAuditPage() {
       n.has(pageId) ? n.delete(pageId) : n.add(pageId);
       return n;
     });
+  };
+
+  const togglePageExclusion = async (page: AuditPage) => {
+    if (!activeAudit) return;
+    const newExcluded = !page.excludedFromReport;
+
+    // Optimistic update
+    setActiveAudit((prev) => {
+      if (!prev || !prev.pages) return prev;
+      return {
+        ...prev,
+        pages: prev.pages.map((p) =>
+          p.id === page.id ? { ...p, excludedFromReport: newExcluded } : p
+        ),
+      };
+    });
+
+    try {
+      await fetch(`/api/clients/${clientId}/audit/${activeAudit.id}/pages/exclude`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageIds: [page.id], exclude: newExcluded }),
+      });
+    } catch (err) {
+      console.error("[AUDIT] Failed to toggle page exclusion:", err);
+      // Revert on error
+      setActiveAudit((prev) => {
+        if (!prev || !prev.pages) return prev;
+        return {
+          ...prev,
+          pages: prev.pages.map((p) =>
+            p.id === page.id ? { ...p, excludedFromReport: !newExcluded } : p
+          ),
+        };
+      });
+    }
   };
 
   const parseChecks = (checksJson: string | null): Record<string, boolean> => {
@@ -617,14 +654,15 @@ export default function SiteAuditPage() {
                 const recs = parseRecs(page.recommendations);
                 const expanded = expandedPages.has(page.id);
                 const isGenerating = generatingRecs.has(page.id);
+                const isExcluded = page.excludedFromReport === true;
 
                 return (
-                  <div key={page.id} style={{ borderBottom: "1px solid #374151" }}>
+                  <div key={page.id} style={{ borderBottom: "1px solid #374151", opacity: isExcluded ? 0.45 : 1, transition: "opacity 0.2s" }}>
                     {/* Row header */}
                     <button
                       onClick={() => togglePage(page.id)}
                       style={{
-                        display: "grid", gridTemplateColumns: "1fr 80px 80px 60px",
+                        display: "grid", gridTemplateColumns: "1fr 80px 80px 40px 60px",
                         gap: 12, width: "100%", padding: "12px 20px",
                         background: "transparent", border: "none", cursor: "pointer",
                         textAlign: "left", alignItems: "center",
@@ -636,13 +674,13 @@ export default function SiteAuditPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          style={{ color: "#a5b4fc", fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none", display: "block" }}
-                          onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
-                          onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
+                          style={{ color: isExcluded ? "#6b7280" : "#a5b4fc", fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isExcluded ? "line-through" : "none", display: "block" }}
+                          onMouseOver={(e) => (e.currentTarget.style.textDecoration = isExcluded ? "line-through" : "underline")}
+                          onMouseOut={(e) => (e.currentTarget.style.textDecoration = isExcluded ? "line-through" : "none")}
                         >
                           {page.url.replace(/^https?:\/\//, "")}
                         </a>
-                        {page.title && <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{page.title}</div>}
+                        {page.title && <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{page.title}{isExcluded && " (hidden from report)"}</div>}
                       </div>
                       <div style={{ color: scoreColor(page.onpageScore), fontWeight: 700, fontSize: 14, textAlign: "right" }}>
                         {page.onpageScore !== null ? (
@@ -658,6 +696,23 @@ export default function SiteAuditPage() {
                         }}>
                           {failed.length} issue{failed.length !== 1 ? "s" : ""}
                         </span>
+                      </div>
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePageExclusion(page);
+                        }}
+                        title={isExcluded ? "Show in report" : "Hide from report"}
+                        style={{
+                          color: isExcluded ? "#22c55e" : "#6b7280",
+                          fontSize: 14,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {isExcluded ? "👁" : "🚫"}
                       </div>
                       <div style={{ color: "#6b7280", fontSize: 16 }}>{expanded ? "▼" : "▶"}</div>
                     </button>

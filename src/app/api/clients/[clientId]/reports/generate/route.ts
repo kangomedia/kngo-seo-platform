@@ -111,6 +111,7 @@ interface PageRecord {
   onpageScore: number | null;
   checks: string | null;
   recommendations: string | null;
+  excludedFromReport?: boolean;
 }
 
 async function buildSiteAuditSnapshot(
@@ -144,8 +145,9 @@ async function buildSiteAuditSnapshot(
     };
   }
 
-  // Process pages
-  const pages = audit.pages.map((p: PageRecord) => {
+  // Process pages — filter out excluded pages first
+  const includedPages = audit.pages.filter((p: PageRecord) => !p.excludedFromReport);
+  const pages = includedPages.map((p: PageRecord) => {
     const checksObj = p.checks ? JSON.parse(p.checks) : {};
     const failedChecks = getReportFailedChecks(checksObj);
     const recs = p.recommendations ? JSON.parse(p.recommendations) : [];

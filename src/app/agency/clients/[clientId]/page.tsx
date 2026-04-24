@@ -1014,30 +1014,52 @@ export default function ClientOverview() {
                 >
                   Industry Vertical
                 </label>
-                <select
-                  className="input-field"
-                  value={editForm.industryVertical}
-                  onChange={(e) => updateField("industryVertical", e.target.value)}
-                >
-                  <option value="">Select industry...</option>
-                  <option value="Construction">Construction</option>
-                  <option value="HVAC">HVAC</option>
-                  <option value="Plumbing">Plumbing</option>
-                  <option value="Electrical">Electrical</option>
-                  <option value="Roofing">Roofing</option>
-                  <option value="Landscaping">Landscaping</option>
-                  <option value="Home Services">Home Services</option>
-                  <option value="Medical">Medical / Healthcare</option>
-                  <option value="Dental">Dental</option>
-                  <option value="Legal">Legal</option>
-                  <option value="Real Estate">Real Estate</option>
-                  <option value="Automotive">Automotive</option>
-                  <option value="Restaurant">Restaurant / Food Service</option>
-                  <option value="Technology">Technology / SaaS</option>
-                  <option value="E-commerce">E-commerce</option>
-                  <option value="Professional Services">Professional Services</option>
-                  <option value="Other">Other</option>
-                </select>
+                {(() => {
+                  const INDUSTRY_OPTIONS = [
+                    "Construction", "General Contractor", "HVAC", "Plumbing", "Electrical",
+                    "Roofing", "Landscaping", "Pest Control", "Home Services", "Cleaning Services",
+                    "Auto Repair", "Automotive",
+                    "Medical", "Dental", "Legal",
+                    "Real Estate", "Insurance", "Financial Services", "Accounting",
+                    "Restaurant", "Fitness",
+                    "Web Development", "Marketing / Advertising", "Technology / SaaS",
+                    "CAD / Engineering", "Architecture",
+                    "E-commerce", "Professional Services", "Education / Training",
+                  ];
+                  const isCustom = editForm.industryVertical && !INDUSTRY_OPTIONS.includes(editForm.industryVertical) && editForm.industryVertical !== "";
+                  const selectValue = isCustom ? "__other__" : editForm.industryVertical;
+
+                  return (
+                    <>
+                      <select
+                        className="input-field"
+                        value={selectValue}
+                        onChange={(e) => {
+                          if (e.target.value === "__other__") {
+                            updateField("industryVertical", "");
+                          } else {
+                            updateField("industryVertical", e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="">Select industry...</option>
+                        {INDUSTRY_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                        <option value="__other__">Other (type below)</option>
+                      </select>
+                      {(selectValue === "__other__" || isCustom) && (
+                        <input
+                          className="input-field mt-2"
+                          value={editForm.industryVertical}
+                          onChange={(e) => updateField("industryVertical", e.target.value)}
+                          placeholder="Type your industry..."
+                          autoFocus
+                        />
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div>
                 <label

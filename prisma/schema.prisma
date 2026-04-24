@@ -386,6 +386,7 @@ model SiteAuditPage {
   checks          String?  @db.Text // JSON: per-page check results
   onpageScore     Float?
   recommendations String?  @db.Text // JSON: AI-generated recs per check
+  excludedFromReport Boolean @default(false) // Hide from client-facing reports
 
   audit  SiteAudit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
   issues AuditIssue[]
