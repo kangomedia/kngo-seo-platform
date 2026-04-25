@@ -226,7 +226,12 @@ function OnboardingTracker({
   const [trackedKeywords, setTrackedKeywords] = useState<Set<string>>(new Set());
   const [trackingInProgress, setTrackingInProgress] = useState<Set<string>>(new Set());
   const [trackingAll, setTrackingAll] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(`discovery-dismissed-${clientId}`) === "true";
+    }
+    return false;
+  });
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -257,6 +262,25 @@ function OnboardingTracker({
       return () => clearInterval(interval);
     }
   }, [clientId, polling]);
+
+  // Fetch already-tracked keywords so "Tracked" persists across reloads
+  useEffect(() => {
+    const fetchTracked = async () => {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/keywords`);
+        if (res.ok) {
+          const data = await res.json();
+          const existing = (data.keywords || data || []).map(
+            (k: { keyword: string }) => k.keyword
+          );
+          if (existing.length > 0) {
+            setTrackedKeywords(new Set(existing));
+          }
+        }
+      } catch { /* silently fail */ }
+    };
+    fetchTracked();
+  }, [clientId]);
 
   const isDiscovering = status === "DISCOVERING" || discoveryData?.onboardingStatus === "DISCOVERING";
   const isComplete = discoveryData?.onboardingStatus === "COMPLETE";
@@ -308,6 +332,16 @@ function OnboardingTracker({
   const getCompColor = (c: number) => (c <= 30 ? "#10B981" : c <= 60 ? "#F59E0B" : "#EF4444");
   const getCompLabel = (c: number) => (c <= 30 ? "Low" : c <= 60 ? "Med" : "High");
 
+  const handleDismiss = () => {
+    setIsCollapsed(true);
+    localStorage.setItem(`discovery-dismissed-${clientId}`, "true");
+  };
+
+  // Hide the panel entirely once dismissed
+  if (isCollapsed && isComplete) {
+    return null;
+  }
+
   return (
     <div className="mb-6 animate-fade-in">
       <div
@@ -328,7 +362,7 @@ function OnboardingTracker({
             ) : (
               <Zap size={24} style={{ color: "var(--accent)" }} />
             )}
-            <div>
+            <div className="flex-1">
               <h3 className="text-lg font-extrabold">
                 {isDiscovering
                   ? `Setting Up ${clientName}...`
@@ -344,6 +378,16 @@ function OnboardingTracker({
                   : "Click Launch to start automatic site analysis and keyword discovery"}
               </p>
             </div>
+            {isComplete && (
+              <button
+                onClick={handleDismiss}
+                title="Dismiss"
+                className="ml-auto text-sm font-bold rounded-lg px-2 py-1 transition-all hover:opacity-80"
+                style={{ color: "var(--text-muted)" }}
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           {/* Steps Checklist */}

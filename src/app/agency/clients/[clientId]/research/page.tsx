@@ -60,6 +60,13 @@ export default function ResearchPage() {
   const [activeAnalysis, setActiveAnalysis] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"volume" | "competition" | "cpc">("volume");
 
+  // Tracked keywords state
+  const [trackedKeywords, setTrackedKeywords] = useState<Set<string>>(new Set());
+  const [trackingInProgress, setTrackingInProgress] = useState<Set<string>>(new Set());
+
+  // Discovery suggestions
+  const [discoverySuggestions, setDiscoverySuggestions] = useState<KeywordResult[]>([]);
+
   // Content map
   const [isGeneratingMap, setIsGeneratingMap] = useState(false);
 
@@ -83,6 +90,39 @@ export default function ResearchPage() {
 
   useEffect(() => {
     loadSessions();
+    // Fetch already-tracked keywords
+    const fetchTracked = async () => {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/keywords`);
+        if (res.ok) {
+          const data = await res.json();
+          const existing = (data.keywords || data || []).map(
+            (k: { keyword: string }) => k.keyword
+          );
+          if (existing.length > 0) {
+            setTrackedKeywords(new Set(existing));
+          }
+        }
+      } catch { /* silently fail */ }
+    };
+    fetchTracked();
+
+    // Fetch discovery suggestions
+    const fetchDiscovery = async () => {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/discover`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latestResearch?.results) {
+            try {
+              const parsed = JSON.parse(data.latestResearch.results);
+              setDiscoverySuggestions(parsed.slice(0, 20));
+            } catch { /* silently fail */ }
+          }
+        }
+      } catch { /* silently fail */ }
+    };
+    fetchDiscovery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -190,6 +230,105 @@ export default function ResearchPage() {
           New Research
         </button>
       </div>
+
+      {/* Discovery Suggestions */}
+      {discoverySuggestions.length > 0 && !showForm && !isResearching && (
+        <div className="stat-card mb-6" style={{ padding: 0, overflow: "hidden", borderLeft: "3px solid #10B981" }}>
+          <div
+            className="flex items-center justify-between p-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <h3 className="text-base font-extrabold flex items-center gap-2">
+              <Sparkles size={18} style={{ color: "#10B981" }} />
+              AI Discovery Suggestions
+            </h3>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              From onboarding keyword discovery
+            </span>
+          </div>
+          <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Keyword</th>
+                  <th>Volume</th>
+                  <th>Competition</th>
+                  <th>CPC</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {discoverySuggestions.map((kw) => {
+                  const isTracked = trackedKeywords.has(kw.keyword);
+                  const isTracking = trackingInProgress.has(kw.keyword);
+                  return (
+                    <tr key={kw.keyword} style={{ opacity: isTracked ? 0.6 : 1 }}>
+                      <td>
+                        <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>
+                          {kw.keyword}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="text-sm font-bold">{kw.searchVolume.toLocaleString()}</span>
+                      </td>
+                      <td>
+                        <span
+                          className="px-2 py-0.5 rounded-md text-[11px] font-bold"
+                          style={{ background: `${getCompetitionColor(kw.competition)}20`, color: getCompetitionColor(kw.competition) }}
+                        >
+                          {getCompetitionLabel(kw.competition)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="text-sm font-semibold" style={{ color: "var(--text-muted)" }}>
+                          ${kw.cpc.toFixed(2)}
+                        </span>
+                      </td>
+                      <td>
+                        {isTracked ? (
+                          <span className="text-[10px] font-bold px-2 py-1 rounded-md" style={{ color: "#10B981" }}>
+                            ✓ Tracked
+                          </span>
+                        ) : isTracking ? (
+                          <Loader2 size={12} className="animate-spin" style={{ color: "var(--accent)" }} />
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              setTrackingInProgress((prev) => new Set([...prev, kw.keyword]));
+                              try {
+                                const res = await fetch(`/api/clients/${clientId}/keywords`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    keywords: [{ keyword: kw.keyword, searchVolume: kw.searchVolume, difficulty: kw.competition, group: "Discovery" }],
+                                  }),
+                                });
+                                if (res.ok) {
+                                  setTrackedKeywords((prev) => new Set([...prev, kw.keyword]));
+                                }
+                              } catch { /* silently fail */ } finally {
+                                setTrackingInProgress((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(kw.keyword);
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="text-[10px] font-bold px-2 py-1 rounded-md transition-all hover:opacity-80"
+                            style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+                          >
+                            <Plus size={10} className="inline" /> Track
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Research Form */}
       {showForm && (
@@ -390,29 +529,47 @@ export default function ResearchPage() {
                         </span>
                       </td>
                       <td>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await fetch(`/api/clients/${clientId}/keywords`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  keywords: [{
-                                    keyword: kw.keyword,
-                                    searchVolume: kw.searchVolume,
-                                    difficulty: kw.competition,
-                                    group: "Research",
-                                  }],
-                                }),
-                              })
-                            } catch { /* silently fail */ }
-                          }}
-                          className="text-[10px] font-bold px-2 py-1 rounded-md transition-all hover:opacity-80"
-                          style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
-                          title="Add to tracked keywords"
-                        >
-                          <Plus size={10} className="inline" /> Track
-                        </button>
+                        {trackedKeywords.has(kw.keyword) ? (
+                          <span className="text-[10px] font-bold px-2 py-1 rounded-md" style={{ color: "#10B981" }}>
+                            ✓ Tracked
+                          </span>
+                        ) : trackingInProgress.has(kw.keyword) ? (
+                          <Loader2 size={12} className="animate-spin" style={{ color: "var(--accent)" }} />
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              setTrackingInProgress((prev) => new Set([...prev, kw.keyword]));
+                              try {
+                                const res = await fetch(`/api/clients/${clientId}/keywords`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    keywords: [{
+                                      keyword: kw.keyword,
+                                      searchVolume: kw.searchVolume,
+                                      difficulty: kw.competition,
+                                      group: "Research",
+                                    }],
+                                  }),
+                                });
+                                if (res.ok) {
+                                  setTrackedKeywords((prev) => new Set([...prev, kw.keyword]));
+                                }
+                              } catch { /* silently fail */ } finally {
+                                setTrackingInProgress((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(kw.keyword);
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="text-[10px] font-bold px-2 py-1 rounded-md transition-all hover:opacity-80"
+                            style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+                            title="Add to tracked keywords"
+                          >
+                            <Plus size={10} className="inline" /> Track
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
