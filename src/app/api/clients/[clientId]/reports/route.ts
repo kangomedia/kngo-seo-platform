@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { fetchGSCData, fetchGA4Data } from "@/lib/google-data";
 
 export async function GET(
   request: Request,
@@ -44,7 +45,12 @@ export async function POST(
   // Get everything about this client
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      domain: true,
+      gscProperty: true,
+      ga4PropertyId: true,
       keywords: {
         where: { isTracking: true },
         include: {
@@ -183,6 +189,25 @@ export async function POST(
       ? `${completedDeliverables} of ${totalDeliverables} deliverables were completed.`
       : "");
 
+  // ── Fetch Google data ──
+  let gscData = null;
+  if (client.gscProperty) {
+    try {
+      gscData = await fetchGSCData(clientId, client.gscProperty);
+    } catch (err) {
+      console.warn("[MONTHLY] Could not fetch GSC data:", err);
+    }
+  }
+
+  let ga4Data = null;
+  if (client.ga4PropertyId) {
+    try {
+      ga4Data = await fetchGA4Data(clientId, client.ga4PropertyId);
+    } catch (err) {
+      console.warn("[MONTHLY] Could not fetch GA4 data:", err);
+    }
+  }
+
   // ── Build full snapshot ──
   const dataSnapshot = JSON.stringify({
     clientName: client.name,
@@ -211,6 +236,10 @@ export async function POST(
     deliverables: deliverablesData,
     highlights,
     summary,
+    hasGSC: !!gscData,
+    gsc: gscData,
+    hasGA4: !!ga4Data,
+    ga4: ga4Data,
   });
 
   const report = await prisma.report.create({

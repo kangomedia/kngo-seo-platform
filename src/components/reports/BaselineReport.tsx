@@ -317,14 +317,65 @@ export default function BaselineReport({ data }: { data: BaselineReportData }) {
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              <StatCard label="Sessions" value={data.ga4.sessions.toLocaleString()} />
-              <StatCard label="Users" value={data.ga4.users.toLocaleString()} />
-              <StatCard
-                label="Bounce Rate"
-                value={`${Math.round(data.ga4.bounceRate * 100)}%`}
-                color={data.ga4.bounceRate > 0.7 ? "#dc2626" : "#16a34a"}
-              />
-              <StatCard label="Page Views" value={data.ga4.pageViews.toLocaleString()} />
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}
+              >
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>
+                  Sessions
+                </p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>
+                  {data.ga4.sessions.toLocaleString()}
+                </p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>
+                  Total visits to your website. Each time someone arrives, a new session begins.
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}
+              >
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>
+                  Users
+                </p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>
+                  {data.ga4.users.toLocaleString()}
+                </p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>
+                  Unique visitors. If the same person visits twice, they still count as 1 user.
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}
+              >
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>
+                  Bounce Rate
+                </p>
+                <p
+                  className="text-2xl font-extrabold mb-1"
+                  style={{ color: data.ga4.bounceRate > 0.7 ? "#dc2626" : "#16a34a" }}
+                >
+                  {Math.round(data.ga4.bounceRate * 100)}%
+                </p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>
+                  Visitors who left without interacting. A high rate may mean the page isn't engaging enough.
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}
+              >
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>
+                  Page Views
+                </p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>
+                  {data.ga4.pageViews.toLocaleString()}
+                </p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>
+                  Total pages viewed across all sessions. More page views means visitors are exploring your site.
+                </p>
+              </div>
             </div>
 
             {/* Traffic Sources */}

@@ -8,8 +8,10 @@ import {
   Award,
   Minus,
   Printer,
+  BarChart3,
+  Search,
 } from "lucide-react";
-import { ReportFooter, ReportHeader } from "./SiteAuditReport";
+import { ReportFooter, ReportHeader, StatCard } from "./SiteAuditReport";
 
 interface KeywordEntry {
   keyword: string;
@@ -31,6 +33,20 @@ interface DeliverableEntry {
   targetCount: number;
   currentCount: number;
   status: string;
+}
+
+interface GSCQuery {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
+}
+
+interface TrafficSource {
+  channel: string;
+  sessions: number;
+  users: number;
 }
 
 interface ReportData {
@@ -57,6 +73,20 @@ interface ReportData {
   deliverables: DeliverableEntry[];
   highlights: string[];
   summary: string;
+  hasGSC?: boolean;
+  gsc?: {
+    dateRange: { start: string; end: string };
+    topQueries: GSCQuery[];
+  } | null;
+  hasGA4?: boolean;
+  ga4?: {
+    sessions: number;
+    users: number;
+    bounceRate: number;
+    avgSessionDuration: number;
+    pageViews: number;
+    trafficSources: TrafficSource[];
+  } | null;
 }
 
 const contentTypeEmoji: Record<string, string> = {
@@ -119,7 +149,7 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
           <div
             className="rounded-2xl p-5 text-center"
             style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
@@ -153,18 +183,157 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
               {stats.avgPosition != null ? stats.avgPosition : "—"}
             </p>
           </div>
+        </div>
+
+        {/* Traffic Overview (GA4) */}
+        {d.hasGA4 && d.ga4 && (
           <div
-            className="rounded-2xl p-5 text-center"
+            className="rounded-2xl p-6 mb-6"
             style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
           >
-            <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>
-              Search Volume
+            <h2
+              className="text-lg font-extrabold mb-1 flex items-center gap-2"
+              style={{ color: "#222" }}
+            >
+              <BarChart3 size={20} style={{ color: "#7C3AED" }} />
+              Traffic Overview
+            </h2>
+            <p className="text-sm mb-4" style={{ color: "#888" }}>
+              Google Analytics — Last 30 days
             </p>
-            <p className="text-2xl font-extrabold" style={{ color: "#222" }}>
-              {stats.totalSearchVolume > 0 ? stats.totalSearchVolume.toLocaleString() : "—"}
-            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="rounded-xl p-4 text-center" style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}>
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>Sessions</p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>{d.ga4.sessions.toLocaleString()}</p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>Total visits to your website</p>
+              </div>
+              <div className="rounded-xl p-4 text-center" style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}>
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>Users</p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>{d.ga4.users.toLocaleString()}</p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>Unique visitors this period</p>
+              </div>
+              <div className="rounded-xl p-4 text-center" style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}>
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>Bounce Rate</p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: d.ga4.bounceRate > 0.7 ? "#dc2626" : "#16a34a" }}>
+                  {Math.round(d.ga4.bounceRate * 100)}%
+                </p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>Left without interacting</p>
+              </div>
+              <div className="rounded-xl p-4 text-center" style={{ background: "#FAFAFA", border: "1px solid #E4E4E4" }}>
+                <p className="text-xs font-bold uppercase tracking-wide mb-1" style={{ color: "#888" }}>Page Views</p>
+                <p className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>{d.ga4.pageViews.toLocaleString()}</p>
+                <p className="text-[10px] leading-tight" style={{ color: "#aaa" }}>Pages explored by visitors</p>
+              </div>
+            </div>
+
+            {/* Traffic Sources */}
+            {d.ga4.trafficSources.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "#888" }}>
+                  Traffic Sources
+                </p>
+                <div className="flex flex-col gap-2">
+                  {d.ga4.trafficSources.map((src, i) => {
+                    const totalSessions = d.ga4!.sessions || 1;
+                    const pct = Math.round((src.sessions / totalSessions) * 100);
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-sm font-semibold" style={{ color: "#222" }}>
+                              {src.channel}
+                            </p>
+                            <p className="text-xs font-bold" style={{ color: "#888" }}>
+                              {src.sessions.toLocaleString()} ({pct}%)
+                            </p>
+                          </div>
+                          <div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E4E4E4" }}>
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${pct}%`, background: "#7C3AED", transition: "width 0.5s ease" }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* Search Visibility (GSC) */}
+        {d.hasGSC && d.gsc && (
+          <div
+            className="rounded-2xl p-6 mb-6"
+            style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+          >
+            <h2
+              className="text-lg font-extrabold mb-1 flex items-center gap-2"
+              style={{ color: "#222" }}
+            >
+              <Search size={20} style={{ color: "#16a34a" }} />
+              Search Visibility
+            </h2>
+            <p className="text-sm mb-4" style={{ color: "#888" }}>
+              Google Search Console — Last 30 days
+            </p>
+
+            {/* GSC Stats */}
+            {(() => {
+              const totalClicks = d.gsc.topQueries?.reduce((s, q) => s + q.clicks, 0) || 0;
+              const totalImpressions = d.gsc.topQueries?.reduce((s, q) => s + q.impressions, 0) || 0;
+              const avgPos = (() => {
+                const positions = d.gsc!.topQueries.filter(q => q.position != null).map(q => q.position!);
+                if (positions.length === 0) return null;
+                return Math.round((positions.reduce((a, b) => a + b, 0) / positions.length) * 10) / 10;
+              })();
+              return (
+                <div className="grid grid-cols-3 gap-3 mb-6">
+                  <StatCard label="Clicks" value={totalClicks.toLocaleString()} color="#16a34a" />
+                  <StatCard label="Impressions" value={totalImpressions.toLocaleString()} />
+                  <StatCard label="Avg Position" value={avgPos != null ? String(avgPos) : "—"} />
+                </div>
+              );
+            })()}
+
+            {/* Top Queries */}
+            {d.gsc.topQueries.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "#888" }}>
+                  Top Search Queries
+                </p>
+                <div className="flex flex-col gap-2">
+                  {d.gsc.topQueries.slice(0, 10).map((q, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 p-3 rounded-xl"
+                      style={{ background: "#FAFAFA" }}
+                    >
+                      <span
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0"
+                        style={{ background: "#f0f4ff", color: "#3b82f6" }}
+                      >
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "#222" }}>
+                          {q.query}
+                        </p>
+                        <p className="text-xs" style={{ color: "#888" }}>
+                          {q.clicks} clicks · {q.impressions.toLocaleString()} impressions
+                          {q.position != null && ` · Pos ${q.position}`}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Summary */}
         <div

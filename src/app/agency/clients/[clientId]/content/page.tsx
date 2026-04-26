@@ -24,6 +24,8 @@ import {
   Mail,
   RefreshCw,
   Link2,
+  Target,
+  TrendingUp,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -101,6 +103,15 @@ export default function ContentHubPage() {
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
 
+  // Keyword suggestions for content generator
+  interface KeywordSuggestion {
+    keyword: string;
+    searchVolume: number;
+    competition: number;
+    source: string; // "discovery" | "tracked" | "research"
+  }
+  const [keywordSuggestions, setKeywordSuggestions] = useState<KeywordSuggestion[]>([]);
+
   // Build client review URL from access token
   const getReviewUrl = (mode?: string) => {
     if (!clientAccessToken) return null;
@@ -130,6 +141,84 @@ export default function ContentHubPage() {
 
   useEffect(() => {
     loadData();
+    // Fetch keyword suggestions from discovery + tracked keywords
+    const fetchKeywordSuggestions = async () => {
+      const suggestions: KeywordSuggestion[] = [];
+      const seen = new Set<string>();
+
+      // Fetch discovery keywords
+      try {
+        const res = await fetch(`/api/clients/${clientId}/discover`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latestResearch?.results) {
+            try {
+              const parsed = JSON.parse(data.latestResearch.results);
+              for (const kw of parsed.slice(0, 30)) {
+                const key = kw.keyword?.toLowerCase();
+                if (key && !seen.has(key)) {
+                  seen.add(key);
+                  suggestions.push({
+                    keyword: kw.keyword,
+                    searchVolume: kw.searchVolume || 0,
+                    competition: kw.competition || 0,
+                    source: "discovery",
+                  });
+                }
+              }
+            } catch { /* */ }
+          }
+        }
+      } catch { /* */ }
+
+      // Fetch tracked keywords
+      try {
+        const res = await fetch(`/api/clients/${clientId}/keywords`);
+        if (res.ok) {
+          const data = await res.json();
+          const kwList = data.keywords || data || [];
+          for (const kw of kwList) {
+            const key = kw.keyword?.toLowerCase();
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              suggestions.push({
+                keyword: kw.keyword,
+                searchVolume: kw.searchVolume || 0,
+                competition: kw.difficulty || 0,
+                source: "tracked",
+              });
+            }
+          }
+        }
+      } catch { /* */ }
+
+      // Fetch research sessions
+      try {
+        const res = await fetch(`/api/clients/${clientId}/research`);
+        if (res.ok) {
+          const sessions = await res.json();
+          for (const session of sessions.slice(0, 3)) {
+            for (const kw of (session.results || []).slice(0, 20)) {
+              const key = kw.keyword?.toLowerCase();
+              if (key && !seen.has(key)) {
+                seen.add(key);
+                suggestions.push({
+                  keyword: kw.keyword,
+                  searchVolume: kw.searchVolume || 0,
+                  competition: kw.competition || 0,
+                  source: "research",
+                });
+              }
+            }
+          }
+        }
+      } catch { /* */ }
+
+      // Sort by volume descending
+      suggestions.sort((a, b) => b.searchVolume - a.searchVolume);
+      setKeywordSuggestions(suggestions);
+    };
+    fetchKeywordSuggestions();
   }, [clientId]);
 
   const plan = plans[0]; // Most recent plan
@@ -463,10 +552,47 @@ export default function ContentHubPage() {
                 </label>
                 <input
                   className="input-field"
-                  placeholder="e.g. ac repair denver"
+                  placeholder="Select below or type your own"
                   value={seedKeyword}
                   onChange={(e) => setSeedKeyword(e.target.value)}
                 />
+                {/* Keyword Suggestions */}
+                {keywordSuggestions.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-2" style={{ color: "var(--text-muted)" }}>
+                      <Target size={10} className="inline mr-1" />
+                      Suggested Keywords
+                    </p>
+                    <div className="flex flex-wrap gap-1.5" style={{ maxHeight: 160, overflowY: "auto" }}>
+                      {keywordSuggestions.slice(0, 20).map((kw, i) => (
+                        <button
+                          key={kw.keyword}
+                          onClick={() => setSeedKeyword(kw.keyword)}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-md transition-all hover:opacity-80 flex items-center gap-1"
+                          style={{
+                            background: seedKeyword === kw.keyword
+                              ? "var(--accent)"
+                              : i < 3 ? "rgba(16,185,129,0.15)" : "var(--accent-muted)",
+                            color: seedKeyword === kw.keyword
+                              ? "#fff"
+                              : i < 3 ? "#10B981" : "var(--accent)",
+                            border: seedKeyword === kw.keyword ? "1px solid var(--accent)" : "1px solid transparent",
+                          }}
+                          title={`${kw.searchVolume.toLocaleString()} monthly searches · ${kw.source}`}
+                        >
+                          {i < 3 && <TrendingUp size={8} />}
+                          {kw.keyword}
+                          <span style={{ opacity: 0.6 }}>{kw.searchVolume > 0 ? `(${kw.searchVolume.toLocaleString()})` : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {keywordSuggestions.length > 20 && (
+                      <p className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>
+                        +{keywordSuggestions.length - 20} more in Keyword Research
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
