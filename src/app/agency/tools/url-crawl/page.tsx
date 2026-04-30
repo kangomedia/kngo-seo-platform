@@ -54,6 +54,7 @@ export default function UrlCrawlPage() {
 
   // Polling
   const [pollingIds, setPollingIds] = useState<Set<string>>(new Set());
+  const [crawlPhases, setCrawlPhases] = useState<Record<string, { phase: string; pagesCrawled: number; pagesInQueue: number }>>({});
 
   const loadCrawls = useCallback(async () => {
     try {
@@ -92,9 +93,22 @@ export default function UrlCrawlPage() {
                 next.delete(id);
                 return next;
               });
+              setCrawlPhases((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
               loadCrawls();
             } else {
-              // Update page count in list
+              // Update page count and phase in list
+              setCrawlPhases((prev) => ({
+                ...prev,
+                [id]: {
+                  phase: data.phase || "crawling",
+                  pagesCrawled: data.pagesCrawled || 0,
+                  pagesInQueue: data.pagesInQueue || 0,
+                },
+              }));
               setCrawls((prev) =>
                 prev.map((c) =>
                   c.id === id ? { ...c, pagesCount: data.pagesCrawled || c.pagesCount } : c
@@ -505,27 +519,44 @@ export default function UrlCrawlPage() {
               </div>
 
               {/* Status badge */}
-              <span
-                className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md flex-shrink-0"
-                style={{
-                  background:
-                    crawl.status === "COMPLETED"
-                      ? "rgba(34,197,94,0.15)"
-                      : crawl.status === "CRAWLING"
-                      ? "rgba(59,130,246,0.15)"
-                      : "rgba(239,68,68,0.15)",
-                  color:
-                    crawl.status === "COMPLETED"
-                      ? "#22c55e"
-                      : crawl.status === "CRAWLING"
-                      ? "#3b82f6"
-                      : "#ef4444",
-                }}
-              >
-                {crawl.status === "CRAWLING"
-                  ? `Crawling... ${crawl.pagesCount} pages`
-                  : crawl.status}
-              </span>
+              {crawl.status === "CRAWLING" ? (
+                <div className="flex flex-col items-end gap-1 flex-shrink-0" style={{ minWidth: 160 }}>
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md"
+                    style={{ background: "rgba(59,130,246,0.15)", color: "#3b82f6" }}
+                  >
+                    {crawlPhases[crawl.id]?.phase === "initializing"
+                      ? "Initializing..."
+                      : `Crawling... ${crawl.pagesCount} pages`}
+                  </span>
+                  {crawlPhases[crawl.id]?.phase === "crawling" && crawl.pagesCount > 0 && (
+                    <div className="w-full rounded-full overflow-hidden" style={{ height: 4, background: "rgba(59,130,246,0.15)" }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min((crawl.pagesCount / crawl.maxPages) * 100, 100)}%`,
+                          background: "#3b82f6",
+                          transition: "width 1s ease",
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-md flex-shrink-0"
+                  style={{
+                    background:
+                      crawl.status === "COMPLETED"
+                        ? "rgba(34,197,94,0.15)"
+                        : "rgba(239,68,68,0.15)",
+                    color:
+                      crawl.status === "COMPLETED" ? "#22c55e" : "#ef4444",
+                  }}
+                >
+                  {crawl.status}
+                </span>
+              )}
 
               {/* Actions */}
               <div className="flex items-center gap-1 flex-shrink-0">

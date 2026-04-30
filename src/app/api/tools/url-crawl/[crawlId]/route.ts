@@ -92,21 +92,29 @@ export async function POST(
   const result = summaryData?.tasks?.[0]?.result?.[0];
 
   if (!result) {
-    return NextResponse.json({ status: "CRAWLING", message: "Results not ready yet" });
+    return NextResponse.json({
+      status: "CRAWLING",
+      phase: "initializing",
+      pagesCrawled: 0,
+      message: "Crawl task is initializing...",
+    });
   }
 
   const crawlProgress = result.crawl_progress || "unknown";
 
   if (crawlProgress !== "finished") {
     const pagesCrawled = result.pages_crawled || 0;
+    const pagesInQueue = result.pages_in_queue || 0;
     await prisma.urlCrawl.update({
       where: { id: crawlId },
       data: { pagesCount: pagesCrawled },
     });
     return NextResponse.json({
       status: "CRAWLING",
+      phase: "crawling",
       crawlProgress,
       pagesCrawled,
+      pagesInQueue,
       pagesCount: result.pages_count || 0,
     });
   }
