@@ -133,6 +133,7 @@ model Client {
   googleToken        GoogleToken?
   keywordResearch    KeywordResearch[]
   contentMaps        ContentMap[]
+  urlCrawls          UrlCrawl[]
 }
 
 model ClientUser {
@@ -425,4 +426,24 @@ model GoogleToken {
   updatedAt    DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─── Domain Migration / URL Crawl ─────────────────────
+
+model UrlCrawl {
+  id          String    @id @default(cuid())
+  clientId    String?
+  domain      String
+  taskId      String?   // DataForSEO On-Page task ID
+  status      String    @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
+  pagesCount  Int       @default(0)
+  maxPages    Int       @default(500)
+  label       String?   // User label e.g. "Domain A - old site"
+  urls        String?   @db.Text  // JSON array of crawled URL objects
+  createdAt   DateTime  @default(now())
+
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([createdAt])
 }
