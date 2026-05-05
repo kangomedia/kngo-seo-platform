@@ -44,6 +44,7 @@ export async function getClientContentForReview(accessToken: string) {
 
   if (!client || !client.isActive) return null;
 
+  // Fetch draft pieces in CLIENT_REVIEW status
   const pieces = await prisma.contentPiece.findMany({
     where: {
       contentPlan: { clientId: client.id },
@@ -56,7 +57,21 @@ export async function getClientContentForReview(accessToken: string) {
     orderBy: { sortOrder: "asc" },
   });
 
-  return { client, pieces };
+  // Also check for a pending plan (for plan review mode)
+  const pendingPlan = await prisma.contentPlan.findFirst({
+    where: {
+      clientId: client.id,
+      planStatus: "PENDING_APPROVAL",
+    },
+    orderBy: [{ year: "desc" }, { month: "desc" }],
+    include: {
+      pieces: {
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
+
+  return { client, pieces, pendingPlan };
 }
 
 export async function submitPublicContentApproval(
@@ -179,7 +194,8 @@ export async function submitPublicPlanApproval(
   accessToken: string,
   contentPlanId: string,
   outcome: "approved" | "rejected",
-  notes?: string
+  notes?: string,
+  pieceDecisions?: Array<{ pieceId: string; outcome: string; notes?: string }>
 ) {
   const client = await prisma.client.findUnique({
     where: { accessToken },
@@ -196,6 +212,25 @@ export async function submitPublicPlanApproval(
 
   if (!plan || plan.clientId !== client.id) {
     throw new Error("Content plan not found");
+  }
+
+  // Save per-piece decisions if provided
+  if (pieceDecisions && pieceDecisions.length > 0) {
+    for (const pd of pieceDecisions) {
+      await prisma.contentApproval.upsert({
+        where: { contentPieceId: pd.pieceId },
+        update: {
+          outcome: pd.outcome,
+          notes: pd.notes || null,
+          decidedAt: new Date(),
+        },
+        create: {
+          contentPieceId: pd.pieceId,
+          outcome: pd.outcome,
+          notes: pd.notes || null,
+        },
+      });
+    }
   }
 
   const newStatus = outcome === "approved" ? "APPROVED" : "REJECTED";

@@ -22,6 +22,8 @@ import {
   Sparkles,
   CheckCircle2,
   Zap,
+  Mail,
+  User,
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
@@ -62,6 +64,8 @@ function ClientOnboardingWizard({
 
   // Step 1 — Business Profile
   const [name, setName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [domain, setDomain] = useState("");
   const [tier, setTier] = useState("STARTER");
   const [category, setCategory] = useState("");
@@ -80,7 +84,7 @@ function ClientOnboardingWizard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const canProceedStep1 = name.trim() && domain.trim();
+  const canProceedStep1 = name.trim() && contactEmail.trim() && domain.trim();
   const canLaunch = canProceedStep1;
 
   // Auto-populate primary city into target cities
@@ -123,6 +127,8 @@ function ClientOnboardingWizard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          contactName: contactName || name,
+          contactEmail,
           domain: domain.replace(/^https?:\/\//, "").replace(/\/$/, ""),
           tier,
           category,
@@ -210,6 +216,35 @@ function ClientOnboardingWizard({
                   placeholder="e.g. Strong Contractors"
                   autoFocus
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                    <User size={12} className="inline mr-1" />
+                    Contact Name
+                  </label>
+                  <input
+                    className="input-field"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder="e.g. John Smith"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                    <Mail size={12} className="inline mr-1" />
+                    Contact Email *
+                  </label>
+                  <input
+                    className="input-field"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="e.g. john@example.com"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
@@ -459,6 +494,12 @@ function ClientOnboardingWizard({
                   <div>
                     <div className="font-extrabold">{name}</div>
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>{domain}</div>
+                    {contactEmail && (
+                      <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                        <Mail size={10} className="inline mr-1" />
+                        {contactName ? `${contactName} — ` : ""}{contactEmail}
+                      </div>
+                    )}
                   </div>
                 </div>
 

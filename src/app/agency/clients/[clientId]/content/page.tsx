@@ -103,6 +103,10 @@ export default function ContentHubPage() {
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
 
+  // Tracks whether the email preview was opened for a first-time send (needs API call)
+  // null = resend only, "plan" = first-time plan send, "drafts" = first-time drafts send
+  const [pendingSendAction, setPendingSendAction] = useState<"plan" | "drafts" | null>(null);
+
   // Keyword suggestions for content generator
   interface KeywordSuggestion {
     keyword: string;
@@ -320,40 +324,17 @@ export default function ContentHubPage() {
     }
   };
 
-  // Send PLAN for client approval (topics/titles only)
-  const handleSendPlanForApproval = async () => {
+  // Send PLAN for client approval — opens email preview first for confirmation
+  const handleSendPlanForApproval = () => {
     if (!plan) return;
-    setIsSendingPlanApproval(true);
-    setPlanApprovalLink(null);
-
-    try {
-      const res = await fetch("/api/content/send-plan-for-approval", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, contentPlanId: plan.id }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        const url = `${window.location.origin}/client/${data.accessToken}/content?mode=plan`;
-        setPlanApprovalLink(url);
-        await navigator.clipboard.writeText(url);
-        setLoading(true);
-        loadData();
-      } else {
-        setError(data.error || "Failed to send plan for approval");
-      }
-    } catch {
-      setError("Network error — please try again");
-    } finally {
-      setIsSendingPlanApproval(false);
-    }
+    // Open the email preview modal with "plan" as pending action
+    handleOpenEmailPreview("plan", true);
   };
 
   // Open email preview modal
-  const handleOpenEmailPreview = (type: "plan" | "drafts") => {
+  const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
     setEmailPreviewType(type);
+    setPendingSendAction(isFirstSend ? type : null);
     if (type === "plan" && plan) {
       setEmailSubject(`📋 Content plan ready for your review — ${clientName}`);
       const reviewUrl = getReviewUrl("plan") || "";
@@ -368,7 +349,7 @@ export default function ContentHubPage() {
     setShowEmailPreview(true);
   };
 
-  // Resend email from preview
+  // Send email from preview — handles both first-time sends and resends
   const handleResendEmail = async () => {
     if (!clientContactEmail) {
       setError("No client email configured — update the client's contact email first.");
@@ -376,7 +357,51 @@ export default function ContentHubPage() {
     }
     setIsResending(true);
     setResendSuccess(null);
+
     try {
+      // If this is a first-time send, call the appropriate API to update status first
+      if (pendingSendAction === "plan" && plan) {
+        setIsSendingPlanApproval(true);
+        const apiRes = await fetch("/api/content/send-plan-for-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, contentPlanId: plan.id, skipEmail: true }),
+        });
+        const apiData = await apiRes.json();
+        if (apiRes.ok) {
+          const url = `${window.location.origin}/client/${apiData.accessToken}/content?mode=plan`;
+          setPlanApprovalLink(url);
+          await navigator.clipboard.writeText(url);
+        } else {
+          setError(apiData.error || "Failed to send plan for approval");
+          setIsResending(false);
+          setIsSendingPlanApproval(false);
+          return;
+        }
+        setIsSendingPlanApproval(false);
+      } else if (pendingSendAction === "drafts" && plan) {
+        setIsSendingApproval(true);
+        const apiRes = await fetch("/api/content/send-for-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId, contentPlanId: plan.id, skipEmail: true }),
+        });
+        const apiData = await apiRes.json();
+        if (apiRes.ok) {
+          const url = `${window.location.origin}/client/${apiData.accessToken}/content`;
+          setApprovalLink(url);
+          setApprovalMessage(apiData.message);
+          await navigator.clipboard.writeText(url);
+        } else {
+          setError(apiData.error || "Failed to send for approval");
+          setIsResending(false);
+          setIsSendingApproval(false);
+          return;
+        }
+        setIsSendingApproval(false);
+      }
+
+      // Now send the email
       const res = await fetch("/api/content/resend-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -388,6 +413,12 @@ export default function ContentHubPage() {
       });
       if (res.ok) {
         setResendSuccess(`Email sent to ${clientContactEmail}`);
+        // If first-time send, reload data to reflect status change
+        if (pendingSendAction) {
+          setPendingSendAction(null);
+          setLoading(true);
+          loadData();
+        }
       } else {
         const data = await res.json();
         setError(data.error || "Failed to send email");
@@ -399,37 +430,10 @@ export default function ContentHubPage() {
     }
   };
 
-  // Send DRAFTS for client review (written content)
-  const handleSendForApproval = async () => {
+  // Send DRAFTS for client review — opens email preview first for confirmation
+  const handleSendForApproval = () => {
     if (!plan) return;
-    setIsSendingApproval(true);
-    setApprovalMessage("");
-    setApprovalLink(null);
-
-    try {
-      const res = await fetch("/api/content/send-for-approval", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, contentPlanId: plan.id }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        const url = `${window.location.origin}/client/${data.accessToken}/content`;
-        setApprovalLink(url);
-        setApprovalMessage(data.message);
-        await navigator.clipboard.writeText(url);
-        setLoading(true);
-        loadData();
-      } else {
-        setError(data.error || "Failed to send for approval");
-      }
-    } catch {
-      setError("Network error — please try again");
-    } finally {
-      setIsSendingApproval(false);
-    }
+    handleOpenEmailPreview("drafts", true);
   };
 
   if (loading) {

@@ -14,6 +14,8 @@ import {
   ChevronRight,
   X,
   Loader2,
+  Mail,
+  User,
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
@@ -173,6 +175,8 @@ function ClientCard({ client, index }: { client: ClientMetrics; index: number })
 
 function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [domain, setDomain] = useState("");
   const [tier, setTier] = useState("STARTER");
   const [saving, setSaving] = useState(false);
@@ -184,7 +188,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
       const res = await fetch("/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, domain, tier }),
+        body: JSON.stringify({ name, contactName: contactName || name, contactEmail, domain, tier }),
       });
       if (res.ok) {
         onCreated();
@@ -212,6 +216,20 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </label>
             <input className="input-field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mission AC & Heating" required />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
+                Contact Name
+              </label>
+              <input className="input-field" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="e.g. John Smith" />
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
+                Contact Email *
+              </label>
+              <input className="input-field" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="e.g. john@example.com" required />
+            </div>
+          </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "var(--text-muted)" }}>
               Domain
@@ -230,7 +248,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
           <div className="flex gap-3 justify-end mt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving || !name} className="btn-primary">
+            <button type="submit" disabled={saving || !name || !contactEmail} className="btn-primary">
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
               {saving ? "Creating..." : "Add Client"}
             </button>

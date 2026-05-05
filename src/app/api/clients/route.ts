@@ -113,12 +113,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Client name is required" }, { status: 400 });
   }
 
+  if (!body.contactEmail) {
+    return NextResponse.json({ error: "Contact email is required" }, { status: 400 });
+  }
+
   const tier = body.tier || "STARTER";
   const defaults = TIER_DEFAULTS[tier] || TIER_DEFAULTS.STARTER;
 
   const client = await prisma.client.create({
     data: {
       name: body.name,
+      contactName: body.contactName || body.name,
+      contactEmail: body.contactEmail,
       domain: body.domain || null,
       tier,
       gbpCategory: body.category || null,

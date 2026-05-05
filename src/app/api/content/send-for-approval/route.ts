@@ -47,8 +47,8 @@ export async function POST(request: Request) {
   const host = request.headers.get("host") || "localhost:3000";
   const reviewUrl = `${protocol}://${host}/client/${client.accessToken}/content`;
 
-  // Send notification email to client
-  if (client.contactEmail && updated.count > 0) {
+  // Send notification email to client (unless frontend is handling it via preview modal)
+  if (client.contactEmail && updated.count > 0 && !body.skipEmail) {
     const { subject, html } = contentReviewEmail(
       client.name,
       updated.count,
