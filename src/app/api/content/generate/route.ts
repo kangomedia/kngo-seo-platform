@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   const targetPrCount = body.pressReleaseCount ?? client.monthlyPressReleases;
   const planId = body.planId;
 
-  // Generate 2x the quota — extras become reserves (shown to client only if they reject primaries)
+  // Generate 2x the quota (client will review sequentially until quota is met)
   const blogCount = targetBlogCount * 2;
   const gbpCount = targetGbpCount * 2;
   const gbpQACount = targetGbpQACount * 2;
@@ -227,8 +227,6 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
               // Override AI type with strictly guaranteed expected type if available
               const type = expectedTypes[i] || (p.type as "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE");
               typeCounters[type] = (typeCounters[type] || 0) + 1;
-              const isReserve = typeCounters[type] > (targetCounts[type] || 0);
-
               return {
                 type,
                 title: p.title,
@@ -236,7 +234,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
                 keyword: p.keyword || seedKeyword,
                 sortOrder: existingPlan.pieces.length + i,
                 status: "PLANNED" as const,
-                isReserve,
+                isReserve: false,
               };
             }),
           },
@@ -269,8 +267,6 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
               // Override AI type with strictly guaranteed expected type if available
               const type = expectedTypes[i] || (p.type as "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE");
               typeCounters[type] = (typeCounters[type] || 0) + 1;
-              const isReserve = typeCounters[type] > (targetCounts[type] || 0);
-
               return {
                 type,
                 title: p.title,
@@ -278,7 +274,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
                 keyword: p.keyword || seedKeyword,
                 sortOrder: i,
                 status: "PLANNED" as const,
-                isReserve,
+                isReserve: false,
               };
             }),
           },

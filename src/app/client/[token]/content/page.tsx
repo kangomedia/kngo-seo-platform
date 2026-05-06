@@ -61,12 +61,26 @@ function ContentApprovalInner() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [clientLimits, setClientLimits] = useState({
+    monthlyBlogs: 0,
+    monthlyGbpPosts: 0,
+    monthlyGbpQAs: 0,
+    monthlyPressReleases: 0,
+  });
 
   useEffect(() => {
     async function load() {
       // Single fetch that returns both draft pieces AND pending plan
       const data = await getClientContentForReview(token);
       if (data) {
+        if (data.client) {
+          setClientLimits({
+            monthlyBlogs: data.client.monthlyBlogs || 0,
+            monthlyGbpPosts: data.client.monthlyGbpPosts || 0,
+            monthlyGbpQAs: data.client.monthlyGbpQAs || 0,
+            monthlyPressReleases: data.client.monthlyPressReleases || 0,
+          });
+        }
         // Set draft pieces if available
         if (data.pieces.length > 0) {
           setPieces(data.pieces as unknown as ContentPiece[]);
@@ -121,42 +135,42 @@ function ContentApprovalInner() {
       );
     }
 
-    // ── Dynamic reserve replacement logic ──
-    // All pieces loaded from the plan (primary + reserves)
-    const allPlanPieces = planForReview.pieces as (ContentPiece & { isReserve?: boolean })[];
-    const primaryPieces = allPlanPieces.filter((p) => !p.isReserve);
-    const reservePieces = allPlanPieces.filter((p) => p.isReserve);
+    // All pieces loaded from the plan
+    const allPlanPieces = planForReview.pieces as ContentPiece[];
 
-    // Compute the visible review queue: primary pieces + reserves replacing rejections
-    // This dynamically grows as the client rejects pieces
+    // Compute quota targets from client limits
+    const quotaTargets: Record<string, number> = useMemo(() => ({
+      BLOG_POST: clientLimits.monthlyBlogs,
+      GBP_POST: clientLimits.monthlyGbpPosts,
+      GBP_QA: clientLimits.monthlyGbpQAs,
+      PRESS_RELEASE: clientLimits.monthlyPressReleases,
+    }), [clientLimits]);
+
+    // Compute the visible review queue dynamically based on quotas
     const planPieces = useMemo(() => {
-      const reservesByType: Record<string, ContentPiece[]> = {};
-      for (const r of reservePieces) {
-        if (!reservesByType[r.type]) reservesByType[r.type] = [];
-        reservesByType[r.type].push(r);
-      }
+      const result: ContentPiece[] = [];
+      const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+      const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
 
-      const result = [...primaryPieces];
-      let i = 0;
-      while (i < result.length) {
-        const p = result[i];
-        if (decisions[p.id] === "rejected") {
-          const typeReserves = reservesByType[p.type] || [];
-          const replacement = typeReserves.find((r) => !result.some((v) => v.id === r.id));
-          if (replacement) {
-            result.push(replacement);
+      for (const p of allPlanPieces) {
+        if (decisions[p.id] === "approved") {
+          approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+          result.push(p);
+        } else if (decisions[p.id] === "rejected" || decisions[p.id] === "save_for_later") {
+          result.push(p);
+        } else {
+          // Unreviewed
+          const limit = quotaTargets[p.type] || 0;
+            
+          // Add to queue if the approved + pending for this type is under the limit
+          if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < limit) {
+            pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
+            result.push(p);
           }
         }
-        i++;
       }
       return result;
-    }, [decisions, allPlanPieces]);
-
-    // Compute quota targets (= count of primary pieces per type)
-    const quotaTargets: Record<string, number> = {};
-    for (const p of primaryPieces) {
-      quotaTargets[p.type] = (quotaTargets[p.type] || 0) + 1;
-    }
+    }, [decisions, allPlanPieces, quotaTargets]);
 
     const typeLabels: Record<string, { emoji: string; label: string }> = {
       BLOG_POST: { emoji: "✍️", label: "Blog Post" },
@@ -173,21 +187,23 @@ function ContentApprovalInner() {
 
         // Compute what planPieces length will be after this update
         // so we can correctly determine if we should advance or go to summary
-        const tempReservesByType: Record<string, ContentPiece[]> = {};
-        for (const r of reservePieces) {
-          if (!tempReservesByType[r.type]) tempReservesByType[r.type] = [];
-          tempReservesByType[r.type].push(r);
-        }
-        const tempResult = [...primaryPieces];
-        let idx = 0;
-        while (idx < tempResult.length) {
-          const p = tempResult[idx];
-          if (updated[p.id] === "rejected") {
-            const typeReserves = tempReservesByType[p.type] || [];
-            const replacement = typeReserves.find((r) => !tempResult.some((v) => v.id === r.id));
-            if (replacement) tempResult.push(replacement);
+        const tempResult: ContentPiece[] = [];
+        const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+        const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+
+        for (const p of allPlanPieces) {
+          if (updated[p.id] === "approved") {
+            approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+            tempResult.push(p);
+          } else if (updated[p.id] === "rejected" || updated[p.id] === "save_for_later") {
+            tempResult.push(p);
+          } else {
+            const limit = quotaTargets[p.type] || 0;
+            if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < limit) {
+              pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
+              tempResult.push(p);
+            }
           }
-          idx++;
         }
 
         setTimeout(() => {

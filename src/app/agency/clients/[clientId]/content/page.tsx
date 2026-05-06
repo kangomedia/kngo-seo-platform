@@ -30,6 +30,8 @@ import {
   ChevronRight,
   Ban,
   Trash2,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -45,6 +47,7 @@ interface ContentPiece {
   scheduledPublishDate: string | null;
   dueDate: string | null;
   isReserve: boolean;
+  sortOrder: number;
   approval: { outcome: string; notes?: string } | null;
 }
 
@@ -100,6 +103,35 @@ export default function ContentHubPage() {
   const [clientContactEmail, setClientContactEmail] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
 
+  const [clientLimits, setClientLimits] = useState({
+    monthlyBlogs: 0,
+    monthlyGbpPosts: 0,
+    monthlyGbpQAs: 0,
+    monthlyPressReleases: 0,
+  });
+
+  const getPrimaryCount = (plan: ContentPlan, type?: string) => {
+    if (!plan) return 0;
+    
+    const countType = (t: string, limit: number) => {
+      const generated = plan.pieces.filter((p) => p.type === t).length;
+      return Math.min(generated, limit);
+    };
+
+    if (type) {
+      if (type === "BLOG_POST") return countType("BLOG_POST", clientLimits.monthlyBlogs);
+      if (type === "GBP_POST") return countType("GBP_POST", clientLimits.monthlyGbpPosts);
+      if (type === "GBP_QA") return countType("GBP_QA", clientLimits.monthlyGbpQAs);
+      if (type === "PRESS_RELEASE") return countType("PRESS_RELEASE", clientLimits.monthlyPressReleases);
+      return 0;
+    }
+
+    return countType("BLOG_POST", clientLimits.monthlyBlogs) +
+           countType("GBP_POST", clientLimits.monthlyGbpPosts) +
+           countType("GBP_QA", clientLimits.monthlyGbpQAs) +
+           countType("PRESS_RELEASE", clientLimits.monthlyPressReleases);
+  };
+
   // Email preview modal
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [emailPreviewType, setEmailPreviewType] = useState<"plan" | "drafts">("plan");
@@ -139,6 +171,13 @@ export default function ContentHubPage() {
         if (data.monthlyGbpQAs !== undefined) setGbpQACount(data.monthlyGbpQAs);
         if (data.monthlyPressReleases !== undefined) setPrCount(data.monthlyPressReleases);
         if (data.tier) setClientTier(data.tier);
+        
+        setClientLimits({
+          monthlyBlogs: data.monthlyBlogs || 0,
+          monthlyGbpPosts: data.monthlyGbpPosts || 0,
+          monthlyGbpQAs: data.monthlyGbpQAs || 0,
+          monthlyPressReleases: data.monthlyPressReleases || 0,
+        });
         // Store client metadata for persistent review links
         if (data.accessToken) setClientAccessToken(data.accessToken);
         if (data.contactEmail) setClientContactEmail(data.contactEmail);
@@ -361,9 +400,9 @@ export default function ContentHubPage() {
 
   // Open email preview modal
   const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
-    const primaryPieces = plan?.pieces.filter(p => !p.isReserve) || [];
+    const primaryCount = plan ? getPrimaryCount(plan) : 0;
     if (type === "plan") {
-      if (!plan || primaryPieces.length === 0) return;
+      if (!plan || primaryCount === 0) return;
     } else {
       if (!plan || plan.pieces.filter((p) => p.body).length === 0) return;
     }
@@ -373,7 +412,7 @@ export default function ContentHubPage() {
     if (type === "plan" && plan) {
       setEmailSubject(`📋 Content plan ready for your review — ${clientName}`);
       const reviewUrl = getReviewUrl("plan") || "";
-      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, primaryPieces.length, reviewUrl));
+      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, primaryCount, reviewUrl));
     } else {
       const draftCount = plan?.pieces.filter((p) => p.body).length || 0;
       setEmailSubject(`✍️ ${draftCount} content draft${draftCount !== 1 ? "s" : ""} ready for review — ${clientName}`);
@@ -479,13 +518,50 @@ export default function ContentHubPage() {
     );
   }
 
-  // Pieces with drafts (for the Drafts tab) — exclude REJECTED and unused reserves
-  // A reserve is "used" if it has been approved (promoted via client rejection flow)
-  const isUsablepiece = (p: ContentPiece) => p.status !== "REJECTED" && (!p.isReserve || p.status === "APPROVED");
+  // Pieces with drafts (for the Drafts tab) — exclude REJECTED
+  const isUsablepiece = (p: ContentPiece) => p.status !== "REJECTED";
   const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isUsablepiece(p)) || [];
   const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isUsablepiece(p) && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
   const rejectedPieces = plan?.pieces.filter((p) => p.status === "REJECTED") || [];
-  const reservePool = plan?.pieces.filter((p) => p.isReserve && p.status === "PLANNED" && !p.approval) || [];
+
+  const handleReorderPiece = async (pieceId: string, direction: 'up' | 'down') => {
+    if (!plan) return;
+    const currentPieces = [...plan.pieces].filter(p => p.status !== "REJECTED");
+    const index = currentPieces.findIndex((p) => p.id === pieceId);
+    if (index < 0) return;
+    
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === currentPieces.length - 1) return;
+
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    const newPieces = [...currentPieces];
+    [newPieces[index], newPieces[swapIndex]] = [newPieces[swapIndex], newPieces[index]];
+
+    // Recalculate sortOrder
+    const updates = newPieces.map((p, i) => ({ id: p.id, sortOrder: i }));
+
+    // Optimistically update UI
+    setPlans((prev) => 
+      prev.map((pl) => {
+        if (pl.id !== plan.id) return pl;
+        const updatedPieces = pl.pieces.map(p => {
+          const update = updates.find(u => u.id === p.id);
+          return update ? { ...p, sortOrder: update.sortOrder } : p;
+        }).sort((a, b) => a.sortOrder - b.sortOrder);
+        return { ...pl, pieces: updatedPieces };
+      })
+    );
+
+    try {
+      await fetch('/api/content/pieces/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+    } catch {
+      loadData();
+    }
+  };
 
   const planApproved = plan?.planStatus === "APPROVED";
   const planPending = plan?.planStatus === "PENDING_APPROVAL";
@@ -698,15 +774,15 @@ export default function ContentHubPage() {
                 </span>
               </div>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {plan.pieces.filter(p => !p.isReserve).length} topics planned ·{" "}
-                {plan.pieces.filter((p) => p.type === "BLOG_POST" && !p.isReserve).length} blog posts ·{" "}
-                {plan.pieces.filter((p) => p.type === "GBP_POST" && !p.isReserve).length} GBP posts ·{" "}
-                {plan.pieces.filter((p) => p.type === "GBP_QA" && !p.isReserve).length} Q&As ·{" "}
-                {plan.pieces.filter((p) => p.type === "PRESS_RELEASE" && !p.isReserve).length} press releases
+                {getPrimaryCount(plan)} topics planned ·{" "}
+                {getPrimaryCount(plan, "BLOG_POST")} blog posts ·{" "}
+                {getPrimaryCount(plan, "GBP_POST")} GBP posts ·{" "}
+                {getPrimaryCount(plan, "GBP_QA")} Q&As ·{" "}
+                {getPrimaryCount(plan, "PRESS_RELEASE")} press releases
               </p>
             </div>
             {/* Send Plan for Approval (only if DRAFT and has pieces) */}
-            {plan.planStatus === "DRAFT" && plan.pieces.filter(p => !p.isReserve).length > 0 && (
+            {plan.planStatus === "DRAFT" && getPrimaryCount(plan) > 0 && (
               <button
                 onClick={handleSendPlanForApproval}
                 disabled={isSendingPlanApproval}
@@ -770,7 +846,7 @@ export default function ContentHubPage() {
           )}
 
           {/* ── Persistent Review Link Bar (PENDING_APPROVAL) ── */}
-          {planPending && plan.pieces.filter(p => !p.isReserve).length > 0 && (
+          {planPending && getPrimaryCount(plan) > 0 && (
             <div
               className="rounded-xl mb-4 overflow-hidden"
               style={{
@@ -845,9 +921,9 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* Content pieces grid — primary content only (reserves shown in pool indicator below) */}
+          {/* Content pieces grid — all active pieces */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-            {plan.pieces.filter((p) => !p.isReserve || p.status === "APPROVED").map((piece) => {
+            {plan.pieces.filter((p) => p.status !== "REJECTED").map((piece, index, array) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
               const approvalOutcome = piece.approval?.outcome;
               const approvalBadge = approvalOutcome === "approved"
@@ -872,21 +948,40 @@ export default function ContentHubPage() {
                         {typeInfo.label}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                       {approvalBadge && (
                         <span
-                          className="text-[10px] font-bold px-2 py-1 rounded-full"
+                          className="text-[10px] font-bold px-2 py-1 rounded-full mr-2"
                           style={{ background: approvalBadge.bg, color: approvalBadge.color }}
                         >
                           {approvalBadge.label}
                         </span>
                       )}
+                      
+                      {/* Reorder Arrows */}
+                      <button 
+                        onClick={() => handleReorderPiece(piece.id, 'up')}
+                        disabled={index === 0}
+                        className="p-1 hover:bg-white/5 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Move Up"
+                      >
+                        <ArrowUp size={14} style={{ color: "var(--text-muted)" }} />
+                      </button>
+                      <button 
+                        onClick={() => handleReorderPiece(piece.id, 'down')}
+                        disabled={index === array.length - 1}
+                        className="p-1 hover:bg-white/5 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Move Down"
+                      >
+                        <ArrowDown size={14} style={{ color: "var(--text-muted)" }} />
+                      </button>
+
                       <button 
                         onClick={() => handleDeletePiece(piece.id)}
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-md transition-all ml-1"
-                        title="Delete piece"
+                        className="p-1 hover:bg-white/5 rounded-md transition-colors ml-1"
+                        title="Delete Piece"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={14} style={{ color: "var(--text-muted)" }} />
                       </button>
                     </div>
                   </div>
@@ -913,21 +1008,6 @@ export default function ContentHubPage() {
               );
             })}
           </div>
-
-          {/* Reserve pool indicator */}
-          {reservePool.length > 0 && (
-            <div className="mt-4 px-4 py-3 rounded-xl flex items-center gap-3" style={{ background: "rgba(37,99,235,0.06)", border: "1px solid rgba(37,99,235,0.15)" }}>
-              <RefreshCw size={14} style={{ color: "#2563eb" }} />
-              <div>
-                <span className="text-xs font-bold" style={{ color: "#2563eb" }}>
-                  {reservePool.length} reserve piece{reservePool.length !== 1 ? "s" : ""} in backup pool
-                </span>
-                <span className="text-xs ml-2" style={{ color: "var(--text-muted)" }}>
-                  — auto-shown to client if they reject primaries
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
