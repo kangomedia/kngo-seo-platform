@@ -143,6 +143,7 @@ export default function ContentHubPage() {
   // Tracks whether the email preview was opened for a first-time send (needs API call)
   // null = resend only, "plan" = first-time plan send, "drafts" = first-time drafts send
   const [pendingSendAction, setPendingSendAction] = useState<"plan" | "drafts" | null>(null);
+  const [selectedPieces, setSelectedPieces] = useState<Set<string>>(new Set());
 
   // Keyword suggestions for content generator
   interface KeywordSuggestion {
@@ -382,9 +383,39 @@ export default function ContentHubPage() {
             pieces: p.pieces.filter((pc) => pc.id !== pieceId),
           }))
         );
+        setSelectedPieces((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(pieceId);
+          return newSet;
+        });
       } else {
         const data = await res.json();
         setError(data.error || "Failed to delete piece");
+      }
+    } catch {
+      setError("Network error — please try again");
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedPieces.size} items?`)) return;
+    try {
+      const res = await fetch(`/api/content/pieces/bulk`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedPieces) })
+      });
+      if (res.ok) {
+        setPlans((prev) =>
+          prev.map((p) => ({
+            ...p,
+            pieces: p.pieces.filter((pc) => !selectedPieces.has(pc.id)),
+          }))
+        );
+        setSelectedPieces(new Set());
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to delete pieces");
       }
     } catch {
       setError("Network error — please try again");
@@ -921,6 +952,41 @@ export default function ContentHubPage() {
             </div>
           )}
 
+          {/* Bulk Action Bar & Select All */}
+          {plan.pieces.filter((p) => p.status !== "REJECTED").length > 0 && (
+            <div className="flex items-center justify-between mb-4 bg-white p-3 rounded-xl border" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-center gap-3 pl-1">
+                <input 
+                  type="checkbox" 
+                  checked={selectedPieces.size === plan.pieces.filter((p) => p.status !== "REJECTED").length}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedPieces(new Set(plan.pieces.filter((p) => p.status !== "REJECTED").map(p => p.id)));
+                    } else {
+                      setSelectedPieces(new Set());
+                    }
+                  }}
+                  className="rounded"
+                  style={{ accentColor: "var(--accent)", width: 16, height: 16, cursor: "pointer" }}
+                />
+                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Select All</span>
+              </div>
+              
+              {selectedPieces.size > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold" style={{ color: "#ef4444" }}>{selectedPieces.size} selected</span>
+                  <button 
+                    onClick={handleBulkDelete}
+                    className="btn-primary text-xs flex items-center" 
+                    style={{ background: "#ef4444", borderColor: "#ef4444", padding: "6px 14px" }}
+                  >
+                    <Trash2 size={14} className="mr-2" /> Delete Selected
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Content pieces grid — all active pieces */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
             {plan.pieces.filter((p) => p.status !== "REJECTED").map((piece, index, array) => {
@@ -938,6 +1004,18 @@ export default function ContentHubPage() {
                 <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden", opacity: approvalOutcome === "rejected" ? 0.6 : 1 }}>
                   <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox"
+                        checked={selectedPieces.has(piece.id)}
+                        onChange={(e) => {
+                          const newSet = new Set(selectedPieces);
+                          if (e.target.checked) newSet.add(piece.id);
+                          else newSet.delete(piece.id);
+                          setSelectedPieces(newSet);
+                        }}
+                        className="rounded mr-1"
+                        style={{ accentColor: "var(--accent)", width: 16, height: 16, cursor: "pointer" }}
+                      />
                       <span
                         className="w-6 h-6 rounded-md flex items-center justify-center"
                         style={{ background: `${typeInfo.color}20`, color: typeInfo.color }}
