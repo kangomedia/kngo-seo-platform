@@ -23,7 +23,15 @@ export async function POST(request: Request) {
   // Get the client's access token and contact email
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { accessToken: true, name: true, contactEmail: true },
+    select: { 
+      accessToken: true, 
+      name: true, 
+      contactEmail: true,
+      monthlyBlogs: true,
+      monthlyGbpPosts: true,
+      monthlyGbpQAs: true,
+      monthlyPressReleases: true
+    },
   });
 
   if (!client) {
@@ -44,12 +52,29 @@ export async function POST(request: Request) {
   const host = request.headers.get("host") || "localhost:3000";
   const reviewUrl = `${protocol}://${host}/client/${client.accessToken}/content`;
 
+  // Calculate the actual number of pieces the client will see based on their quota
+  const quotaTargets: Record<string, number> = {
+    BLOG_POST: client.monthlyBlogs || 0,
+    GBP_POST: client.monthlyGbpPosts || 0,
+    GBP_QA: client.monthlyGbpQAs || 0,
+    PRESS_RELEASE: client.monthlyPressReleases || 0,
+  };
+  
+  let displayCount = 0;
+  const currentCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+  for (const p of plan.pieces) {
+    if ((currentCounts[p.type] || 0) < (quotaTargets[p.type] || 0)) {
+      currentCounts[p.type] = (currentCounts[p.type] || 0) + 1;
+      displayCount++;
+    }
+  }
+
   // Send notification email to client (unless frontend is handling it via preview modal)
   if (client.contactEmail && !body.skipEmail) {
     const { subject, html } = planApprovalEmail(
       client.name,
       plan.title,
-      plan.pieces.length,
+      displayCount,
       reviewUrl,
     );
     sendEmail({ to: client.contactEmail, subject, html }).catch((err) => {

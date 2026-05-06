@@ -139,15 +139,15 @@ function ContentApprovalInner() {
     const allPlanPieces = planForReview.pieces as ContentPiece[];
 
     // Compute quota targets from client limits
-    const quotaTargets: Record<string, number> = useMemo(() => ({
+    const quotaTargets: Record<string, number> = {
       BLOG_POST: clientLimits.monthlyBlogs,
       GBP_POST: clientLimits.monthlyGbpPosts,
       GBP_QA: clientLimits.monthlyGbpQAs,
       PRESS_RELEASE: clientLimits.monthlyPressReleases,
-    }), [clientLimits]);
+    };
 
     // Compute the visible review queue dynamically based on quotas
-    const planPieces = useMemo(() => {
+    const planPieces: ContentPiece[] = (() => {
       const result: ContentPiece[] = [];
       const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
       const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
@@ -170,7 +170,7 @@ function ContentApprovalInner() {
         }
       }
       return result;
-    }, [decisions, allPlanPieces, quotaTargets]);
+    })();
 
     const typeLabels: Record<string, { emoji: string; label: string }> = {
       BLOG_POST: { emoji: "✍️", label: "Blog Post" },
