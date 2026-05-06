@@ -794,15 +794,20 @@ export default function ContentHubPage() {
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-extrabold">{plan.title}</h2>
                 {/* Plan status badge */}
-                <span
-                  className="text-xs font-bold px-3 py-1 rounded-full"
-                  style={{
-                    background: (planStatusColors[plan.planStatus] || planStatusColors.DRAFT).bg,
-                    color: (planStatusColors[plan.planStatus] || planStatusColors.DRAFT).text,
-                  }}
-                >
-                  {(planStatusColors[plan.planStatus] || planStatusColors.DRAFT).label}
-                </span>
+                {(() => {
+                  const effectiveStatus = plan.planStatus === "PENDING_APPROVAL" && getPrimaryCount(plan) === 0 ? "DRAFT" : plan.planStatus;
+                  return (
+                    <span
+                      className="text-xs font-bold px-3 py-1 rounded-full"
+                      style={{
+                        background: (planStatusColors[effectiveStatus] || planStatusColors.DRAFT).bg,
+                        color: (planStatusColors[effectiveStatus] || planStatusColors.DRAFT).text,
+                      }}
+                    >
+                      {(planStatusColors[effectiveStatus] || planStatusColors.DRAFT).label}
+                    </span>
+                  );
+                })()}
               </div>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                 {getPrimaryCount(plan)} topics planned ·{" "}
