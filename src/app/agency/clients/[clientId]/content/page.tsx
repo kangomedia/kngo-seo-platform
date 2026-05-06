@@ -549,15 +549,17 @@ export default function ContentHubPage() {
     );
   }
 
-  // Pieces with drafts (for the Drafts tab) — exclude REJECTED
-  const isUsablepiece = (p: ContentPiece) => p.status !== "REJECTED";
+  // Pieces with drafts (for the Drafts tab) — exclude REJECTED and saved for later
+  const isUsablepiece = (p: ContentPiece) => 
+    p.status !== "REJECTED" && p.approval?.outcome !== "save_for_later" && p.approval?.outcome !== "rejected";
+    
   const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isUsablepiece(p)) || [];
   const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isUsablepiece(p) && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
-  const rejectedPieces = plan?.pieces.filter((p) => p.status === "REJECTED") || [];
+  const rejectedPieces = plan?.pieces.filter((p) => !isUsablepiece(p)) || [];
 
   const handleReorderPiece = async (pieceId: string, direction: 'up' | 'down') => {
     if (!plan) return;
-    const currentPieces = [...plan.pieces].filter(p => p.status !== "REJECTED");
+    const currentPieces = [...plan.pieces].filter(p => isUsablepiece(p));
     const index = currentPieces.findIndex((p) => p.id === pieceId);
     if (index < 0) return;
     
@@ -792,7 +794,22 @@ export default function ContentHubPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-xl font-extrabold">{plan.title}</h2>
+                {plans.length > 1 ? (
+                  <select
+                    value={currentPlanIndex}
+                    onChange={(e) => setCurrentPlanIndex(Number(e.target.value))}
+                    className="text-xl font-extrabold bg-transparent border-none outline-none cursor-pointer hover:opacity-80 transition-opacity"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {plans.map((p, i) => (
+                      <option key={p.id} value={i}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <h2 className="text-xl font-extrabold">{plan.title}</h2>
+                )}
                 {/* Plan status badge */}
                 {(() => {
                   const effectiveStatus = plan.planStatus === "PENDING_APPROVAL" && getPrimaryCount(plan) === 0 ? "DRAFT" : plan.planStatus;
@@ -1091,6 +1108,74 @@ export default function ContentHubPage() {
               );
             })}
           </div>
+
+          {/* Rejected & Saved Ideas Section */}
+          {rejectedPieces.length > 0 && (
+            <div className="mt-12">
+              <div className="flex items-center gap-3 mb-4 opacity-70">
+                <h3 className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>Rejected & Saved Ideas</h3>
+                <div className="h-[1px] flex-1" style={{ background: "var(--border)" }} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
+                {rejectedPieces.map((piece) => {
+                  const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
+                  const approvalOutcome = piece.approval?.outcome;
+                  const approvalBadge = approvalOutcome === "rejected"
+                    ? { bg: "rgba(239,68,68,0.15)", color: "#ef4444", label: "✕ Rejected" }
+                    : approvalOutcome === "save_for_later"
+                      ? { bg: "rgba(245,158,11,0.15)", color: "#f59e0b", label: "◷ Saved" }
+                      : null;
+
+                  return (
+                    <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden", opacity: 0.6 }}>
+                      <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.1)" }}>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-6 h-6 rounded-md flex items-center justify-center grayscale"
+                            style={{ background: `${typeInfo.color}20`, color: typeInfo.color }}
+                          >
+                            {typeInfo.icon}
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                            {typeInfo.label}
+                          </span>
+                        </div>
+                        {approvalBadge && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded flex-shrink-0 whitespace-nowrap"
+                            style={{ background: approvalBadge.bg, color: approvalBadge.color, border: `1px solid ${approvalBadge.color}30` }}
+                          >
+                            {approvalBadge.label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <h4 className="text-sm font-bold mb-2 line-through decoration-white/20" style={{ color: "var(--text-muted)" }}>
+                          {piece.title}
+                        </h4>
+                        <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--text-muted)" }}>
+                          {piece.description}
+                        </p>
+                        
+                        {piece.approval?.notes && (
+                          <div className="mt-3 p-3 rounded-lg text-xs" style={{ 
+                            background: approvalOutcome === "rejected" ? "rgba(239,68,68,0.06)" : "rgba(245,158,11,0.06)", 
+                            border: `1px solid ${approvalOutcome === "rejected" ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)"}`, 
+                            color: "var(--text-muted)" 
+                          }}>
+                            <span className="font-bold mb-1 block" style={{ color: approvalOutcome === "rejected" ? "#ef4444" : "#f59e0b" }}>
+                              {approvalOutcome === "rejected" ? "Reason for rejection:" : "Reason for saving:"}
+                            </span> 
+                            {piece.approval.notes}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
