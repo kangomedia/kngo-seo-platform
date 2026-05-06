@@ -43,7 +43,10 @@ export async function POST(request: Request) {
     where: { id: contentPlanId },
     data: { planStatus: "PENDING_APPROVAL" },
     include: {
-      pieces: true,
+      pieces: {
+        include: { approval: true },
+        orderBy: { sortOrder: "asc" }
+      },
     },
   });
 
@@ -61,11 +64,18 @@ export async function POST(request: Request) {
   };
   
   let displayCount = 0;
-  const currentCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+  const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+  const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+  
   for (const p of plan.pieces) {
-    if ((currentCounts[p.type] || 0) < (quotaTargets[p.type] || 0)) {
-      currentCounts[p.type] = (currentCounts[p.type] || 0) + 1;
-      displayCount++;
+    if (p.approval?.outcome === "approved") {
+      approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+    } else if (p.approval?.outcome !== "rejected" && p.approval?.outcome !== "save_for_later") {
+      // It's unreviewed
+      if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < (quotaTargets[p.type] || 0)) {
+        pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
+        displayCount++;
+      }
     }
   }
 

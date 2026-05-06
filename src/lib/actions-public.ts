@@ -67,6 +67,7 @@ export async function getClientContentForReview(accessToken: string) {
     include: {
       pieces: {
         orderBy: { sortOrder: "asc" },
+        include: { approval: true },
       },
     },
   });

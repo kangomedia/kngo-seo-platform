@@ -66,11 +66,13 @@ export async function POST(request: Request) {
   const targetPrCount = body.pressReleaseCount ?? client.monthlyPressReleases;
   const planId = body.planId;
 
-  // Generate 2x the quota (client will review sequentially until quota is met)
-  const blogCount = targetBlogCount * 2;
-  const gbpCount = targetGbpCount * 2;
-  const gbpQACount = targetGbpQACount * 2;
-  const pressReleaseCount = targetPrCount * 2;
+  // Generate 2x the quota ONLY for new plans (client will review sequentially until quota is met).
+  // When appending to an existing plan, generate exactly what was requested.
+  const multiplier = planId ? 1 : 2;
+  const blogCount = targetBlogCount * multiplier;
+  const gbpCount = targetGbpCount * multiplier;
+  const gbpQACount = targetGbpQACount * multiplier;
+  const pressReleaseCount = targetPrCount * multiplier;
 
   // Build Claude prompt
   const now = new Date();

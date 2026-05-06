@@ -431,11 +431,10 @@ export default function ContentHubPage() {
     handleOpenEmailPreview("plan", true);
   };
 
-  // Open email preview modal
   const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
-    const primaryCount = plan ? getPrimaryCount(plan) : 0;
+    const unreviewedCount = plan ? plan.pieces.filter((p) => p.status !== "REJECTED" && !p.approval?.outcome).length : 0;
     if (type === "plan") {
-      if (!plan || primaryCount === 0) return;
+      if (!plan || unreviewedCount === 0) return;
     } else {
       if (!plan || plan.pieces.filter((p) => p.body).length === 0) return;
     }
@@ -443,9 +442,10 @@ export default function ContentHubPage() {
     setEmailPreviewType(type);
     setPendingSendAction(isFirstSend ? type : null);
     if (type === "plan" && plan) {
-      setEmailSubject(`📋 Content plan ready for your review — ${clientName}`);
+      const isNewItems = plan.planStatus !== "DRAFT" && plan.planStatus !== "PENDING_APPROVAL";
+      setEmailSubject(isNewItems ? `📋 Additional content ready for your review — ${clientName}` : `📋 Content plan ready for your review — ${clientName}`);
       const reviewUrl = getReviewUrl("plan") || "";
-      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, primaryCount, reviewUrl));
+      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, unreviewedCount, reviewUrl));
     } else {
       const draftCount = plan?.pieces.filter((p) => p.body).length || 0;
       setEmailSubject(`✍️ ${draftCount} content draft${draftCount !== 1 ? "s" : ""} ready for review — ${clientName}`);
@@ -555,8 +555,10 @@ export default function ContentHubPage() {
   const isUsablepiece = (p: ContentPiece) => 
     p.status !== "REJECTED" && p.approval?.outcome !== "save_for_later" && p.approval?.outcome !== "rejected";
     
-  const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isUsablepiece(p)) || [];
-  const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isUsablepiece(p) && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
+  const isDraftablePiece = (p: ContentPiece) => isUsablepiece(p) && (p.status === "APPROVED" || p.approval?.outcome === "approved");
+  
+  const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isDraftablePiece(p)) || [];
+  const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isDraftablePiece(p)) || [];
   const rejectedPieces = plan?.pieces.filter((p) => !isUsablepiece(p)) || [];
 
   const handleReorderPiece = async (pieceId: string, direction: 'up' | 'down') => {
@@ -836,20 +838,30 @@ export default function ContentHubPage() {
                 {getPrimaryCount(plan, "PRESS_RELEASE")} press releases
               </p>
             </div>
-            {/* Send Plan for Approval (only if DRAFT and has pieces) */}
-            {plan.planStatus === "DRAFT" && getPrimaryCount(plan) > 0 && (
-              <button
-                onClick={handleSendPlanForApproval}
-                disabled={isSendingPlanApproval}
-                className="btn-primary text-sm"
-              >
-                {isSendingPlanApproval ? (
-                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
-                ) : (
-                  <><Send size={14} /> Send Plan for Approval</>
-                )}
-              </button>
-            )}
+            {/* Send Plan or New Items for Approval */}
+            {(() => {
+              const unreviewedCount = plan.pieces.filter((p) => p.status !== "REJECTED" && !p.approval?.outcome).length;
+              if (unreviewedCount === 0) return null;
+              
+              const isNewItems = plan.planStatus !== "DRAFT" && plan.planStatus !== "PENDING_APPROVAL";
+              
+              if (plan.planStatus === "DRAFT" || isNewItems) {
+                return (
+                  <button
+                    onClick={handleSendPlanForApproval}
+                    disabled={isSendingPlanApproval}
+                    className="btn-primary text-sm"
+                  >
+                    {isSendingPlanApproval ? (
+                      <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                    ) : (
+                      <><Send size={14} /> {isNewItems ? "Send New Items for Review" : "Send Plan for Approval"}</>
+                    )}
+                  </button>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Plan approval link toast (one-time after sending) */}
@@ -1152,9 +1164,19 @@ export default function ContentHubPage() {
                         )}
                       </div>
                       <div className="p-4">
-                        <h4 className="text-sm font-bold mb-2 line-through decoration-white/20" style={{ color: "var(--text-muted)" }}>
-                          {piece.title}
-                        </h4>
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="text-sm font-bold line-through decoration-white/20" style={{ color: "var(--text-muted)" }}>
+                            {piece.title}
+                          </h4>
+                          <button
+                            onClick={() => handleDeletePiece(piece.id)}
+                            className="p-1.5 rounded-md transition-colors ml-2 flex-shrink-0"
+                            style={{ color: "var(--text-muted)", background: "rgba(0,0,0,0.05)" }}
+                            title="Delete permanently"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                         <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--text-muted)" }}>
                           {piece.description}
                         </p>

@@ -91,6 +91,16 @@ function ContentApprovalInner() {
         // Set pending plan if available
         if (data.pendingPlan) {
           setPlanForReview(data.pendingPlan as unknown as ContentPlan);
+          const initialDecisions: Record<string, Decision> = {};
+          const initialNotes: Record<string, string> = {};
+          data.pendingPlan.pieces.forEach((p: any) => {
+            if (p.approval?.outcome) {
+              initialDecisions[p.id] = p.approval.outcome as Decision;
+              if (p.approval.notes) initialNotes[p.id] = p.approval.notes;
+            }
+          });
+          setDecisions(initialDecisions);
+          setNotes(initialNotes);
         }
 
         // Auto-detect mode: explicit param > pending plan > drafts
