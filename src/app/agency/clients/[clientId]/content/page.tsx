@@ -361,6 +361,12 @@ export default function ContentHubPage() {
 
   // Open email preview modal
   const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
+    if (type === "plan") {
+      if (!plan || plan.pieces.length === 0) return;
+    } else {
+      if (!plan || plan.pieces.filter((p) => p.body).length === 0) return;
+    }
+
     setEmailPreviewType(type);
     setPendingSendAction(isFirstSend ? type : null);
     if (type === "plan" && plan) {
@@ -698,8 +704,8 @@ export default function ContentHubPage() {
                 {plan.pieces.filter((p) => p.type === "PRESS_RELEASE").length} press releases
               </p>
             </div>
-            {/* Send Plan for Approval (only if DRAFT) */}
-            {plan.planStatus === "DRAFT" && (
+            {/* Send Plan for Approval (only if DRAFT and has pieces) */}
+            {plan.planStatus === "DRAFT" && plan.pieces.length > 0 && (
               <button
                 onClick={handleSendPlanForApproval}
                 disabled={isSendingPlanApproval}
@@ -763,7 +769,7 @@ export default function ContentHubPage() {
           )}
 
           {/* ── Persistent Review Link Bar (PENDING_APPROVAL) ── */}
-          {planPending && (
+          {planPending && plan.pieces.length > 0 && (
             <div
               className="rounded-xl mb-4 overflow-hidden"
               style={{

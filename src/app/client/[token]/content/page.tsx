@@ -324,6 +324,16 @@ function ContentApprovalInner() {
     }
 
     // ── Card-by-card review ──
+    if (planPieces.length === 0) {
+      return (
+        <div className="text-center py-16">
+          <ClipboardList size={40} className="mx-auto mb-4" style={{ color: "#ccc" }} />
+          <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>Plan is Empty</h2>
+          <p className="text-sm" style={{ color: "#888" }}>This content plan currently has no pieces to review.</p>
+        </div>
+      );
+    }
+
     const currentPiece = planPieces[currentIndex];
     const typeInfo = typeLabels[currentPiece?.type] || typeLabels.BLOG_POST;
 
