@@ -361,8 +361,9 @@ export default function ContentHubPage() {
 
   // Open email preview modal
   const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
+    const primaryPieces = plan?.pieces.filter(p => !p.isReserve) || [];
     if (type === "plan") {
-      if (!plan || plan.pieces.length === 0) return;
+      if (!plan || primaryPieces.length === 0) return;
     } else {
       if (!plan || plan.pieces.filter((p) => p.body).length === 0) return;
     }
@@ -372,7 +373,7 @@ export default function ContentHubPage() {
     if (type === "plan" && plan) {
       setEmailSubject(`📋 Content plan ready for your review — ${clientName}`);
       const reviewUrl = getReviewUrl("plan") || "";
-      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, plan.pieces.length, reviewUrl));
+      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, primaryPieces.length, reviewUrl));
     } else {
       const draftCount = plan?.pieces.filter((p) => p.body).length || 0;
       setEmailSubject(`✍️ ${draftCount} content draft${draftCount !== 1 ? "s" : ""} ready for review — ${clientName}`);
@@ -697,15 +698,15 @@ export default function ContentHubPage() {
                 </span>
               </div>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {plan.pieces.length} topics planned ·{" "}
-                {plan.pieces.filter((p) => p.type === "BLOG_POST").length} blog posts ·{" "}
-                {plan.pieces.filter((p) => p.type === "GBP_POST").length} GBP posts ·{" "}
-                {plan.pieces.filter((p) => p.type === "GBP_QA").length} Q&As ·{" "}
-                {plan.pieces.filter((p) => p.type === "PRESS_RELEASE").length} press releases
+                {plan.pieces.filter(p => !p.isReserve).length} topics planned ·{" "}
+                {plan.pieces.filter((p) => p.type === "BLOG_POST" && !p.isReserve).length} blog posts ·{" "}
+                {plan.pieces.filter((p) => p.type === "GBP_POST" && !p.isReserve).length} GBP posts ·{" "}
+                {plan.pieces.filter((p) => p.type === "GBP_QA" && !p.isReserve).length} Q&As ·{" "}
+                {plan.pieces.filter((p) => p.type === "PRESS_RELEASE" && !p.isReserve).length} press releases
               </p>
             </div>
             {/* Send Plan for Approval (only if DRAFT and has pieces) */}
-            {plan.planStatus === "DRAFT" && plan.pieces.length > 0 && (
+            {plan.planStatus === "DRAFT" && plan.pieces.filter(p => !p.isReserve).length > 0 && (
               <button
                 onClick={handleSendPlanForApproval}
                 disabled={isSendingPlanApproval}
@@ -769,7 +770,7 @@ export default function ContentHubPage() {
           )}
 
           {/* ── Persistent Review Link Bar (PENDING_APPROVAL) ── */}
-          {planPending && plan.pieces.length > 0 && (
+          {planPending && plan.pieces.filter(p => !p.isReserve).length > 0 && (
             <div
               className="rounded-xl mb-4 overflow-hidden"
               style={{
