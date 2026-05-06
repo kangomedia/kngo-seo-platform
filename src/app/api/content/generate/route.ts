@@ -289,8 +289,13 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
     }
 
     // Auto-create deliverables from the generated plan (use TARGET counts, not generated counts)
+    const existingDeliverables = await prisma.deliverable.findMany({
+      where: { clientId, month: currentMonth, year: currentYear }
+    });
+    const existingNames = new Set(existingDeliverables.map(d => d.name));
+
     const deliverablesToCreate = [];
-    if (targetBlogCount > 0) {
+    if (targetBlogCount > 0 && !existingNames.has("Blog Posts")) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
@@ -301,7 +306,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
         status: "PENDING" as const,
       });
     }
-    if (targetGbpCount > 0) {
+    if (targetGbpCount > 0 && !existingNames.has("GBP Posts")) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
@@ -312,7 +317,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
         status: "PENDING" as const,
       });
     }
-    if (targetGbpQACount > 0) {
+    if (targetGbpQACount > 0 && !existingNames.has("GBP Q&As")) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
@@ -323,7 +328,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
         status: "PENDING" as const,
       });
     }
-    if (targetPrCount > 0) {
+    if (targetPrCount > 0 && !existingNames.has("Press Releases")) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,

@@ -10,6 +10,7 @@ import {
   Plus,
   Loader2,
   X,
+  Trash2,
 } from "lucide-react";
 
 interface Deliverable {
@@ -137,6 +138,19 @@ export default function DeliverablesPage() {
     },
   };
 
+  const handleCleanDuplicates = async () => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/deliverables`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        loadData();
+      }
+    } catch {
+      // Handle error silently
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -163,13 +177,21 @@ export default function DeliverablesPage() {
               {months[currentMonth - 1]} {currentYear}: {summaryBreakdown || `${completed} of ${total} complete`} · {overallPct}%
             </p>
           </div>
-          <button
-            className="btn-primary text-sm"
-            onClick={() => setShowAddModal(true)}
-          >
-            <Plus size={16} />
-            Add Deliverable
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="btn-secondary text-sm"
+              onClick={handleCleanDuplicates}
+            >
+              Clean Duplicates
+            </button>
+            <button
+              className="btn-primary text-sm"
+              onClick={() => setShowAddModal(true)}
+            >
+              <Plus size={16} />
+              Add Deliverable
+            </button>
+          </div>
         </div>
         <div className="progress-bar" style={{ height: 8 }}>
           <div
@@ -275,15 +297,35 @@ export default function DeliverablesPage() {
                     />
                   </div>
                 </div>
-                <span
-                  className="text-[10px] font-bold uppercase tracking-wide px-3 py-1 rounded-full flex-shrink-0"
-                  style={{
-                    background: `color-mix(in srgb, ${config.color} 12%, transparent)`,
-                    color: config.color,
-                  }}
-                >
-                  {config.label}
-                </span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wide px-3 py-1 rounded-full"
+                    style={{
+                      background: `color-mix(in srgb, ${config.color} 12%, transparent)`,
+                      color: config.color,
+                    }}
+                  >
+                    {config.label}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      if (confirm("Are you sure you want to delete this deliverable?")) {
+                        try {
+                          const res = await fetch(`/api/clients/${clientId}/deliverables?id=${del.id}`, {
+                            method: "DELETE"
+                          });
+                          if (res.ok) {
+                            setDeliverables(prev => prev.filter(d => d.id !== del.id));
+                          }
+                        } catch {}
+                      }
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                    title="Delete Deliverable"
+                  >
+                    <Trash2 size={16} style={{ color: "var(--danger)" }} />
+                  </button>
+                </div>
               </div>
             );
           })}
