@@ -140,6 +140,8 @@ export default function ContentHubPage() {
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
 
+  const [currentPlanIndex, setCurrentPlanIndex] = useState(0);
+
   // Tracks whether the email preview was opened for a first-time send (needs API call)
   // null = resend only, "plan" = first-time plan send, "drafts" = first-time drafts send
   const [pendingSendAction, setPendingSendAction] = useState<"plan" | "drafts" | null>(null);
@@ -270,7 +272,7 @@ export default function ContentHubPage() {
     fetchKeywordSuggestions();
   }, [clientId]);
 
-  const plan = plans[0]; // Most recent plan
+  const plan = plans[currentPlanIndex]; // Selected plan
 
   const typeIcons: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
     BLOG_POST: { icon: <FileText size={14} />, label: "Blog", color: "#3B82F6" },
