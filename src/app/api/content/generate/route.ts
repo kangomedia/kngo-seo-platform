@@ -60,12 +60,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Use client's DB-stored capacity as authoritative defaults;
-  // body params override only when explicitly provided
-  const blogCount = body.blogCount ?? client.monthlyBlogs;
-  const gbpCount = body.gbpCount ?? client.monthlyGbpPosts;
-  const gbpQACount = body.gbpQACount ?? client.monthlyGbpQAs;
-  const pressReleaseCount = body.pressReleaseCount ?? client.monthlyPressReleases;
+  const targetBlogCount = body.blogCount ?? client.monthlyBlogs;
+  const targetGbpCount = body.gbpCount ?? client.monthlyGbpPosts;
+  const targetGbpQACount = body.gbpQACount ?? client.monthlyGbpQAs;
+  const targetPrCount = body.pressReleaseCount ?? client.monthlyPressReleases;
+  const planId = body.planId;
+
+  // Generate 2x the quota — extras become reserves (shown to client only if they reject primaries)
+  const blogCount = targetBlogCount * 2;
+  const gbpCount = targetGbpCount * 2;
+  const gbpQACount = targetGbpQACount * 2;
+  const pressReleaseCount = targetPrCount * 2;
 
   // Build Claude prompt
   const now = new Date();
@@ -110,6 +115,15 @@ Blog posts should be comprehensive pillar/cluster content targeting long-tail va
 GBP posts should be short, local-focused updates with calls to action.
 GBP Q&As should be common customer questions with authoritative answers for the Google Business Profile.
 Press releases should be newsworthy announcements related to the industry.
+
+CRITICAL INSTRUCTIONS:
+1. You MUST generate EXACTLY ${blogCount + gbpCount + gbpQACount + pressReleaseCount} pieces in total.
+2. IMPORTANT: Generate the pieces in this exact order:
+   - First ${blogCount} items MUST have "type": "BLOG_POST"
+   - Next ${gbpCount} items MUST have "type": "GBP_POST"
+   - Next ${gbpQACount} items MUST have "type": "GBP_QA"
+   - Final ${pressReleaseCount} items MUST have "type": "PRESS_RELEASE"
+3. NEVER label a Q&A or a Press Release as a BLOG_POST. Strictly use the exact 'type' strings provided.
 
 Respond ONLY with a valid JSON array. No markdown, no explanation. Example format:
 [
@@ -172,79 +186,154 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
     }
 
     // Create ContentPlan + ContentPieces in database
-    const plan = await prisma.contentPlan.create({
-      data: {
-        clientId,
-        month: currentMonth,
-        year: currentYear,
-        title: `${monthLabel} Content Plan`,
-        seedKeyword,
-        pieces: {
-          create: pieces.map((p, i) => ({
-            type: p.type as "BLOG_POST" | "GBP_POST" | "PRESS_RELEASE",
-            title: p.title,
-            description: p.description || "",
-            keyword: p.keyword || seedKeyword,
-            sortOrder: i,
-            status: "PLANNED",
-          })),
-        },
-      },
-      include: {
-        pieces: {
-          orderBy: { sortOrder: "asc" },
-          include: { approval: true },
-        },
-      },
-    });
+    // Mark the first N of each type as primary, the rest as reserves
+    const typeCounters: Record<string, number> = {};
+    const targetCounts: Record<string, number> = {
+      BLOG_POST: targetBlogCount,
+      GBP_POST: targetGbpCount,
+      GBP_QA: targetGbpQACount,
+      PRESS_RELEASE: targetPrCount,
+    };
 
-    // Auto-create deliverables from the generated plan
-    const blogPieces = pieces.filter((p) => p.type === "BLOG_POST").length;
-    const gbpPieces = pieces.filter((p) => p.type === "GBP_POST").length;
-    const gbpQAPieces = pieces.filter((p) => p.type === "GBP_QA").length;
-    const prPieces = pieces.filter((p) => p.type === "PRESS_RELEASE").length;
+    let plan;
+    if (planId) {
+      // Append to existing plan
+      const existingPlan = await prisma.contentPlan.findUnique({
+        where: { id: planId },
+        include: { pieces: true },
+      });
+      
+      if (!existingPlan) {
+        return NextResponse.json({ error: "Content plan not found" }, { status: 404 });
+      }
 
+      // Count existing pieces to accurately determine isReserve status for new ones
+      for (const piece of existingPlan.pieces) {
+        typeCounters[piece.type] = (typeCounters[piece.type] || 0) + 1;
+      }
+
+      // Build a definitive array of expected types in exact order
+      const expectedTypes: ("BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE")[] = [];
+      for (let i = 0; i < blogCount; i++) expectedTypes.push("BLOG_POST");
+      for (let i = 0; i < gbpCount; i++) expectedTypes.push("GBP_POST");
+      for (let i = 0; i < gbpQACount; i++) expectedTypes.push("GBP_QA");
+      for (let i = 0; i < pressReleaseCount; i++) expectedTypes.push("PRESS_RELEASE");
+
+      plan = await prisma.contentPlan.update({
+        where: { id: planId },
+        data: {
+          pieces: {
+            create: pieces.map((p, i) => {
+              // Override AI type with strictly guaranteed expected type if available
+              const type = expectedTypes[i] || (p.type as "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE");
+              typeCounters[type] = (typeCounters[type] || 0) + 1;
+              const isReserve = typeCounters[type] > (targetCounts[type] || 0);
+
+              return {
+                type,
+                title: p.title,
+                description: p.description || "",
+                keyword: p.keyword || seedKeyword,
+                sortOrder: existingPlan.pieces.length + i,
+                status: "PLANNED" as const,
+                isReserve,
+              };
+            }),
+          },
+        },
+        include: {
+          pieces: {
+            orderBy: { sortOrder: "asc" },
+            include: { approval: true },
+          },
+        },
+      });
+    } else {
+      // Build a definitive array of expected types in exact order
+      const expectedTypes: ("BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE")[] = [];
+      for (let i = 0; i < blogCount; i++) expectedTypes.push("BLOG_POST");
+      for (let i = 0; i < gbpCount; i++) expectedTypes.push("GBP_POST");
+      for (let i = 0; i < gbpQACount; i++) expectedTypes.push("GBP_QA");
+      for (let i = 0; i < pressReleaseCount; i++) expectedTypes.push("PRESS_RELEASE");
+
+      // Create new plan
+      plan = await prisma.contentPlan.create({
+        data: {
+          clientId,
+          month: currentMonth,
+          year: currentYear,
+          title: `${monthLabel} Content Plan`,
+          seedKeyword,
+          pieces: {
+            create: pieces.map((p, i) => {
+              // Override AI type with strictly guaranteed expected type if available
+              const type = expectedTypes[i] || (p.type as "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE");
+              typeCounters[type] = (typeCounters[type] || 0) + 1;
+              const isReserve = typeCounters[type] > (targetCounts[type] || 0);
+
+              return {
+                type,
+                title: p.title,
+                description: p.description || "",
+                keyword: p.keyword || seedKeyword,
+                sortOrder: i,
+                status: "PLANNED" as const,
+                isReserve,
+              };
+            }),
+          },
+        },
+        include: {
+          pieces: {
+            orderBy: { sortOrder: "asc" },
+            include: { approval: true },
+          },
+        },
+      });
+    }
+
+    // Auto-create deliverables from the generated plan (use TARGET counts, not generated counts)
     const deliverablesToCreate = [];
-    if (blogPieces > 0) {
+    if (targetBlogCount > 0) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
         year: currentYear,
         name: "Blog Posts",
-        targetCount: blogPieces,
+        targetCount: targetBlogCount,
         currentCount: 0,
         status: "PENDING" as const,
       });
     }
-    if (gbpPieces > 0) {
+    if (targetGbpCount > 0) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
         year: currentYear,
         name: "GBP Posts",
-        targetCount: gbpPieces,
+        targetCount: targetGbpCount,
         currentCount: 0,
         status: "PENDING" as const,
       });
     }
-    if (gbpQAPieces > 0) {
+    if (targetGbpQACount > 0) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
         year: currentYear,
         name: "GBP Q&As",
-        targetCount: gbpQAPieces,
+        targetCount: targetGbpQACount,
         currentCount: 0,
         status: "PENDING" as const,
       });
     }
-    if (prPieces > 0) {
+    if (targetPrCount > 0) {
       deliverablesToCreate.push({
         clientId,
         month: currentMonth,
         year: currentYear,
         name: "Press Releases",
-        targetCount: prPieces,
+        targetCount: targetPrCount,
         currentCount: 0,
         status: "PENDING" as const,
       });

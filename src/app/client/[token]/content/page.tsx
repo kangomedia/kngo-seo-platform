@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import {
   getClientContentForReview,
   submitPublicContentApproval,
@@ -30,6 +30,7 @@ interface ContentPiece {
   keyword: string | null;
   type: string;
   body: string | null;
+  isReserve: boolean;
 }
 
 interface ContentPlan {
@@ -120,24 +121,85 @@ function ContentApprovalInner() {
       );
     }
 
-    const planPieces = planForReview.pieces;
+    // ── Dynamic reserve replacement logic ──
+    // All pieces loaded from the plan (primary + reserves)
+    const allPlanPieces = planForReview.pieces as (ContentPiece & { isReserve?: boolean })[];
+    const primaryPieces = allPlanPieces.filter((p) => !p.isReserve);
+    const reservePieces = allPlanPieces.filter((p) => p.isReserve);
+
+    // Compute the visible review queue: primary pieces + reserves replacing rejections
+    // This dynamically grows as the client rejects pieces
+    const planPieces = useMemo(() => {
+      const reservesByType: Record<string, ContentPiece[]> = {};
+      for (const r of reservePieces) {
+        if (!reservesByType[r.type]) reservesByType[r.type] = [];
+        reservesByType[r.type].push(r);
+      }
+
+      const result = [...primaryPieces];
+      let i = 0;
+      while (i < result.length) {
+        const p = result[i];
+        if (decisions[p.id] === "rejected") {
+          const typeReserves = reservesByType[p.type] || [];
+          const replacement = typeReserves.find((r) => !result.some((v) => v.id === r.id));
+          if (replacement) {
+            result.push(replacement);
+          }
+        }
+        i++;
+      }
+      return result;
+    }, [decisions, allPlanPieces]);
+
+    // Compute quota targets (= count of primary pieces per type)
+    const quotaTargets: Record<string, number> = {};
+    for (const p of primaryPieces) {
+      quotaTargets[p.type] = (quotaTargets[p.type] || 0) + 1;
+    }
+
     const typeLabels: Record<string, { emoji: string; label: string }> = {
       BLOG_POST: { emoji: "✍️", label: "Blog Post" },
       GBP_POST: { emoji: "📍", label: "Google Business Post" },
+      GBP_QA: { emoji: "❓", label: "Google Profile Q&A" },
       PRESS_RELEASE: { emoji: "📢", label: "Press Release" },
     };
     const reviewedCount = planPieces.filter((p) => decisions[p.id]).length;
     const pct = planPieces.length > 0 ? Math.round(((currentIndex + 1) / planPieces.length) * 100) : 0;
 
     const handlePlanDecision = (pieceId: string, decision: Decision) => {
-      setDecisions((prev) => ({ ...prev, [pieceId]: decision }));
-      setTimeout(() => {
-        if (currentIndex < planPieces.length - 1) {
-          setCurrentIndex((i) => i + 1);
-        } else {
-          setPlanPhase("summary");
+      setDecisions((prev) => {
+        const updated = { ...prev, [pieceId]: decision };
+
+        // Compute what planPieces length will be after this update
+        // so we can correctly determine if we should advance or go to summary
+        const tempReservesByType: Record<string, ContentPiece[]> = {};
+        for (const r of reservePieces) {
+          if (!tempReservesByType[r.type]) tempReservesByType[r.type] = [];
+          tempReservesByType[r.type].push(r);
         }
-      }, 350);
+        const tempResult = [...primaryPieces];
+        let idx = 0;
+        while (idx < tempResult.length) {
+          const p = tempResult[idx];
+          if (updated[p.id] === "rejected") {
+            const typeReserves = tempReservesByType[p.type] || [];
+            const replacement = typeReserves.find((r) => !tempResult.some((v) => v.id === r.id));
+            if (replacement) tempResult.push(replacement);
+          }
+          idx++;
+        }
+
+        setTimeout(() => {
+          if (currentIndex < tempResult.length - 1) {
+            setCurrentIndex((i) => i + 1);
+          } else {
+            setPlanPhase("summary");
+          }
+        }, 350);
+
+        return updated;
+      });
     };
 
     const handleSubmitPlan = async () => {
@@ -183,11 +245,21 @@ function ContentApprovalInner() {
       const rejected = planPieces.filter((p) => decisions[p.id] === "rejected").length;
       const saved = planPieces.filter((p) => decisions[p.id] === "save_for_later").length;
       const skipped = planPieces.length - approved - rejected - saved;
+
+      // Check per-type quota fulfillment
+      const quotaStatus = Object.entries(quotaTargets).map(([type, target]) => {
+        const typeApproved = planPieces.filter((p) => p.type === type && decisions[p.id] === "approved").length;
+        const info = typeLabels[type] || typeLabels.BLOG_POST;
+        return { type, target, approved: typeApproved, label: info.label, emoji: info.emoji, shortfall: target - typeApproved };
+      }).filter((q) => q.target > 0);
+
+      const hasShortfall = quotaStatus.some((q) => q.shortfall > 0);
+
       return (
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
           <h2 className="text-2xl font-extrabold mb-1" style={{ color: "#222" }}>Almost there.</h2>
           <p className="text-sm mb-5" style={{ color: "#888" }}>
-            You've reviewed {reviewedCount} of {planPieces.length} pieces.{skipped > 0 ? ` ${skipped} skipped — we won't publish those until you weigh in.` : ""} Ready to submit?
+            You&apos;ve reviewed {reviewedCount} of {planPieces.length} pieces.{skipped > 0 ? ` ${skipped} skipped — we won't publish those until you weigh in.` : ""} Ready to submit?
           </p>
           <div className="flex gap-3 flex-wrap mb-5">
             {approved > 0 && <div className="px-4 py-3 rounded-xl" style={{ border: "1.5px solid #86efac", background: "#f0fdf4" }}><div className="text-2xl font-extrabold" style={{ color: "#16a34a" }}>{approved}</div><div className="text-xs font-semibold" style={{ color: "#888" }}>Approved</div></div>}
@@ -195,17 +267,37 @@ function ContentApprovalInner() {
             {saved > 0 && <div className="px-4 py-3 rounded-xl" style={{ border: "1.5px solid #fcd34d", background: "#fef3c7" }}><div className="text-2xl font-extrabold" style={{ color: "#b45309" }}>{saved}</div><div className="text-xs font-semibold" style={{ color: "#888" }}>Saved</div></div>}
             {skipped > 0 && <div className="px-4 py-3 rounded-xl" style={{ border: "1.5px solid #ddd", background: "#f6f6f6" }}><div className="text-2xl font-extrabold" style={{ color: "#aaa" }}>{skipped}</div><div className="text-xs font-semibold" style={{ color: "#888" }}>Skipped</div></div>}
           </div>
+
+          {/* Quota exhaustion notice */}
+          {hasShortfall && (
+            <div className="rounded-xl p-4 mb-5" style={{ background: "#fffbeb", border: "1.5px solid #fcd34d" }}>
+              <p className="text-sm font-bold mb-2" style={{ color: "#92400e" }}>⚠️ Some quotas are below your plan</p>
+              {quotaStatus.filter((q) => q.shortfall > 0).map((q) => (
+                <p key={q.type} className="text-xs mb-1" style={{ color: "#78350f" }}>
+                  {q.emoji} {q.label}: {q.approved} of {q.target} approved ({q.shortfall} short)
+                </p>
+              ))}
+              <p className="text-xs mt-2" style={{ color: "#92400e" }}>
+                No worries — our team will come up with additional ideas and present them to you shortly.
+              </p>
+            </div>
+          )}
+
           {/* Per-type breakdown */}
-          {["BLOG_POST", "GBP_POST", "PRESS_RELEASE"].map((type) => {
+          {["BLOG_POST", "GBP_POST", "GBP_QA", "PRESS_RELEASE"].map((type) => {
             const typePieces = planPieces.filter((p) => p.type === type);
             const decided = typePieces.filter((p) => decisions[p.id]);
             if (decided.length === 0) return null;
             const info = typeLabels[type] || typeLabels.BLOG_POST;
+            const target = quotaTargets[type] || 0;
+            const typeApproved = decided.filter((p) => decisions[p.id] === "approved").length;
             return (
               <div key={type} className="rounded-xl overflow-hidden mb-3" style={{ background: "#fff", border: "1px solid #E4E4E4" }}>
                 <div className="px-4 py-2 flex items-center justify-between" style={{ background: "#FAFAFA", borderBottom: "1px solid #E4E4E4" }}>
                   <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "#888" }}>{info.emoji} {info.label}</span>
-                  <span className="text-xs" style={{ color: "#888" }}>{decided.length} reviewed</span>
+                  <span className="text-xs font-bold" style={{ color: typeApproved >= target ? "#16a34a" : "#b45309" }}>
+                    {typeApproved} / {target} approved
+                  </span>
                 </div>
                 {decided.map((p) => {
                   const d = decisions[p.id];
@@ -255,8 +347,15 @@ function ContentApprovalInner() {
             {/* Type banner */}
             <div className="px-5 py-3 flex items-center gap-3" style={{ background: "#FAFAFA", borderBottom: "1px solid #E4E4E4" }}>
               <div>
-                <div className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: "#888", marginBottom: 2 }}>You're reviewing</div>
-                <div className="text-lg font-extrabold" style={{ color: "#222" }}>{typeInfo.emoji} {typeInfo.label}</div>
+                <div className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: "#888", marginBottom: 2 }}>You&apos;re reviewing</div>
+                <div className="text-lg font-extrabold" style={{ color: "#222" }}>
+                  {typeInfo.emoji} {typeInfo.label}
+                  {(currentPiece as ContentPiece & { isReserve?: boolean }).isReserve && (
+                    <span className="ml-2 text-[10px] font-bold px-2 py-1 rounded-full align-middle" style={{ background: "#dbeafe", color: "#2563eb", border: "1px solid #93c5fd" }}>
+                      🔄 New Option
+                    </span>
+                  )}
+                </div>
               </div>
               <span className="ml-auto text-xs font-bold px-3 py-1 rounded-full" style={{ background: "#FAFAFA", border: "1.5px solid #E4E4E4", color: "#888" }}>
                 {planPieces.filter((p) => p.type === currentPiece.type).indexOf(currentPiece) + 1} of {planPieces.filter((p) => p.type === currentPiece.type).length}
@@ -384,6 +483,7 @@ function ContentApprovalInner() {
   const typeLabels: Record<string, { icon: React.ReactNode; label: string; emoji: string }> = {
     BLOG_POST: { icon: <FileText size={16} />, label: "Blog Post", emoji: "✍️" },
     GBP_POST: { icon: <MapPin size={16} />, label: "Google Business Post", emoji: "📍" },
+    GBP_QA: { icon: <FileText size={16} />, label: "Google Profile Q&A", emoji: "❓" },
     PRESS_RELEASE: { icon: <Megaphone size={16} />, label: "Press Release", emoji: "📢" },
   };
 

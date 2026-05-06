@@ -268,6 +268,7 @@ model ContentPiece {
   sortOrder     Int           @default(0)
   priority      Int           @default(0)  // higher = more urgent in queue
   revisionCount Int           @default(0)  // tracks revision cycles
+  isReserve     Boolean       @default(false) // backup piece — only shown if client rejects a primary
   dueDate            DateTime?   // writing deadline
   scheduledPublishDate DateTime? // target publish date
   publishedUrl  String?

@@ -26,6 +26,10 @@ import {
   Link2,
   Target,
   TrendingUp,
+  ChevronDown,
+  ChevronRight,
+  Ban,
+  Trash2,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -40,6 +44,7 @@ interface ContentPiece {
   publishedAt: string | null;
   scheduledPublishDate: string | null;
   dueDate: string | null;
+  isReserve: boolean;
   approval: { outcome: string; notes?: string } | null;
 }
 
@@ -263,6 +268,7 @@ export default function ContentHubPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId,
+          planId: plan?.id,
           seedKeyword: seedKeyword.trim(),
           blogCount,
           gbpCount,
@@ -321,6 +327,28 @@ export default function ContentHubPage() {
       setError("Network error — please try again");
     } finally {
       setGeneratingPieceId(null);
+    }
+  };
+
+  const handleDeletePiece = async (pieceId: string) => {
+    if (!confirm("Are you sure you want to delete this piece?")) return;
+    try {
+      const res = await fetch(`/api/content/pieces/${pieceId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setPlans((prev) =>
+          prev.map((p) => ({
+            ...p,
+            pieces: p.pieces.filter((pc) => pc.id !== pieceId),
+          }))
+        );
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to delete piece");
+      }
+    } catch {
+      setError("Network error — please try again");
     }
   };
 
@@ -444,9 +472,13 @@ export default function ContentHubPage() {
     );
   }
 
-  // Pieces with drafts (for the Drafts tab)
-  const piecesWithDrafts = plan?.pieces.filter((p) => p.body) || [];
-  const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
+  // Pieces with drafts (for the Drafts tab) — exclude REJECTED and unused reserves
+  // A reserve is "used" if it has been approved (promoted via client rejection flow)
+  const isUsablepiece = (p: ContentPiece) => p.status !== "REJECTED" && (!p.isReserve || p.status === "APPROVED");
+  const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isUsablepiece(p)) || [];
+  const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isUsablepiece(p) && (p.status === "PLANNED" || p.status === "APPROVED")) || [];
+  const rejectedPieces = plan?.pieces.filter((p) => p.status === "REJECTED") || [];
+  const reservePool = plan?.pieces.filter((p) => p.isReserve && p.status === "PLANNED" && !p.approval) || [];
 
   const planApproved = plan?.planStatus === "APPROVED";
   const planPending = plan?.planStatus === "PENDING_APPROVAL";
@@ -806,13 +838,21 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* Content pieces grid — topics/titles only (no draft actions here) */}
+          {/* Content pieces grid — primary content only (reserves shown in pool indicator below) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-            {plan.pieces.map((piece) => {
+            {plan.pieces.filter((p) => !p.isReserve || p.status === "APPROVED").map((piece) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
+              const approvalOutcome = piece.approval?.outcome;
+              const approvalBadge = approvalOutcome === "approved"
+                ? { bg: "rgba(34,197,94,0.15)", color: "#22c55e", label: "✓ Approved" }
+                : approvalOutcome === "rejected"
+                  ? { bg: "rgba(239,68,68,0.15)", color: "#ef4444", label: "✕ Rejected" }
+                  : approvalOutcome === "save_for_later"
+                    ? { bg: "rgba(245,158,11,0.15)", color: "#f59e0b", label: "◷ Saved" }
+                    : null;
 
               return (
-                <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden" }}>
+                <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden", opacity: approvalOutcome === "rejected" ? 0.6 : 1 }}>
                   <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-2">
                       <span
@@ -824,6 +864,23 @@ export default function ContentHubPage() {
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: typeInfo.color }}>
                         {typeInfo.label}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {approvalBadge && (
+                        <span
+                          className="text-[10px] font-bold px-2 py-1 rounded-full"
+                          style={{ background: approvalBadge.bg, color: approvalBadge.color }}
+                        >
+                          {approvalBadge.label}
+                        </span>
+                      )}
+                      <button 
+                        onClick={() => handleDeletePiece(piece.id)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-md transition-all ml-1"
+                        title="Delete piece"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                   <div className="p-4">
@@ -839,11 +896,31 @@ export default function ContentHubPage() {
                     >
                       🎯 {piece.keyword}
                     </span>
+                    {approvalOutcome === "rejected" && piece.approval?.notes && (
+                      <div className="mt-3 p-2 rounded-lg text-xs" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", color: "var(--text-muted)" }}>
+                        <span className="font-bold" style={{ color: "#ef4444" }}>Client note:</span> {piece.approval.notes}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Reserve pool indicator */}
+          {reservePool.length > 0 && (
+            <div className="mt-4 px-4 py-3 rounded-xl flex items-center gap-3" style={{ background: "rgba(37,99,235,0.06)", border: "1px solid rgba(37,99,235,0.15)" }}>
+              <RefreshCw size={14} style={{ color: "#2563eb" }} />
+              <div>
+                <span className="text-xs font-bold" style={{ color: "#2563eb" }}>
+                  {reservePool.length} reserve piece{reservePool.length !== 1 ? "s" : ""} in backup pool
+                </span>
+                <span className="text-xs ml-2" style={{ color: "var(--text-muted)" }}>
+                  — auto-shown to client if they reject primaries
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -986,9 +1063,9 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* All pieces — with draft actions */}
+          {/* Active pieces — with draft actions (exclude REJECTED and unused reserves) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-            {plan.pieces.map((piece) => {
+            {plan.pieces.filter((p) => isUsablepiece(p)).map((piece) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
               const statusInfo = statusConfig[piece.status] || statusConfig.PLANNED;
               const isGeneratingThis = generatingPieceId === piece.id;
@@ -1082,6 +1159,72 @@ export default function ContentHubPage() {
               );
             })}
           </div>
+
+          {/* ── Rejected Content Section ── */}
+          {plan.pieces.filter((p) => p.status === "REJECTED").length > 0 && (
+            <div className="mt-6">
+              <details>
+                <summary
+                  className="flex items-center gap-2 cursor-pointer select-none px-4 py-3 rounded-xl"
+                  style={{
+                    background: "rgba(239,68,68,0.06)",
+                    border: "1px solid rgba(239,68,68,0.15)",
+                    color: "#ef4444",
+                  }}
+                >
+                  <Ban size={14} />
+                  <span className="text-sm font-bold">
+                    Rejected by Client ({plan.pieces.filter((p) => p.status === "REJECTED").length})
+                  </span>
+                  <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>
+                    — These will not be drafted or published
+                  </span>
+                </summary>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                  {plan.pieces.filter((p) => p.status === "REJECTED").map((piece) => {
+                    const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
+                    return (
+                      <div
+                        key={piece.id}
+                        className="stat-card"
+                        style={{ padding: 0, overflow: "hidden", opacity: 0.65 }}
+                      >
+                        <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-5 h-5 rounded-md flex items-center justify-center"
+                              style={{ background: `${typeInfo.color}20`, color: typeInfo.color }}
+                            >
+                              {typeInfo.icon}
+                            </span>
+                            <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: typeInfo.color }}>
+                              {typeInfo.label}
+                            </span>
+                          </div>
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                            style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}
+                          >
+                            ✕ Rejected
+                          </span>
+                        </div>
+                        <div className="p-3">
+                          <h4 className="text-xs font-bold mb-1" style={{ color: "var(--text-primary)" }}>
+                            {piece.title}
+                          </h4>
+                          {piece.approval?.notes && (
+                            <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+                              <span className="font-bold" style={{ color: "#ef4444" }}>Note:</span> {piece.approval.notes}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            </div>
+          )}
         </div>
       )}
 

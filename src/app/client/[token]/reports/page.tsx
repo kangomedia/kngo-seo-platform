@@ -87,7 +87,7 @@ export default function ClientReportsPage() {
                   <Calendar size={11} />
                   {months[report.month - 1]} {report.year}
                 </p>
-                {report.summary && (
+                {report.summary && !report.summary.trim().startsWith('{') && (
                   <p className="text-sm leading-relaxed" style={{ color: "#666" }}>
                     {report.summary}
                   </p>

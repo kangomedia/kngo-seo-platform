@@ -230,6 +230,19 @@ export async function submitPublicPlanApproval(
           notes: pd.notes || null,
         },
       });
+
+      // Update the piece's status to reflect the decision
+      const newPieceStatus =
+        pd.outcome === "approved"
+          ? "APPROVED"
+          : pd.outcome === "rejected"
+            ? "REJECTED"
+            : "PLANNED"; // save_for_later stays PLANNED
+
+      await prisma.contentPiece.update({
+        where: { id: pd.pieceId },
+        data: { status: newPieceStatus },
+      });
     }
   }
 
