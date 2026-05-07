@@ -21,7 +21,25 @@ import {
   ClipboardList,
 } from "lucide-react";
 
-type Decision = "approved" | "rejected" | "save_for_later" | null;
+type Decision = "approved" | "rejected" | "save_for_later" | "request_edits" | null;
+
+/** Lightweight markdown renderer for draft body — handles headings, bold/italic,
+ *  lists, blockquotes, and paragraphs. No external deps. */
+function renderMarkdown(md: string): string {
+  return `<div class="prose">${md
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:800;margin:20px 0 8px;color:#222">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:800;margin:24px 0 10px;color:#222">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 style="font-size:22px;font-weight:800;margin:0 0 16px;color:#222">$1</h1>')
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li style="margin-left:20px;margin-bottom:4px">$1</li>')
+    .replace(/^\d+\. (.+)$/gm, '<li style="margin-left:20px;margin-bottom:4px;list-style:decimal">$1</li>')
+    .replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid #E34234;padding-left:16px;margin:12px 0;color:#666;font-style:italic">$1</blockquote>')
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #E4E4E4;margin:20px 0" />')
+    .replace(/\n\n/g, '</p><p style="margin-bottom:12px">')
+    .replace(/\n/g, '<br />')}</div>`;
+}
 
 interface ContentPiece {
   id: string;
@@ -625,7 +643,7 @@ function ContentApprovalInner() {
               ? "#dcfce7"
               : decision === "rejected"
                 ? "#fee2e2"
-                : decision === "save_for_later"
+                : decision === "save_for_later" || decision === "request_edits"
                   ? "#fef3c7"
                   : i === currentIndex
                     ? "#fff0ef"
@@ -635,7 +653,7 @@ function ContentApprovalInner() {
               ? "#16a34a"
               : decision === "rejected"
                 ? "#dc2626"
-                : decision === "save_for_later"
+                : decision === "save_for_later" || decision === "request_edits"
                   ? "#b45309"
                   : i === currentIndex
                     ? "#E34234"
@@ -655,6 +673,7 @@ function ContentApprovalInner() {
               {decision === "approved" && <CheckCircle2 size={12} />}
               {decision === "rejected" && <XCircle size={12} />}
               {decision === "save_for_later" && <BookmarkPlus size={12} />}
+              {decision === "request_edits" && <MessageSquare size={12} />}
               {i + 1}. {piece.title.substring(0, 25)}...
             </button>
           );
@@ -684,18 +703,33 @@ function ContentApprovalInner() {
 
           {/* Content */}
           <div className="p-6">
-            <h2 className="text-xl font-extrabold mb-3" style={{ color: "#222" }}>
+            <h2 className="text-xl font-extrabold mb-2" style={{ color: "#222" }}>
               {currentPiece.title}
             </h2>
-            <p className="text-sm leading-relaxed mb-4" style={{ color: "#666" }}>
-              {currentPiece.description}
-            </p>
+            {currentPiece.description && (
+              <p className="text-sm leading-relaxed mb-3" style={{ color: "#666" }}>
+                {currentPiece.description}
+              </p>
+            )}
             {currentPiece.keyword && (
               <div
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold mb-4"
                 style={{ background: "#F5F5F5", color: "#888" }}
               >
                 🎯 Target keyword: <span style={{ color: "#222" }}>{currentPiece.keyword}</span>
+              </div>
+            )}
+
+            {/* Full draft body — this is what the client actually reviews */}
+            {currentPiece.body ? (
+              <div
+                className="rounded-xl p-5 mt-2"
+                style={{ background: "#FAFAFA", border: "1px solid #E4E4E4", color: "#222", lineHeight: 1.7 }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(currentPiece.body) }}
+              />
+            ) : (
+              <div className="rounded-xl p-4 text-sm" style={{ background: "#FAFAFA", border: "1px solid #E4E4E4", color: "#888" }}>
+                Draft is still being prepared.
               </div>
             )}
           </div>
@@ -704,7 +738,7 @@ function ContentApprovalInner() {
           <div className="px-6 pb-4">
             <label className="text-xs font-bold uppercase tracking-wide mb-2 block" style={{ color: "#888" }}>
               <MessageSquare size={12} className="inline mr-1" />
-              Notes (optional)
+              Feedback (required if requesting edits)
             </label>
             <textarea
               className="w-full p-3 rounded-xl text-sm resize-none"
@@ -714,13 +748,13 @@ function ContentApprovalInner() {
                 color: "#222",
                 minHeight: 80,
               }}
-              placeholder="Add any feedback, requests, or ideas..."
+              placeholder="What edits would you like? Be specific so we can revise quickly…"
               value={notes[currentPiece.id] || ""}
               onChange={(e) => setNotes((prev) => ({ ...prev, [currentPiece.id]: e.target.value }))}
             />
           </div>
 
-          {/* Decision Buttons */}
+          {/* Decision Buttons — Approve / Request Edits / Reject */}
           <div
             className="px-6 py-4 flex items-center gap-3"
             style={{ borderTop: "1px solid #E4E4E4", background: "#FAFAFA" }}
@@ -738,16 +772,17 @@ function ContentApprovalInner() {
               Approve
             </button>
             <button
-              onClick={() => handleDecision(currentPiece.id, "save_for_later")}
+              onClick={() => handleDecision(currentPiece.id, "request_edits")}
               className="flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-bold transition-all"
               style={{
-                background: decisions[currentPiece.id] === "save_for_later" ? "#b45309" : "#fef3c7",
-                color: decisions[currentPiece.id] === "save_for_later" ? "#fff" : "#b45309",
+                background: decisions[currentPiece.id] === "request_edits" ? "#b45309" : "#fef3c7",
+                color: decisions[currentPiece.id] === "request_edits" ? "#fff" : "#b45309",
                 border: "2px solid #b45309",
               }}
+              title="Send the draft back with your notes — we'll revise and resend"
             >
-              <BookmarkPlus size={18} />
-              Later
+              <MessageSquare size={18} />
+              Request Edits
             </button>
             <button
               onClick={() => handleDecision(currentPiece.id, "rejected")}
@@ -757,6 +792,7 @@ function ContentApprovalInner() {
                 color: decisions[currentPiece.id] === "rejected" ? "#fff" : "#dc2626",
                 border: "2px solid #dc2626",
               }}
+              title="Reject this draft — we won't publish it"
             >
               <XCircle size={18} />
               Reject

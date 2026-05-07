@@ -87,7 +87,7 @@ export async function getClientContentForReview(accessToken: string) {
 export async function submitPublicContentApproval(
   accessToken: string,
   contentPieceId: string,
-  outcome: "approved" | "rejected" | "save_for_later",
+  outcome: "approved" | "rejected" | "save_for_later" | "request_edits",
   notes?: string
 ) {
   // Verify the token matches the content piece's client
@@ -124,16 +124,26 @@ export async function submitPublicContentApproval(
     },
   });
 
+  // Status transitions:
+  //   approved        → APPROVED       (ready for publishing)
+  //   rejected        → REJECTED       (won't be published)
+  //   request_edits   → DRAFT_REVIEW   (back to agency for revision; revisionCount++)
+  //   save_for_later  → CLIENT_REVIEW  (legacy plan-review behavior; piece stays for re-review)
   const newStatus =
     outcome === "approved"
       ? "APPROVED"
       : outcome === "rejected"
         ? "REJECTED"
-        : "CLIENT_REVIEW";
+        : outcome === "request_edits"
+          ? "DRAFT_REVIEW"
+          : "CLIENT_REVIEW";
 
   await prisma.contentPiece.update({
     where: { id: contentPieceId },
-    data: { status: newStatus },
+    data: {
+      status: newStatus,
+      ...(outcome === "request_edits" ? { revisionCount: { increment: 1 } } : {}),
+    },
   });
 
   return { success: true };

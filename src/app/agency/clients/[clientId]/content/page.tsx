@@ -360,7 +360,7 @@ export default function ContentHubPage() {
             ...p,
             pieces: p.pieces.map((pc) =>
               pc.id === pieceId
-                ? { ...pc, body: data.body, status: "CLIENT_REVIEW" }
+                ? { ...pc, body: data.body, status: "DRAFT_REVIEW" }
                 : pc
             ),
           }))
@@ -582,10 +582,20 @@ export default function ContentHubPage() {
   }
 
   // Pieces with drafts (for the Drafts tab) — exclude REJECTED and saved for later
-  const isUsablepiece = (p: ContentPiece) => 
+  const isUsablepiece = (p: ContentPiece) =>
     p.status !== "REJECTED" && p.approval?.outcome !== "save_for_later" && p.approval?.outcome !== "rejected";
-    
-  const isDraftablePiece = (p: ContentPiece) => isUsablepiece(p) && (p.status === "APPROVED" || p.approval?.outcome === "approved");
+
+  // A piece is "draftable" if the topic was approved at some point — once it
+  // moves into the draft pipeline (DRAFT_REVIEW / CLIENT_REVIEW), or if the
+  // client requested edits on the draft, we want it to keep showing up in the
+  // agency's Drafts tab.
+  const isDraftablePiece = (p: ContentPiece) => isUsablepiece(p) && (
+    p.status === "APPROVED" ||
+    p.status === "DRAFT_REVIEW" ||
+    p.status === "CLIENT_REVIEW" ||
+    p.approval?.outcome === "approved" ||
+    p.approval?.outcome === "request_edits"
+  );
   
   const piecesWithDrafts = plan?.pieces.filter((p) => p.body && isDraftablePiece(p)) || [];
   const piecesWithoutDrafts = plan?.pieces.filter((p) => !p.body && isDraftablePiece(p)) || [];
@@ -1405,8 +1415,8 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* ── Persistent Draft Review Link Bar ── */}
-          {plan.pieces.some((p) => p.status === "CLIENT_REVIEW" || p.status === "DRAFT_REVIEW") && clientAccessToken && !approvalLink && (
+          {/* ── Persistent Draft Review Link Bar — only when actually sent to the client ── */}
+          {plan.pieces.some((p) => p.status === "CLIENT_REVIEW") && clientAccessToken && !approvalLink && (
             <div
               className="rounded-xl mb-4 overflow-hidden"
               style={{
@@ -1417,7 +1427,10 @@ export default function ContentHubPage() {
               <div className="flex items-center gap-3 px-4 py-3">
                 <Eye size={16} style={{ color: "#10b981" }} className="flex-shrink-0" />
                 <p className="text-sm font-semibold flex-1" style={{ color: "#10b981" }}>
-                  Drafts sent for client review
+                  {(() => {
+                    const sentCount = plan.pieces.filter((p) => p.status === "CLIENT_REVIEW").length;
+                    return `${sentCount} ${sentCount === 1 ? "draft" : "drafts"} sent for client review`;
+                  })()}
                   {clientContactEmail && <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {clientContactEmail}</span>}
                 </p>
               </div>

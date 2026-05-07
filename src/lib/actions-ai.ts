@@ -323,10 +323,12 @@ Write the complete content now. Make it publication-ready.`;
   try {
     const body = await callClaude(systemPrompt, userPrompt);
 
-    // Save the generated body and update status
+    // Draft is ready for AGENCY review (not yet sent to the client). The
+    // explicit "Send Drafts for Review" action transitions DRAFT_REVIEW →
+    // CLIENT_REVIEW and dispatches the email.
     await prisma.contentPiece.update({
       where: { id: contentPieceId },
-      data: { body, status: "CLIENT_REVIEW" },
+      data: { body, status: "DRAFT_REVIEW" },
     });
 
     revalidatePath("/agency");

@@ -30,12 +30,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Find all content pieces with a body that are still in PLANNED or WRITING status
+  // Promote any drafted pieces (DRAFT_REVIEW = ready, CLIENT_REVIEW = already
+  // sent and being re-sent) to CLIENT_REVIEW so the client portal exposes them.
   const updated = await prisma.contentPiece.updateMany({
     where: {
       contentPlanId,
       body: { not: null },
-      status: { in: ["PLANNED", "WRITING", "CLIENT_REVIEW"] },
+      status: { in: ["DRAFT_REVIEW", "CLIENT_REVIEW"] },
     },
     data: {
       status: "CLIENT_REVIEW",
