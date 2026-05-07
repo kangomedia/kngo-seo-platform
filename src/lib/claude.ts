@@ -17,41 +17,74 @@ interface ClaudeMessage {
   content: string;
 }
 
+const RETRYABLE_NET_CODES = new Set([
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
 async function claudeChat(
   messages: ClaudeMessage[],
   systemPrompt: string,
   config: ClaudeConfig
 ) {
   const model = config.model || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-  let res: Response;
-  try {
-    res = await fetch(`${ANTHROPIC_BASE}/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages,
-      }),
-    });
-  } catch (err) {
-    const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
-    const detail = cause?.message || cause?.code || (err instanceof Error ? err.message : String(err));
-    throw new Error(`Anthropic request failed (model=${model}): ${detail}`);
-  }
+  const requestTimeoutMs = 90_000;
+  const maxAttempts = 3;
+  const body = JSON.stringify({
+    model,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages,
+  });
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`Claude API error: ${res.status} ${res.statusText} — ${err}`.trim());
-  }
+  let lastDetail = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${ANTHROPIC_BASE}/messages`, {
+        method: "POST",
+        headers: {
+          "x-api-key": config.apiKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body,
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+    } catch (err) {
+      const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+      const code = cause?.code;
+      const detail = cause?.message || code || (err instanceof Error ? err.message : String(err));
+      const isTimeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      const retry = (code && RETRYABLE_NET_CODES.has(code)) || isTimeout;
+      lastDetail = detail;
+      if (retry && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250)));
+        continue;
+      }
+      throw new Error(`Anthropic request failed (model=${model}, attempt=${attempt}/${maxAttempts}): ${detail}`);
+    }
 
-  const data = await res.json();
-  return data.content[0]?.text || "";
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      const transient = res.status === 429 || res.status >= 500;
+      if (transient && attempt < maxAttempts) {
+        lastDetail = `${res.status} ${res.statusText} ${errText}`.trim();
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250)));
+        continue;
+      }
+      throw new Error(`Claude API error: ${res.status} ${res.statusText} — ${errText}`.trim());
+    }
+
+    const data = await res.json();
+    return data.content[0]?.text || "";
+  }
+  throw new Error(`Anthropic request failed after ${maxAttempts} attempts: ${lastDetail}`);
 }
 
 // ─── Topical Map Generation ───────────────────────────

@@ -22,45 +22,84 @@ interface TopicMapResult {
   }>;
 }
 
+// Network errors that warrant a retry — connection-level transients only.
+const RETRYABLE_NET_CODES = new Set([
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+function isRetryableNetworkError(err: unknown): { retry: boolean; detail: string } {
+  const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+  const code = cause?.code;
+  const detail = cause?.message || cause?.code || (err instanceof Error ? err.message : String(err));
+  return { retry: !!code && RETRYABLE_NET_CODES.has(code), detail };
+}
+
 async function callClaude(systemPrompt: string, userPrompt: string): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY environment variable is not set.");
   }
   const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  // 90s is generous enough for a 4096-token Sonnet response without leaving
+  // the user staring at a spinner for the system socket-timeout default.
+  const requestTimeoutMs = 90_000;
+  const maxAttempts = 3;
+  const body = JSON.stringify({
+    model,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  });
 
-  let response: Response;
-  try {
-    response = await fetch(ANTHROPIC_API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
-  } catch (err) {
-    // Node's undici throws "TypeError: fetch failed" with the real reason
-    // hidden under `err.cause`. Surface it so the caller (and the logs) can
-    // tell network failures, DNS issues, and TLS errors apart.
-    const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
-    const detail = cause?.message || cause?.code || (err instanceof Error ? err.message : String(err));
-    throw new Error(`Anthropic request failed (model=${model}): ${detail}`);
+  let lastDetail = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(ANTHROPIC_API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+    } catch (err) {
+      const { retry, detail } = isRetryableNetworkError(err);
+      // AbortSignal.timeout produces a TimeoutError that's also worth retrying.
+      const isTimeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      lastDetail = detail;
+      if ((retry || isTimeout) && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250)));
+        continue;
+      }
+      throw new Error(`Anthropic request failed (model=${model}, attempt=${attempt}/${maxAttempts}): ${detail}`);
+    }
+
+    // Retry transient server errors (429, 5xx). Auth / bad-request errors
+    // (4xx other than 429) won't fix themselves — fail fast and surface them.
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      const transient = response.status === 429 || response.status >= 500;
+      if (transient && attempt < maxAttempts) {
+        lastDetail = `${response.status} ${response.statusText} ${errText}`.trim();
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250)));
+        continue;
+      }
+      throw new Error(`Claude API error: ${response.status} ${response.statusText} ${errText}`.trim());
+    }
+
+    const data = await response.json();
+    return data.content[0]?.text || "";
   }
-
-  if (!response.ok) {
-    const error = await response.text().catch(() => "");
-    throw new Error(`Claude API error: ${response.status} ${response.statusText} ${error}`.trim());
-  }
-
-  const data = await response.json();
-  return data.content[0]?.text || "";
+  throw new Error(`Anthropic request failed after ${maxAttempts} attempts: ${lastDetail}`);
 }
 
 export async function generateTopicalMap(
