@@ -73,8 +73,8 @@ export async function getClientContentForReview(accessToken: string) {
     },
   });
 
-  // The client must never see reserve pieces — clamp every piece list to the
-  // first N per type by sortOrder, where N is their tier quota.
+  // The client never sees reserve pieces or any piece they previously
+  // rejected/saved-for-later — selectPrimaryPieces handles both cases.
   const quotas = quotasFromClient(client);
   const filteredPieces = selectPrimaryPieces(pieces, quotas);
   const filteredPendingPlan = pendingPlan
@@ -193,16 +193,18 @@ export async function getClientPlanForReview(accessToken: string) {
     include: {
       pieces: {
         orderBy: { sortOrder: "asc" },
+        include: { approval: true },
       },
     },
   });
 
-  // Strip reserves before returning to the client portal.
-  const filteredPlan = plan
-    ? { ...plan, pieces: selectPrimaryPieces(plan.pieces, quotasFromClient(client)) }
-    : null;
+  if (!plan) return { client, plan: null };
 
-  return { client, plan: filteredPlan };
+  const quotas = quotasFromClient(client);
+  return {
+    client,
+    plan: { ...plan, pieces: selectPrimaryPieces(plan.pieces, quotas) },
+  };
 }
 
 export async function submitPublicPlanApproval(

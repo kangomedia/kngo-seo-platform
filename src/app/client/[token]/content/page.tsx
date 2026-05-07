@@ -70,7 +70,8 @@ function ContentApprovalInner() {
 
   useEffect(() => {
     async function load() {
-      // Single fetch that returns both draft pieces AND pending plan
+      // Single fetch that returns: active draft pieces, pending plan, and the
+      // list of pieces the client previously rejected/saved (for restoration).
       const data = await getClientContentForReview(token);
       if (data) {
         if (data.client) {
@@ -88,19 +89,23 @@ function ContentApprovalInner() {
             (data.pieces[0] as unknown as { contentPlan?: { title?: string } })?.contentPlan?.title || "Content Review"
           );
         }
-        // Set pending plan if available
+        // Set pending plan if available. The server has already filtered out
+        // rejected/saved pieces, so we only initialize decisions from approved
+        // pieces (the client's prior approvals are pre-filled and editable).
         if (data.pendingPlan) {
           setPlanForReview(data.pendingPlan as unknown as ContentPlan);
           const initialDecisions: Record<string, Decision> = {};
           const initialNotes: Record<string, string> = {};
           data.pendingPlan.pieces.forEach((p: any) => {
-            if (p.approval?.outcome) {
-              initialDecisions[p.id] = p.approval.outcome as Decision;
+            if (p.approval?.outcome === "approved") {
+              initialDecisions[p.id] = "approved";
               if (p.approval.notes) initialNotes[p.id] = p.approval.notes;
             }
           });
           setDecisions(initialDecisions);
           setNotes(initialNotes);
+          setCurrentIndex(0);
+          setPlanPhase("review");
         }
 
         // Auto-detect mode: explicit param > pending plan > drafts
@@ -352,10 +357,12 @@ function ContentApprovalInner() {
     // ── Card-by-card review ──
     if (planPieces.length === 0) {
       return (
-        <div className="text-center py-16">
-          <ClipboardList size={40} className="mx-auto mb-4" style={{ color: "#ccc" }} />
-          <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>Plan is Empty</h2>
-          <p className="text-sm" style={{ color: "#888" }}>This content plan currently has no pieces to review.</p>
+        <div style={{ maxWidth: 640, margin: "0 auto" }} className="text-center py-16">
+          <CheckCircle2 size={40} className="mx-auto mb-4" style={{ color: "#86efac" }} />
+          <h2 className="text-lg font-bold mb-2" style={{ color: "#222" }}>You&apos;re all caught up</h2>
+          <p className="text-sm" style={{ color: "#888" }}>
+            We&apos;ll let you know when there&apos;s more content to review.
+          </p>
         </div>
       );
     }
@@ -393,9 +400,25 @@ function ContentApprovalInner() {
                   )}
                 </div>
               </div>
-              <span className="ml-auto text-xs font-bold px-3 py-1 rounded-full" style={{ background: "#FAFAFA", border: "1.5px solid #E4E4E4", color: "#888" }}>
-                {planPieces.filter((p) => p.type === currentPiece.type).indexOf(currentPiece) + 1} of {planPieces.filter((p) => p.type === currentPiece.type).length}
-              </span>
+              {(() => {
+                const target = quotaTargets[currentPiece.type] || 0;
+                const approvedOfType = planPieces.filter(
+                  (p) => p.type === currentPiece.type && decisions[p.id] === "approved",
+                ).length;
+                const reachedQuota = approvedOfType >= target;
+                return (
+                  <span
+                    className="ml-auto text-xs font-bold px-3 py-1 rounded-full"
+                    style={{
+                      background: reachedQuota ? "#f0fdf4" : "#FAFAFA",
+                      border: `1.5px solid ${reachedQuota ? "#86efac" : "#E4E4E4"}`,
+                      color: reachedQuota ? "#16a34a" : "#888",
+                    }}
+                  >
+                    {approvedOfType} of {target} approved
+                  </span>
+                );
+              })()}
             </div>
 
             {/* Content */}

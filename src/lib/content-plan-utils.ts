@@ -38,13 +38,13 @@ interface PieceLike {
 }
 
 /**
- * Return only the primary pieces — first N of each type by sortOrder, where
- * N is the client's quota. Approved pieces always count toward the quota and
- * are kept; rejected/save_for_later pieces are NOT skipped over (a rejected
- * primary stays a primary so the client can still see the rejection state).
- *
- * If the agency wants to actually fill the quota after rejections, they swap
- * a reserve into a primary slot via the agency UI (changes sortOrder).
+ * Return the active "primary" set the client should see in the review queue.
+ * For each type, walks pieces in sortOrder and takes up to N (= quota), where
+ * pieces the client has already rejected or saved-for-later are SKIPPED OVER —
+ * the next unreviewed/approved piece fills that slot. This is how reserves
+ * get promoted: when a primary is rejected, the next reserve in sortOrder
+ * becomes the new primary automatically. The agency can put a rejected piece
+ * back into circulation via the admin restore endpoint.
  */
 export function selectPrimaryPieces<T extends PieceLike>(
   pieces: T[],
@@ -55,6 +55,9 @@ export function selectPrimaryPieces<T extends PieceLike>(
   const result: T[] = [];
 
   for (const p of sorted) {
+    if (p.approval?.outcome === "rejected" || p.approval?.outcome === "save_for_later") {
+      continue;
+    }
     const quota = (quotas as unknown as Record<string, number>)[p.type] ?? 0;
     if ((taken[p.type] ?? 0) < quota) {
       taken[p.type] = (taken[p.type] ?? 0) + 1;

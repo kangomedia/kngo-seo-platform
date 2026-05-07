@@ -33,6 +33,7 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
+  RotateCcw,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -395,6 +396,24 @@ export default function ContentHubPage() {
       } else {
         const data = await res.json();
         setError(data.error || "Failed to delete piece");
+      }
+    } catch {
+      setError("Network error — please try again");
+    }
+  };
+
+  const handleRestorePiece = async (pieceId: string) => {
+    try {
+      const res = await fetch(`/api/content/pieces/${pieceId}/restore`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        // Reload to pick up the new status + cleared approval; the piece will
+        // re-appear in the active queue (or as a reserve, depending on quota).
+        loadData();
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to restore piece");
       }
     } catch {
       setError("Network error — please try again");
@@ -1271,14 +1290,24 @@ export default function ContentHubPage() {
                           <h4 className="text-sm font-bold line-through decoration-white/20" style={{ color: "var(--text-muted)" }}>
                             {piece.title}
                           </h4>
-                          <button
-                            onClick={() => handleDeletePiece(piece.id)}
-                            className="p-1.5 rounded-md transition-colors ml-2 flex-shrink-0"
-                            style={{ color: "var(--text-muted)", background: "rgba(0,0,0,0.05)" }}
-                            title="Delete permanently"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                            <button
+                              onClick={() => handleRestorePiece(piece.id)}
+                              className="p-1.5 rounded-md transition-colors"
+                              style={{ color: "var(--accent)", background: "rgba(0,0,0,0.05)" }}
+                              title="Restore — clears the client's decision and puts this piece back in the active queue"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeletePiece(piece.id)}
+                              className="p-1.5 rounded-md transition-colors"
+                              style={{ color: "var(--text-muted)", background: "rgba(0,0,0,0.05)" }}
+                              title="Delete permanently"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                         <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--text-muted)" }}>
                           {piece.description}
