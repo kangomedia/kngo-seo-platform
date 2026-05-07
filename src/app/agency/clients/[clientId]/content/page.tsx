@@ -601,8 +601,9 @@ export default function ContentHubPage() {
     }
   };
 
-  const planApproved = plan?.planStatus === "APPROVED";
-  const planPending = plan?.planStatus === "PENDING_APPROVAL";
+  const usablePieceCount = plan?.pieces.filter(p => isUsablepiece(p)).length || 0;
+  const planApproved = plan?.planStatus === "APPROVED" && usablePieceCount > 0;
+  const planPending = plan?.planStatus === "PENDING_APPROVAL" && usablePieceCount > 0;
 
   return (
     <div className="max-w-6xl">
@@ -817,7 +818,7 @@ export default function ContentHubPage() {
                 )}
                 {/* Plan status badge */}
                 {(() => {
-                  const effectiveStatus = plan.planStatus === "PENDING_APPROVAL" && getPrimaryCount(plan) === 0 ? "DRAFT" : plan.planStatus;
+                  const effectiveStatus = usablePieceCount === 0 ? "DRAFT" : plan.planStatus;
                   return (
                     <span
                       className="text-xs font-bold px-3 py-1 rounded-full"
