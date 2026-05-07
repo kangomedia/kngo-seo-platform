@@ -6,14 +6,11 @@ import { sendEmail, auditCompleteEmail } from "@/lib/email";
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
 async function getCredentials() {
-  let login = process.env.DATAFORSEO_LOGIN;
-  let password = process.env.DATAFORSEO_PASSWORD;
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) {
-    const settings = await prisma.agencySettings.findUnique({ where: { id: "default" } });
-    login = settings?.dataforseoLogin || undefined;
-    password = settings?.dataforseoPwd || undefined;
+    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD environment variables must be set.");
   }
-  if (!login || !password) throw new Error("DataForSEO credentials not configured");
   return { login, password };
 }
 
@@ -108,7 +105,21 @@ export async function POST(
       });
     }
 
-    // 2) Crawl finished — fetch page-level data
+    // 2) Crawl finished — atomically claim the audit so concurrent polls don't double-process.
+    // updateMany with a status guard makes this race-free: only one caller can transition
+    // out of CRAWLING/PENDING. If we don't get the lock, someone else is finalizing.
+    const claim = await prisma.siteAudit.updateMany({
+      where: { id: auditId, status: { in: ["CRAWLING", "PENDING"] } },
+      data: { status: "PROCESSING" },
+    });
+    if (claim.count === 0) {
+      const current = await prisma.siteAudit.findUnique({ where: { id: auditId } });
+      return NextResponse.json({
+        status: current?.status || "UNKNOWN",
+        message: "Audit is already being finalized or is complete.",
+      });
+    }
+
     console.log(`[AUDIT CHECK] Crawl finished! Fetching pages with HTML filter...`);
     let pagesRes = await fetch(`${DATAFORSEO_API}/on_page/pages`, {
       method: "POST",
@@ -262,6 +273,17 @@ export async function POST(
     });
   } catch (err) {
     console.error("[AUDIT CHECK] UNHANDLED ERROR:", err);
+    // If we acquired the PROCESSING lock above and something failed before the
+    // transaction completed, release it so the next poll can retry. Best-effort.
+    try {
+      const auditId = (await request.clone().json().catch(() => ({})))?.auditId;
+      if (auditId) {
+        await prisma.siteAudit.updateMany({
+          where: { id: auditId, status: "PROCESSING" },
+          data: { status: "CRAWLING" },
+        });
+      }
+    } catch {}
     return NextResponse.json(
       { error: "Internal server error", details: String(err) },
       { status: 500 }

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 export async function DELETE(req: Request) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const { ids } = await req.json();
 

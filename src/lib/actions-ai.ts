@@ -23,18 +23,9 @@ interface TopicMapResult {
 }
 
 async function callClaude(systemPrompt: string, userPrompt: string): Promise<string> {
-  // Try env key first, then agency settings
-  let apiKey = process.env.ANTHROPIC_API_KEY;
-
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    const settings = await prisma.agencySettings.findUnique({
-      where: { id: "default" },
-    });
-    apiKey = settings?.claudeApiKey || undefined;
-  }
-
-  if (!apiKey) {
-    throw new Error("Claude API key not configured. Set it in Settings or .env");
+    throw new Error("ANTHROPIC_API_KEY environment variable is not set.");
   }
 
   const response = await fetch(ANTHROPIC_API, {

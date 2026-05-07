@@ -18,10 +18,11 @@ export async function GET(
   });
 
   if (!report || !report.isPublished) {
-    return NextResponse.json(
-      { error: "Report not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  }
+
+  if (report.expiresAt && report.expiresAt < new Date()) {
+    return NextResponse.json({ error: "Report link has expired" }, { status: 410 });
   }
 
   // Parse the data snapshot

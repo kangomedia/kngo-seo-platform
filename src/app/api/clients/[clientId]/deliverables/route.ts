@@ -96,47 +96,15 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { clientId } = await params;
-  
-  try {
-    const url = new URL(request.url);
-    const deliverableId = url.searchParams.get("id");
-    
-    if (deliverableId) {
-      // Delete specific deliverable
-      await prisma.deliverable.delete({
-        where: { id: deliverableId }
-      });
-      return NextResponse.json({ success: true });
-    } else {
-      // Delete all duplicates for this client (cleanup utility)
-      const allDeliverables = await prisma.deliverable.findMany({
-        where: { clientId },
-        orderBy: { createdAt: 'asc' }
-      });
-      
-      const seen = new Set();
-      const toDelete = [];
-      
-      for (const d of allDeliverables) {
-        const key = `${d.month}-${d.year}-${d.name}`;
-        if (seen.has(key)) {
-          toDelete.push(d.id);
-        } else {
-          seen.add(key);
-        }
-      }
-      
-      if (toDelete.length > 0) {
-        await prisma.deliverable.deleteMany({
-          where: { id: { in: toDelete } }
-        });
-      }
-      
-      return NextResponse.json({ success: true, deleted: toDelete.length });
-    }
-  } catch (error) {
-    console.error("Failed to delete deliverable:", error);
-    return NextResponse.json({ error: "Failed to delete deliverable" }, { status: 500 });
+  await params;
+
+  const url = new URL(request.url);
+  const deliverableId = url.searchParams.get("id");
+
+  if (!deliverableId) {
+    return NextResponse.json({ error: "id query parameter required" }, { status: 400 });
   }
+
+  await prisma.deliverable.delete({ where: { id: deliverableId } });
+  return NextResponse.json({ success: true });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { auth } from "@/lib/auth";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
@@ -20,6 +21,11 @@ function getOAuth2Client() {
 
 // GET — Redirect user to Google OAuth consent screen
 export async function GET(request: Request) {
+  const session = await auth();
+  if (!session || session.user.role !== "AGENCY_ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const url = new URL(request.url);
   const clientId = url.searchParams.get("clientId");
 

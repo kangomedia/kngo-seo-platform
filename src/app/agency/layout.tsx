@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Kanban,
   Wrench,
+  Send,
 } from "lucide-react";
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/agency/clients", label: "Clients", icon: Users },
   { href: "/agency/content-queue", label: "Content Queue", icon: Kanban },
   { href: "/agency/deliverables", label: "Deliverables", icon: ListChecks },
+  { href: "/agency/wordpress", label: "Publishing", icon: Send },
   { href: "/agency/tools", label: "Tools", icon: Wrench },
   { href: "/agency/settings", label: "Settings", icon: Settings },
 ];

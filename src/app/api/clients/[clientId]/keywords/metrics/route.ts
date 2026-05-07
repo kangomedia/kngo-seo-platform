@@ -28,21 +28,13 @@ export async function POST(
     return NextResponse.json({ updated: 0, message: "No keywords to refresh" });
   }
 
-  // Get DataForSEO credentials
-  let login = process.env.DATAFORSEO_LOGIN;
-  let password = process.env.DATAFORSEO_PASSWORD;
-
-  if (!login || !password) {
-    const settings = await prisma.agencySettings.findUnique({
-      where: { id: "default" },
-    });
-    login = settings?.dataforseoLogin || undefined;
-    password = settings?.dataforseoPwd || undefined;
-  }
+  // DataForSEO credentials are read exclusively from environment variables.
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
 
   if (!login || !password) {
     return NextResponse.json(
-      { error: "DataForSEO credentials not configured" },
+      { error: "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD environment variables must be set." },
       { status: 400 }
     );
   }

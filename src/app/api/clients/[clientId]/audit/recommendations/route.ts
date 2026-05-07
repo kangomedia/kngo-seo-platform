@@ -4,13 +4,9 @@ import { auth } from "@/lib/auth";
 import { generateSEORecommendations, type AuditPageData } from "@/lib/claude";
 import { getRealFailedChecks, filterToRealFailures } from "@/lib/audit-checks";
 
-async function getClaudeApiKey(): Promise<string> {
-  let apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    const settings = await prisma.agencySettings.findUnique({ where: { id: "default" } });
-    apiKey = settings?.claudeApiKey || undefined;
-  }
-  if (!apiKey) throw new Error("Claude API key not configured");
+function getClaudeApiKey(): string {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY environment variable is not set.");
   return apiKey;
 }
 

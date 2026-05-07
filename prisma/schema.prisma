@@ -122,6 +122,11 @@ model Client {
   priceRange           String?            // "budget", "mid-range", "premium", "enterprise"
   industryVertical     String?            // "Construction", "Medical", "Legal" etc.
 
+  // WordPress Publishing
+  wpUrl              String?  // e.g. "https://example.com" (no trailing slash)
+  wpUsername         String?  // WP user with author/editor privileges
+  wpAppPasswordEnc   String?  @db.Text  // AES-256-GCM encrypted Application Password (format: iv:tag:ciphertext, hex)
+
   // Relations
   users              ClientUser[]
   keywords           Keyword[]
@@ -316,6 +321,7 @@ model Deliverable {
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@unique([clientId, month, year, name])
   @@index([clientId, month, year])
 }
 
@@ -334,6 +340,7 @@ model Report {
   pdfUrl      String?
   isPublished Boolean  @default(false)
   isArchived  Boolean  @default(false)
+  expiresAt   DateTime? // public link expiration; null = no expiry
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -20,16 +20,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Explicitly use the non-secure cookie name to match useSecureCookies: false
-  // in auth.ts config. Without this, getToken() auto-detects https:// from
-  // Cloudflare and looks for __Secure-authjs.session-token which doesn't exist.
+  // The cookie name must match auth.ts's useSecureCookies setting: when running
+  // behind a TLS-terminating proxy (AUTH_INSECURE_COOKIES=true), cookies are
+  // not prefixed with __Secure-. Otherwise we use the secure-prefixed name.
+  const insecureCookies = process.env.AUTH_INSECURE_COOKIES === "true";
+  const cookieName = insecureCookies || process.env.NODE_ENV !== "production"
+    ? "authjs.session-token"
+    : "__Secure-authjs.session-token";
+
   const token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,
-    cookieName: "authjs.session-token",
+    cookieName,
   });
-
-  console.log("[MIDDLEWARE]", pathname, "- token:", !!token);
 
   if (!token) {
     const loginUrl = new URL("/login", request.url);

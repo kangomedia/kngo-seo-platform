@@ -49,14 +49,10 @@ export async function POST(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Get credentials
-  const settings = await prisma.agencySettings.findUnique({
-    where: { id: "default" },
-  });
-
-  const dfLogin = process.env.DATAFORSEO_LOGIN || settings?.dataforseoLogin;
-  const dfPassword = process.env.DATAFORSEO_PASSWORD || settings?.dataforseoPwd;
-  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
+  // Credentials are read exclusively from environment variables.
+  const dfLogin = process.env.DATAFORSEO_LOGIN;
+  const dfPassword = process.env.DATAFORSEO_PASSWORD;
+  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
   // Step 1: Fetch keyword suggestions from DataForSEO
   let allKeywords: Array<{

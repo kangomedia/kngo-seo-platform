@@ -65,15 +65,12 @@ export async function POST(
     );
   }
 
-  // Get Claude key
-  const settings = await prisma.agencySettings.findUnique({
-    where: { id: "default" },
-  });
-  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || settings?.claudeApiKey;
+  // Claude key is read exclusively from environment variables.
+  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
   if (!claudeKey) {
     return NextResponse.json(
-      { error: "Claude API key not configured" },
+      { error: "ANTHROPIC_API_KEY environment variable is not set." },
       { status: 500 }
     );
   }

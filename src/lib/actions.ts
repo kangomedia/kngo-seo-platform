@@ -240,11 +240,7 @@ export async function getAgencySettings() {
 
 export async function updateAgencySettings(data: {
   agencyName?: string;
-  dataforseoLogin?: string;
-  dataforseoPwd?: string;
-  claudeApiKey?: string;
-  ghlApiKey?: string;
-  ghlLocationId?: string;
+  logoUrl?: string;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "AGENCY_ADMIN") throw new Error("Unauthorized");

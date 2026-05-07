@@ -7,22 +7,11 @@ import { revalidatePath } from "next/cache";
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
 async function getCredentials() {
-  // Try env first, then agency settings
-  let login = process.env.DATAFORSEO_LOGIN;
-  let password = process.env.DATAFORSEO_PASSWORD;
-
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) {
-    const settings = await prisma.agencySettings.findUnique({
-      where: { id: "default" },
-    });
-    login = settings?.dataforseoLogin || undefined;
-    password = settings?.dataforseoPwd || undefined;
+    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD environment variables must be set.");
   }
-
-  if (!login || !password) {
-    throw new Error("DataForSEO credentials not configured. Set them in Settings or .env");
-  }
-
   return { login, password };
 }
 

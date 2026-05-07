@@ -22,22 +22,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get Claude API key: env vars first, DB settings as fallback
-  let apiKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!apiKey) {
-    const settings = await prisma.agencySettings.findUnique({
-      where: { id: "default" },
-    });
-    apiKey = settings?.claudeApiKey || undefined;
-  }
+  // Claude API key is read exclusively from environment variables.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     return NextResponse.json(
-      {
-        error:
-          "Claude API key not configured. Set ANTHROPIC_API_KEY environment variable or add it in Settings.",
-      },
+      { error: "ANTHROPIC_API_KEY environment variable is not set." },
       { status: 400 }
     );
   }
@@ -291,60 +281,31 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
       });
     }
 
-    // Auto-create deliverables from the generated plan (use TARGET counts, not generated counts)
-    const existingDeliverables = await prisma.deliverable.findMany({
-      where: { clientId, month: currentMonth, year: currentYear }
-    });
-    const existingNames = new Set(existingDeliverables.map(d => d.name));
-
-    const deliverablesToCreate = [];
-    if (targetBlogCount > 0 && !existingNames.has("Blog Posts")) {
-      deliverablesToCreate.push({
+    // Auto-create deliverables from the generated plan (use TARGET counts, not generated counts).
+    // The unique constraint on (clientId, month, year, name) makes this idempotent — concurrent
+    // calls cannot produce duplicates. skipDuplicates uses INSERT ... ON CONFLICT DO NOTHING.
+    const deliverablesToCreate = [
+      { name: "Blog Posts",     count: targetBlogCount },
+      { name: "GBP Posts",      count: targetGbpCount },
+      { name: "GBP Q&As",       count: targetGbpQACount },
+      { name: "Press Releases", count: targetPrCount },
+    ]
+      .filter(d => d.count > 0)
+      .map(d => ({
         clientId,
         month: currentMonth,
         year: currentYear,
-        name: "Blog Posts",
-        targetCount: targetBlogCount,
+        name: d.name,
+        targetCount: d.count,
         currentCount: 0,
         status: "PENDING" as const,
-      });
-    }
-    if (targetGbpCount > 0 && !existingNames.has("GBP Posts")) {
-      deliverablesToCreate.push({
-        clientId,
-        month: currentMonth,
-        year: currentYear,
-        name: "GBP Posts",
-        targetCount: targetGbpCount,
-        currentCount: 0,
-        status: "PENDING" as const,
-      });
-    }
-    if (targetGbpQACount > 0 && !existingNames.has("GBP Q&As")) {
-      deliverablesToCreate.push({
-        clientId,
-        month: currentMonth,
-        year: currentYear,
-        name: "GBP Q&As",
-        targetCount: targetGbpQACount,
-        currentCount: 0,
-        status: "PENDING" as const,
-      });
-    }
-    if (targetPrCount > 0 && !existingNames.has("Press Releases")) {
-      deliverablesToCreate.push({
-        clientId,
-        month: currentMonth,
-        year: currentYear,
-        name: "Press Releases",
-        targetCount: targetPrCount,
-        currentCount: 0,
-        status: "PENDING" as const,
-      });
-    }
+      }));
 
     if (deliverablesToCreate.length > 0) {
-      await prisma.deliverable.createMany({ data: deliverablesToCreate });
+      await prisma.deliverable.createMany({
+        data: deliverablesToCreate,
+        skipDuplicates: true,
+      });
     }
 
     return NextResponse.json({

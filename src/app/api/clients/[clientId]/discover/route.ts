@@ -557,9 +557,7 @@ async function discoverKeywords(
   console.log(`[DISCOVER] After intent filter: ${filtered.length} keywords`);
 
   // ── Stage 6: AI Relevance Scoring ──
-  const anthropicKey =
-    process.env.ANTHROPIC_API_KEY ||
-    (await prisma.agencySettings.findUnique({ where: { id: "default" } }))?.claudeApiKey;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   let scoredKeywords = filtered.map(kw => ({
     ...kw,

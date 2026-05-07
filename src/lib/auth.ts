@@ -27,10 +27,19 @@ declare module "next-auth/jwt" {
   }
 }
 
+// Cookies are insecure (no Secure flag) only when explicitly opted in via
+// AUTH_INSECURE_COOKIES=true. This is needed when running behind a TLS-
+// terminating reverse proxy (Coolify/Traefik, Cloudflare) where the upstream
+// connection is HTTP. In every other case, cookies must be Secure.
+const useSecureCookies =
+  process.env.AUTH_INSECURE_COOKIES === "true" ? false : process.env.NODE_ENV === "production";
+
+const authDebug = process.env.AUTH_DEBUG === "true";
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
-  debug: process.env.NODE_ENV !== "production" || !!process.env.AUTH_DEBUG,
-  useSecureCookies: false,
+  debug: authDebug,
+  useSecureCookies,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -43,34 +52,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        console.log("[AUTH] Authorize called with email:", credentials?.email);
-        if (!credentials?.email || !credentials?.password) {
-          console.log("[AUTH] Missing credentials");
-          return null;
-        }
+        if (!credentials?.email || !credentials?.password) return null;
 
         try {
           const user = await prisma.user.findUnique({
             where: { email: credentials.email as string },
           });
 
-          console.log("[AUTH] User found:", !!user);
-
-          if (!user || !user.hashedPassword) {
-            console.log("[AUTH] No user or no password hash");
-            return null;
-          }
+          if (!user || !user.hashedPassword) return null;
 
           const isValid = await bcrypt.compare(
             credentials.password as string,
             user.hashedPassword
           );
-
-          console.log("[AUTH] Password valid:", isValid);
-
           if (!isValid) return null;
 
-          console.log("[AUTH] ✅ Returning user object:", { id: user.id, email: user.email, role: user.role });
           return {
             id: user.id,
             name: user.name,
@@ -78,7 +74,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             role: user.role,
           };
         } catch (err) {
-          console.error("[AUTH] Error during authorize:", err);
+          if (authDebug) console.error("[AUTH] authorize error:", err);
           return null;
         }
       },
@@ -86,7 +82,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
-      console.log("[AUTH] JWT callback - user present:", !!user, "token.sub:", token.sub);
       if (user) {
         token.role = user.role;
         token.sub = user.id;
@@ -94,7 +89,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return token;
     },
     async session({ session, token }) {
-      console.log("[AUTH] Session callback - token.sub:", token.sub, "token.role:", token.role);
       if (session.user) {
         session.user.id = token.sub!;
         session.user.role = token.role as UserRole;

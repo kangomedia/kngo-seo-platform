@@ -14,12 +14,46 @@ function getAuth(config: DataForSEOConfig): string {
   return Buffer.from(`${config.login}:${config.password}`).toString("base64");
 }
 
+/**
+ * Fetch with retry-on-transient-error: 429 (rate limit) and 5xx are retried
+ * with exponential backoff + jitter. 4xx other than 429 fail fast (auth /
+ * bad-request errors won't fix themselves).
+ */
+export async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: { maxAttempts?: number; baseDelayMs?: number } = {},
+): Promise<Response> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const baseDelayMs = opts.baseDelayMs ?? 500;
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (res.ok) return res;
+      if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        // Non-retryable client error — return so the caller can read the body.
+        return res;
+      }
+      lastErr = new Error(`HTTP ${res.status} ${res.statusText}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < maxAttempts) {
+      const delay = baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 200);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 async function apiCall(
   endpoint: string,
   body: unknown,
   config: DataForSEOConfig
 ) {
-  const res = await fetch(`${DATAFORSEO_BASE}${endpoint}`, {
+  const res = await fetchWithRetry(`${DATAFORSEO_BASE}${endpoint}`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${getAuth(config)}`,
@@ -29,7 +63,8 @@ async function apiCall(
   });
 
   if (!res.ok) {
-    throw new Error(`DataForSEO API error: ${res.status} ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`DataForSEO API error: ${res.status} ${res.statusText} ${text}`.trim());
   }
 
   return res.json();

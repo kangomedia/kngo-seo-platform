@@ -107,20 +107,11 @@ export async function POST(
 
 /** Fetch search volume from DataForSEO */
 async function fetchSearchVolume(keywords: string[]) {
-  // Try env first, then agency settings
-  let login = process.env.DATAFORSEO_LOGIN;
-  let password = process.env.DATAFORSEO_PASSWORD;
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
 
   if (!login || !password) {
-    const settings = await prisma.agencySettings.findUnique({
-      where: { id: "default" },
-    });
-    login = settings?.dataforseoLogin || undefined;
-    password = settings?.dataforseoPwd || undefined;
-  }
-
-  if (!login || !password) {
-    throw new Error("DataForSEO credentials not configured");
+    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD environment variables must be set.");
   }
 
   const encoded = Buffer.from(`${login}:${password}`).toString("base64");
