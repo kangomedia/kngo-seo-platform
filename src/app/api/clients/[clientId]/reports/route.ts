@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { fetchGSCData, fetchGA4Data } from "@/lib/google-data";
+import {
+  fetchPerformanceSummary,
+  monthRange,
+  snapshotMonth,
+} from "@/lib/performance";
 
 export async function GET(
   request: Request,
@@ -208,6 +213,30 @@ export async function POST(
     }
   }
 
+  // ── Fetch performance / ROI summary (traffic value, branded split, content perf) ──
+  let perfData = null;
+  try {
+    const range = monthRange(month, year);
+    perfData = await fetchPerformanceSummary(clientId, range);
+    // Persist a MonthlySnapshot row so historical trends survive future API changes.
+    await snapshotMonth(clientId, month, year);
+  } catch (err) {
+    console.warn("[MONTHLY] Could not fetch performance summary:", err);
+  }
+
+  // Add ROI-flavored highlights when we have data
+  if (perfData?.estTrafficValueUsd && perfData.estTrafficValueUsd > 0) {
+    highlights.unshift(
+      `Estimated traffic value: $${Math.round(perfData.estTrafficValueUsd).toLocaleString()}`
+    );
+  }
+  if (perfData?.events.phoneClicks && perfData.events.phoneClicks > 0) {
+    highlights.push(`${perfData.events.phoneClicks} phone-number clicks from website visitors`);
+  }
+  if (perfData?.events.formSubmits && perfData.events.formSubmits > 0) {
+    highlights.push(`${perfData.events.formSubmits} contact form submissions`);
+  }
+
   // ── Build full snapshot ──
   const dataSnapshot = JSON.stringify({
     clientName: client.name,
@@ -240,6 +269,8 @@ export async function POST(
     gsc: gscData,
     hasGA4: !!ga4Data,
     ga4: ga4Data,
+    hasPerformance: !!perfData,
+    performance: perfData,
   });
 
   const report = await prisma.report.create({

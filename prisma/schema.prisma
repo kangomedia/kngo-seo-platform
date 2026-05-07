@@ -127,6 +127,10 @@ model Client {
   wpUsername         String?  // WP user with author/editor privileges
   wpAppPasswordEnc   String?  @db.Text  // AES-256-GCM encrypted Application Password (format: iv:tag:ciphertext, hex)
 
+  // Performance / ROI configuration
+  brandTerms         String?  @db.Text   // JSON array of branded query terms; if null, derived from name/domain
+  avgCpcUsd          Float    @default(3.50)  // dollars; multiplied by clicks for estimated traffic value
+
   // Relations
   users              ClientUser[]
   keywords           Keyword[]
@@ -139,6 +143,7 @@ model Client {
   keywordResearch    KeywordResearch[]
   contentMaps        ContentMap[]
   urlCrawls          UrlCrawl[]
+  monthlySnapshots   MonthlySnapshot[]
 }
 
 model ClientUser {
@@ -434,6 +439,51 @@ model GoogleToken {
   updatedAt    DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─── Monthly Performance Snapshots ────────────────────
+// Persists month-end aggregates so historical trends survive even if upstream
+// APIs (GSC, GA4) are reconfigured. Filled by a monthly cron + on-demand
+// "Generate Report" path. One row per client per month.
+
+model MonthlySnapshot {
+  id                String   @id @default(cuid())
+  clientId          String
+  month             Int      // 1-12
+  year              Int
+
+  // GSC totals (full calendar month)
+  gscClicks            Int      @default(0)
+  gscImpressions       Int      @default(0)
+  gscBrandedClicks     Int      @default(0)
+  gscNonBrandedClicks  Int      @default(0)
+  gscAvgPosition       Float?
+
+  // GA4 totals
+  ga4Sessions          Int      @default(0)
+  ga4Users             Int      @default(0)
+  ga4OrganicSessions   Int      @default(0)
+  ga4PageViews         Int      @default(0)
+
+  // Engagement / intent signals (from GA4 events)
+  phoneClicks          Int      @default(0)
+  formSubmits          Int      @default(0)
+  emailClicks          Int      @default(0)
+
+  // Estimated traffic value: nonBrandedClicks * avgCpcUsd (dollars)
+  estTrafficValue      Float    @default(0)
+  cpcUsedUsd           Float    @default(0)  // CPC value used for the calc, frozen at snapshot time
+
+  // Raw drill-down data (JSON arrays)
+  pageData             String?  @db.Text  // [{url, clicks, impressions, ctr, position}]
+  queryData            String?  @db.Text  // [{query, clicks, impressions, ctr, position, isBranded}]
+
+  generatedAt          DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, month, year])
+  @@index([clientId, year, month])
 }
 
 // ─── Domain Migration / URL Crawl ─────────────────────

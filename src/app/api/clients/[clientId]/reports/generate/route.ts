@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getReportFailedChecks, getCheckLabel, getCheckDescription } from "@/lib/audit-checks";
 import { fetchGSCData, fetchGA4Data } from "@/lib/google-data";
+import { snapshotMonth } from "@/lib/performance";
+import { generateNarrative } from "@/lib/claude";
 
 /**
  * POST /api/clients/[clientId]/reports/generate
@@ -26,10 +28,10 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { type, month: reqMonth, year: reqYear } = body;
-  if (!type || !["SITE_AUDIT", "BASELINE"].includes(type)) {
+  const { type, month: reqMonth, year: reqYear, quarter: reqQuarter } = body;
+  if (!type || !["SITE_AUDIT", "BASELINE", "QUARTERLY"].includes(type)) {
     return NextResponse.json(
-      { error: "type must be SITE_AUDIT or BASELINE" },
+      { error: "type must be SITE_AUDIT, BASELINE, or QUARTERLY" },
       { status: 400 }
     );
   }
@@ -86,6 +88,25 @@ export async function POST(
           month,
           year,
           title: `SEO Baseline Report — ${client.name}`,
+          summary: JSON.stringify(snapshot),
+          highlights: JSON.stringify(snapshot.highlights),
+          isPublished: true,
+        },
+      });
+      return NextResponse.json(report);
+    }
+
+    if (type === "QUARTERLY") {
+      // quarter is 1..4; if not provided, derive from current month
+      const q = reqQuarter || Math.ceil((reqMonth || now.getMonth() + 1) / 3);
+      const snapshot = await buildQuarterlySnapshot(clientId, client.name, q, year);
+      const report = await prisma.report.create({
+        data: {
+          clientId,
+          type: "QUARTERLY",
+          month: q * 3, // store last month of the quarter
+          year,
+          title: `Q${q} ${year} SEO Story — ${client.name}`,
           summary: JSON.stringify(snapshot),
           highlights: JSON.stringify(snapshot.highlights),
           isPublished: true,
@@ -325,6 +346,207 @@ async function buildBaselineSnapshot(
     gsc: gscData,
     hasGA4: !!ga4Data,
     ga4: ga4Data,
+    highlights,
+  };
+}
+
+// ─── Quarterly Snapshot ───────────────────────────────────
+
+async function buildQuarterlySnapshot(
+  clientId: string,
+  clientName: string,
+  quarter: number,
+  year: number
+) {
+  // Months in the quarter (1-12)
+  const months = [quarter * 3 - 2, quarter * 3 - 1, quarter * 3];
+  const quarterLabel = `Q${quarter} ${year}`;
+
+  // Refresh each MonthlySnapshot first so we have current data.
+  // snapshotMonth is idempotent and safely handles missing GA/GSC.
+  for (const m of months) {
+    try {
+      await snapshotMonth(clientId, m, year);
+    } catch (err) {
+      console.warn(`[QUARTERLY] snapshot failed for ${year}-${m}`, err);
+    }
+  }
+
+  const snapshots = await prisma.monthlySnapshot.findMany({
+    where: {
+      clientId,
+      year,
+      month: { in: months },
+    },
+    orderBy: { month: "asc" },
+  });
+
+  // Prior quarter for comparison
+  const priorQuarter = quarter === 1 ? 4 : quarter - 1;
+  const priorYear = quarter === 1 ? year - 1 : year;
+  const priorMonths = [priorQuarter * 3 - 2, priorQuarter * 3 - 1, priorQuarter * 3];
+  const priorSnapshots = await prisma.monthlySnapshot.findMany({
+    where: {
+      clientId,
+      year: priorYear,
+      month: { in: priorMonths },
+    },
+  });
+
+  // Aggregate this quarter
+  const totals = {
+    clicks: 0,
+    impressions: 0,
+    nonBrandedClicks: 0,
+    brandedClicks: 0,
+    estTrafficValue: 0,
+    phoneClicks: 0,
+    formSubmits: 0,
+    organicSessions: 0,
+  };
+  for (const s of snapshots) {
+    totals.clicks += s.gscClicks;
+    totals.impressions += s.gscImpressions;
+    totals.nonBrandedClicks += s.gscNonBrandedClicks;
+    totals.brandedClicks += s.gscBrandedClicks;
+    totals.estTrafficValue += s.estTrafficValue;
+    totals.phoneClicks += s.phoneClicks;
+    totals.formSubmits += s.formSubmits;
+    totals.organicSessions += s.ga4OrganicSessions;
+  }
+  const priorTotals = {
+    clicks: 0,
+    estTrafficValue: 0,
+    phoneClicks: 0,
+    formSubmits: 0,
+  };
+  for (const s of priorSnapshots) {
+    priorTotals.clicks += s.gscClicks;
+    priorTotals.estTrafficValue += s.estTrafficValue;
+    priorTotals.phoneClicks += s.phoneClicks;
+    priorTotals.formSubmits += s.formSubmits;
+  }
+
+  // Per-month series (for chart)
+  const series = months.map((m) => {
+    const s = snapshots.find((x) => x.month === m);
+    return {
+      month: m,
+      clicks: s?.gscClicks || 0,
+      nonBrandedClicks: s?.gscNonBrandedClicks || 0,
+      estTrafficValue: s?.estTrafficValue || 0,
+      phoneClicks: s?.phoneClicks || 0,
+      formSubmits: s?.formSubmits || 0,
+    };
+  });
+
+  // Top performers across the quarter (by total clicks across the 3 months)
+  type AggPiece = {
+    url: string;
+    title?: string;
+    clicks: number;
+    impressions: number;
+  };
+  const byUrl = new Map<string, AggPiece>();
+  for (const s of snapshots) {
+    if (!s.pageData) continue;
+    try {
+      const pages = JSON.parse(s.pageData) as {
+        url: string;
+        clicks: number;
+        impressions: number;
+      }[];
+      for (const p of pages) {
+        const cur = byUrl.get(p.url) || { url: p.url, clicks: 0, impressions: 0 };
+        cur.clicks += p.clicks;
+        cur.impressions += p.impressions;
+        byUrl.set(p.url, cur);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  // Enrich with content-piece titles where we have them
+  const pieces = await prisma.contentPiece.findMany({
+    where: { contentPlan: { clientId }, publishedUrl: { not: null } },
+    select: { title: true, publishedUrl: true },
+  });
+  const titleByUrl = new Map<string, string>();
+  for (const p of pieces) if (p.publishedUrl) titleByUrl.set(p.publishedUrl, p.title);
+
+  const topContent = Array.from(byUrl.values())
+    .map((p) => ({ ...p, title: titleByUrl.get(p.url) || p.url }))
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, 5);
+
+  // Highlights
+  const highlights: string[] = [];
+  if (totals.estTrafficValue > 0) {
+    highlights.push(
+      `Estimated traffic value this quarter: $${Math.round(totals.estTrafficValue).toLocaleString()}`
+    );
+  }
+  if (totals.nonBrandedClicks > 0) {
+    highlights.push(`${totals.nonBrandedClicks.toLocaleString()} non-branded clicks (new search demand)`);
+  }
+  if (totals.phoneClicks > 0) {
+    highlights.push(`${totals.phoneClicks} phone-number clicks`);
+  }
+  if (totals.formSubmits > 0) {
+    highlights.push(`${totals.formSubmits} contact form submissions`);
+  }
+  if (priorTotals.clicks > 0) {
+    const delta = totals.clicks - priorTotals.clicks;
+    const pct = Math.round((delta / priorTotals.clicks) * 100);
+    if (delta !== 0) {
+      highlights.push(
+        `${delta > 0 ? "+" : ""}${pct}% organic clicks vs Q${priorQuarter}`
+      );
+    }
+  }
+
+  // AI narrative (best-effort — never fails the build)
+  let narrative = "";
+  try {
+    const dataBlob = JSON.stringify({
+      quarter: quarterLabel,
+      clientName,
+      currentQuarter: totals,
+      priorQuarter: priorTotals,
+      topContent,
+      monthlySeries: series,
+    });
+    narrative = await generateNarrative({
+      systemPrompt:
+        "You are an SEO account manager writing a quarterly recap for a non-technical small-business owner. " +
+        "Tone: warm, plainspoken, confident — like explaining results to a friend over coffee. " +
+        "Avoid jargon, hype, or generic phrases. " +
+        "Structure: 1) one short paragraph naming the most important quarterly result, " +
+        "2) one paragraph on what's working (cite specific content/keywords from the data), " +
+        "3) one paragraph on what we're focused on next quarter. " +
+        "Do not invent numbers. Do not use bullet points or markdown — flow as paragraphs. Cap at 220 words.",
+      userMessage: `Write the quarterly recap from this data:\n\n${dataBlob}`,
+    });
+  } catch (err) {
+    console.warn("[QUARTERLY] AI narrative failed:", err);
+    narrative =
+      `${quarterLabel} brought ${totals.clicks.toLocaleString()} organic clicks ` +
+      `and an estimated $${Math.round(totals.estTrafficValue).toLocaleString()} of search traffic value. ` +
+      `${totals.phoneClicks} phone clicks and ${totals.formSubmits} form submissions came in over the period.`;
+  }
+
+  return {
+    clientName,
+    reportType: "QUARTERLY",
+    quarter,
+    year,
+    quarterLabel,
+    generatedAt: new Date().toISOString(),
+    totals,
+    priorTotals,
+    series,
+    topContent,
+    narrative,
     highlights,
   };
 }

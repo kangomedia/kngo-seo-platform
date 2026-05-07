@@ -2,13 +2,19 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getClientByToken, getClientRankHistory } from "@/lib/actions-public";
+import {
+  getClientByToken,
+  getClientRankHistory,
+  getClientPerformance,
+} from "@/lib/actions-public";
 import {
   TrendingUp,
   CheckCircle2,
   FileText,
   Star,
   ArrowRight,
+  Phone,
+  DollarSign,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import Link from "next/link";
@@ -53,11 +59,29 @@ interface ClientData {
   };
 }
 
+interface PerformanceData {
+  hasGSC: boolean;
+  estTrafficValueUsd: number;
+  cpcUsedUsd: number;
+  nonBrandedClicks: number;
+  organicSessions: number;
+  events: { phoneClicks: number; formSubmits: number; emailClicks: number };
+  contentPerformance: Array<{
+    pieceId: string;
+    title: string;
+    publishedUrl: string;
+    clicks: number;
+    impressions: number;
+    position: number | null;
+  }>;
+}
+
 export default function ClientDashboard() {
   const params = useParams();
   const token = params.token as string;
   const [client, setClient] = useState<ClientData | null>(null);
   const [trendData, setTrendData] = useState<Array<{ date: string; page1Count: number }>>([]);
+  const [perf, setPerf] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -65,6 +89,12 @@ export default function ClientDashboard() {
       const data = await getClientByToken(token);
       if (data) {
         setClient(data as unknown as ClientData);
+
+        // Performance summary (separate fetch — slow if Google APIs are slow,
+        // so load it in parallel with the rank history)
+        getClientPerformance(token, 30).then((p) => {
+          if (p) setPerf(p as unknown as PerformanceData);
+        });
 
         // Build trend data from rank history
         const history = await getClientRankHistory(token, 30);
@@ -144,6 +174,63 @@ export default function ClientDashboard() {
           }}
         />
       </div>
+
+      {/* Results Hero — last 30 days, plain-English */}
+      {perf && perf.hasGSC && (
+        <div
+          className="rounded-2xl p-6 mb-6"
+          style={{
+            background: "linear-gradient(135deg, #064e3b, #065f46)",
+            border: "1px solid #047857",
+            color: "#fff",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <DollarSign size={18} style={{ color: "#a7f3d0" }} />
+            <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "#a7f3d0" }}>
+              Estimated Value of Your Search Traffic — Last 30 Days
+            </p>
+          </div>
+          <p className="text-4xl font-extrabold mb-2">
+            {new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "USD",
+              maximumFractionDigits: 0,
+            }).format(perf.estTrafficValueUsd)}
+          </p>
+          <p className="text-sm" style={{ color: "#a7f3d0" }}>
+            That&apos;s what you&apos;d have paid Google Ads to bring in the same visitors. SEO is the
+            asset doing it for you.
+          </p>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+            <div className="rounded-xl p-3" style={{ background: "rgba(0,0,0,0.18)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#a7f3d0" }}>
+                New visitors from search
+              </p>
+              <p className="text-xl font-extrabold mt-1">{perf.nonBrandedClicks.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl p-3" style={{ background: "rgba(0,0,0,0.18)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide flex items-center gap-1" style={{ color: "#a7f3d0" }}>
+                <Phone size={10} /> Phone clicks
+              </p>
+              <p className="text-xl font-extrabold mt-1">{perf.events.phoneClicks.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl p-3" style={{ background: "rgba(0,0,0,0.18)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#a7f3d0" }}>
+                Form submissions
+              </p>
+              <p className="text-xl font-extrabold mt-1">{perf.events.formSubmits.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl p-3" style={{ background: "rgba(0,0,0,0.18)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#a7f3d0" }}>
+                Organic sessions
+              </p>
+              <p className="text-xl font-extrabold mt-1">{perf.organicSessions.toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Simple Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -262,6 +349,71 @@ export default function ClientDashboard() {
               />
             </AreaChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Content Performance — which articles drove traffic */}
+      {perf && perf.contentPerformance.length > 0 && (
+        <div
+          className="rounded-2xl p-6 mb-8"
+          style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+        >
+          <h2 className="text-lg font-extrabold mb-1" style={{ color: "#222" }}>
+            Which Content Worked 🏆
+          </h2>
+          <p className="text-sm mb-4" style={{ color: "#888" }}>
+            Real Search Console data for each piece of content we&apos;ve published — last 30 days
+          </p>
+          <div className="flex flex-col gap-2">
+            {perf.contentPerformance.slice(0, 8).map((c) => (
+              <div
+                key={c.pieceId}
+                className="flex items-center gap-3 p-3 rounded-xl"
+                style={{ background: "#FAFAFA" }}
+              >
+                <div className="flex-1 min-w-0">
+                  <a
+                    href={c.publishedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-bold truncate block"
+                    style={{ color: "#222", textDecoration: "none" }}
+                  >
+                    {c.title}
+                  </a>
+                  <p className="text-xs truncate" style={{ color: "#888" }}>
+                    {c.publishedUrl.replace(/^https?:\/\/[^/]+/, "")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <div className="text-center">
+                    <p className="text-base font-extrabold" style={{ color: c.clicks > 0 ? "#16a34a" : "#94a3b8" }}>
+                      {c.clicks}
+                    </p>
+                    <p className="text-[10px] uppercase font-bold" style={{ color: "#888" }}>
+                      Clicks
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-base font-extrabold" style={{ color: "#222" }}>
+                      {c.impressions.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] uppercase font-bold" style={{ color: "#888" }}>
+                      Imprs
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-base font-extrabold" style={{ color: "#f59e0b" }}>
+                      {c.position != null ? c.position.toFixed(1) : "—"}
+                    </p>
+                    <p className="text-[10px] uppercase font-bold" style={{ color: "#888" }}>
+                      Avg Pos
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

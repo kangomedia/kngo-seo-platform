@@ -6,6 +6,7 @@ import { Loader2, FileText } from "lucide-react";
 import SiteAuditReport from "@/components/reports/SiteAuditReport";
 import BaselineReport from "@/components/reports/BaselineReport";
 import MonthlyReport from "@/components/reports/MonthlyReport";
+import QuarterlyReport from "@/components/reports/QuarterlyReport";
 
 interface Report {
   id: string;
@@ -90,6 +91,8 @@ export default function PublicReportPage() {
       return <SiteAuditReport data={report.data} />;
     case "BASELINE":
       return <BaselineReport data={report.data} />;
+    case "QUARTERLY":
+      return <QuarterlyReport data={report.data} />;
     case "MONTHLY":
     default:
       return <MonthlyReport data={report.data} />;

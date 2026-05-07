@@ -10,6 +10,9 @@ import {
   Printer,
   BarChart3,
   Search,
+  DollarSign,
+  Phone,
+  FileText as FormIcon,
 } from "lucide-react";
 import { ReportFooter, ReportHeader, StatCard } from "./SiteAuditReport";
 
@@ -47,6 +50,31 @@ interface TrafficSource {
   channel: string;
   sessions: number;
   users: number;
+}
+
+interface ContentPerfEntry {
+  pieceId: string;
+  title: string;
+  type: string;
+  publishedUrl: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
+  topQueries: { query: string; clicks: number }[];
+}
+
+interface PerformanceBlock {
+  totalClicks: number;
+  totalImpressions: number;
+  brandedClicks: number;
+  nonBrandedClicks: number;
+  estTrafficValueUsd: number;
+  cpcUsedUsd: number;
+  events: { phoneClicks: number; formSubmits: number; emailClicks: number };
+  organicSessions: number;
+  contentPerformance: ContentPerfEntry[];
+  brandTermsUsed: string[];
 }
 
 interface ReportData {
@@ -87,6 +115,8 @@ interface ReportData {
     pageViews: number;
     trafficSources: TrafficSource[];
   } | null;
+  hasPerformance?: boolean;
+  performance?: PerformanceBlock | null;
 }
 
 const contentTypeEmoji: Record<string, string> = {
@@ -114,10 +144,106 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
       />
 
       <div className="max-w-3xl mx-auto px-6 py-10">
+        {/* ROI Hero — what the campaign returned in dollar terms */}
+        {d.hasPerformance && d.performance && (
+          <div
+            className="rounded-2xl p-6 mb-6 -mt-6 relative z-10"
+            style={{
+              background: "linear-gradient(135deg, #064e3b, #065f46)",
+              border: "1px solid #047857",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+              color: "#fff",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign size={18} style={{ color: "#a7f3d0" }} />
+              <p
+                className="text-xs font-bold uppercase tracking-wide"
+                style={{ color: "#a7f3d0" }}
+              >
+                Estimated Traffic Value
+              </p>
+            </div>
+            <p className="text-4xl font-extrabold mb-2">
+              {new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              }).format(d.performance.estTrafficValueUsd)}
+            </p>
+            <p className="text-sm mb-4" style={{ color: "#a7f3d0" }}>
+              {d.performance.nonBrandedClicks.toLocaleString()} non-branded clicks ×{" "}
+              ${d.performance.cpcUsedUsd.toFixed(2)} avg CPC — what these visitors would
+              have cost in Google Ads.
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "rgba(0,0,0,0.18)" }}
+              >
+                <p
+                  className="text-[10px] font-bold uppercase tracking-wide"
+                  style={{ color: "#a7f3d0" }}
+                >
+                  Non-branded clicks
+                </p>
+                <p className="text-xl font-extrabold mt-1">
+                  {d.performance.nonBrandedClicks.toLocaleString()}
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "rgba(0,0,0,0.18)" }}
+              >
+                <p
+                  className="text-[10px] font-bold uppercase tracking-wide flex items-center gap-1"
+                  style={{ color: "#a7f3d0" }}
+                >
+                  <Phone size={10} /> Phone clicks
+                </p>
+                <p className="text-xl font-extrabold mt-1">
+                  {d.performance.events.phoneClicks.toLocaleString()}
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "rgba(0,0,0,0.18)" }}
+              >
+                <p
+                  className="text-[10px] font-bold uppercase tracking-wide flex items-center gap-1"
+                  style={{ color: "#a7f3d0" }}
+                >
+                  <FormIcon size={10} /> Form submits
+                </p>
+                <p className="text-xl font-extrabold mt-1">
+                  {d.performance.events.formSubmits.toLocaleString()}
+                </p>
+              </div>
+              <div
+                className="rounded-xl p-3"
+                style={{ background: "rgba(0,0,0,0.18)" }}
+              >
+                <p
+                  className="text-[10px] font-bold uppercase tracking-wide"
+                  style={{ color: "#a7f3d0" }}
+                >
+                  Organic sessions
+                </p>
+                <p className="text-xl font-extrabold mt-1">
+                  {d.performance.organicSessions.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Key Wins */}
         {d.highlights.length > 0 && (
           <div
-            className="rounded-2xl p-6 mb-6 -mt-6 relative z-10"
+            className={`rounded-2xl p-6 mb-6 relative z-10 ${
+              d.hasPerformance && d.performance ? "" : "-mt-6"
+            }`}
             style={{
               background: "#FFFFFF",
               border: "1px solid #E4E4E4",
@@ -334,6 +460,165 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
             )}
           </div>
         )}
+
+        {/* Branded vs Non-Branded Split */}
+        {d.hasPerformance && d.performance && d.performance.totalClicks > 0 && (
+          <div
+            className="rounded-2xl p-6 mb-6"
+            style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+          >
+            <h2
+              className="text-lg font-extrabold mb-1 flex items-center gap-2"
+              style={{ color: "#222" }}
+            >
+              <Target size={20} style={{ color: "#7C3AED" }} />
+              Branded vs Non-Branded Search
+            </h2>
+            <p className="text-sm mb-4" style={{ color: "#888" }}>
+              Branded clicks come from people already searching for you. Non-branded clicks
+              are <em>new demand</em> the SEO is creating.
+            </p>
+            {(() => {
+              const total = d.performance!.totalClicks;
+              const brandedPct = Math.round(
+                (d.performance!.brandedClicks / total) * 100
+              );
+              const nonBrandedPct = 100 - brandedPct;
+              return (
+                <>
+                  <div
+                    className="flex rounded-lg overflow-hidden mb-3"
+                    style={{ height: 32, background: "#F1F5F9" }}
+                  >
+                    <div
+                      className="flex items-center justify-center text-xs font-extrabold"
+                      style={{
+                        width: `${nonBrandedPct}%`,
+                        background: "#16a34a",
+                        color: "#fff",
+                      }}
+                    >
+                      {nonBrandedPct >= 12 && `${nonBrandedPct}% Non-branded`}
+                    </div>
+                    <div
+                      className="flex items-center justify-center text-xs font-extrabold"
+                      style={{
+                        width: `${brandedPct}%`,
+                        background: "#f59e0b",
+                        color: "#fff",
+                      }}
+                    >
+                      {brandedPct >= 12 && `${brandedPct}% Branded`}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="p-3 rounded-xl" style={{ background: "#FAFAFA" }}>
+                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "#16a34a" }}>
+                        Non-branded · new demand
+                      </p>
+                      <p className="text-2xl font-extrabold mt-1" style={{ color: "#222" }}>
+                        {d.performance!.nonBrandedClicks.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-xl" style={{ background: "#FAFAFA" }}>
+                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "#f59e0b" }}>
+                        Branded · existing fans
+                      </p>
+                      <p className="text-2xl font-extrabold mt-1" style={{ color: "#222" }}>
+                        {d.performance!.brandedClicks.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Content Performance — per-URL drill-down */}
+        {d.hasPerformance &&
+          d.performance &&
+          d.performance.contentPerformance.length > 0 && (
+            <div
+              className="rounded-2xl p-6 mb-6"
+              style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+            >
+              <h2 className="text-lg font-extrabold mb-1" style={{ color: "#222" }}>
+                🏆 Which Content Is Working
+              </h2>
+              <p className="text-sm mb-4" style={{ color: "#888" }}>
+                Real Search Console performance for every piece of content we&apos;ve published.
+              </p>
+              <div className="flex flex-col gap-2">
+                {d.performance.contentPerformance.slice(0, 12).map((c) => (
+                  <div
+                    key={c.pieceId}
+                    className="p-3 rounded-xl"
+                    style={{ background: "#FAFAFA" }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={c.publishedUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-bold block truncate"
+                          style={{ color: "#222", textDecoration: "none" }}
+                        >
+                          {c.title}
+                        </a>
+                        <p className="text-xs truncate" style={{ color: "#888" }}>
+                          {c.publishedUrl.replace(/^https?:\/\/[^/]+/, "")}
+                        </p>
+                        {c.topQueries.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {c.topQueries.map((q) => (
+                              <span
+                                key={q.query}
+                                className="text-[10px] px-2 py-0.5 rounded"
+                                style={{ background: "#EEF2FF", color: "#4338CA" }}
+                              >
+                                {q.query} · {q.clicks}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-3 flex-shrink-0 text-center">
+                        <div>
+                          <p
+                            className="text-base font-extrabold"
+                            style={{ color: c.clicks > 0 ? "#16a34a" : "#94a3b8" }}
+                          >
+                            {c.clicks}
+                          </p>
+                          <p className="text-[9px] uppercase font-bold" style={{ color: "#888" }}>
+                            Clicks
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-base font-extrabold" style={{ color: "#222" }}>
+                            {c.impressions.toLocaleString()}
+                          </p>
+                          <p className="text-[9px] uppercase font-bold" style={{ color: "#888" }}>
+                            Imprs
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-base font-extrabold" style={{ color: "#f59e0b" }}>
+                            {c.position != null ? c.position.toFixed(1) : "—"}
+                          </p>
+                          <p className="text-[9px] uppercase font-bold" style={{ color: "#888" }}>
+                            Avg Pos
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         {/* Summary */}
         <div

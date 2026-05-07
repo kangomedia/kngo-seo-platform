@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Microscope,
   RefreshCw,
+  DollarSign,
 } from "lucide-react";
 
 const subNav = [
@@ -26,6 +27,7 @@ const subNav = [
   { href: "/content", label: "Content Hub", icon: FileText },
   { href: "/deliverables", label: "Deliverables", icon: ListChecks },
   { href: "/analytics", label: "Analytics", icon: TrendingUp },
+  { href: "/performance", label: "Performance", icon: DollarSign },
   { href: "/reports", label: "Reports", icon: FileBarChart },
 ];
 

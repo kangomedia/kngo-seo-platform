@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { selectPrimaryPieces, quotasFromClient } from "@/lib/content-plan-utils";
+import { fetchPerformanceSummary, lastNDaysRange } from "@/lib/performance";
 
 /**
  * Public client actions — NO authentication required.
@@ -162,6 +163,19 @@ export async function getClientReports(accessToken: string) {
   });
 
   return { client, reports };
+}
+
+export async function getClientPerformance(accessToken: string, days: number = 30) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) return null;
+
+  try {
+    const range = lastNDaysRange(days);
+    return await fetchPerformanceSummary(client.id, range);
+  } catch (err) {
+    console.error("[getClientPerformance]", err);
+    return null;
+  }
 }
 
 export async function getClientRankHistory(accessToken: string, days: number = 30) {

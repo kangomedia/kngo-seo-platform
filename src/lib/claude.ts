@@ -196,6 +196,32 @@ ${content.substring(0, 3000)}`;
 
 export type { ClaudeConfig };
 
+// ─── General-purpose narrative generator ──────────────
+//
+// One-shot narrative writing for executive summaries, quarterly stories, etc.
+// Caller supplies a system prompt (the "voice") and a user message (the data
+// to narrate). Returns plain text.
+
+export async function generateNarrative({
+  systemPrompt,
+  userMessage,
+  apiKey,
+  model,
+}: {
+  systemPrompt: string;
+  userMessage: string;
+  apiKey?: string;
+  model?: string;
+}): Promise<string> {
+  const key = apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
+  return claudeChat(
+    [{ role: "user", content: userMessage }],
+    systemPrompt,
+    { apiKey: key, model }
+  );
+}
+
 // ─── Audit Recommendations ───────────────────────────
 
 export interface AuditPageData {
