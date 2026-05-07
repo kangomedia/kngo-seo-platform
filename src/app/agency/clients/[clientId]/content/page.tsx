@@ -75,7 +75,7 @@ export default function ContentHubPage() {
   const [clientTier, setClientTier] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts" | "publishing">("plan");
+  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts" | "publishing">("generate");
 
   // Publishing modal
   const [publishingPiece, setPublishingPiece] = useState<ContentPiece | null>(null);
@@ -146,6 +146,7 @@ export default function ContentHubPage() {
   // null = resend only, "plan" = first-time plan send, "drafts" = first-time drafts send
   const [pendingSendAction, setPendingSendAction] = useState<"plan" | "drafts" | null>(null);
   const [selectedPieces, setSelectedPieces] = useState<Set<string>>(new Set());
+  const [selectedRejectedPieces, setSelectedRejectedPieces] = useState<Set<string>>(new Set());
 
   // Keyword suggestions for content generator
   interface KeywordSuggestion {
@@ -608,17 +609,6 @@ export default function ContentHubPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
         <button
-          onClick={() => setActiveTab("plan")}
-          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
-          style={{
-            background: activeTab === "plan" ? "var(--accent-muted)" : "transparent",
-            color: activeTab === "plan" ? "var(--accent)" : "var(--text-muted)",
-          }}
-        >
-          <ClipboardList size={14} className="inline mr-2" />
-          Content Plan
-        </button>
-        <button
           onClick={() => setActiveTab("generate")}
           className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
           style={{
@@ -628,6 +618,17 @@ export default function ContentHubPage() {
         >
           <Sparkles size={14} className="inline mr-2" />
           AI Generator
+        </button>
+        <button
+          onClick={() => setActiveTab("plan")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: activeTab === "plan" ? "var(--accent-muted)" : "transparent",
+            color: activeTab === "plan" ? "var(--accent)" : "var(--text-muted)",
+          }}
+        >
+          <ClipboardList size={14} className="inline mr-2" />
+          Content Plan
         </button>
         <button
           onClick={() => setActiveTab("drafts")}
@@ -831,11 +832,11 @@ export default function ContentHubPage() {
                 })()}
               </div>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {getPrimaryCount(plan)} topics planned ·{" "}
-                {getPrimaryCount(plan, "BLOG_POST")} blog posts ·{" "}
-                {getPrimaryCount(plan, "GBP_POST")} GBP posts ·{" "}
-                {getPrimaryCount(plan, "GBP_QA")} Q&As ·{" "}
-                {getPrimaryCount(plan, "PRESS_RELEASE")} press releases
+                {plan.pieces.filter(p => isUsablepiece(p)).length} topics planned ·{" "}
+                {plan.pieces.filter(p => p.type === "BLOG_POST" && isUsablepiece(p)).length} blog posts ·{" "}
+                {plan.pieces.filter(p => p.type === "GBP_POST" && isUsablepiece(p)).length} GBP posts ·{" "}
+                {plan.pieces.filter(p => p.type === "GBP_QA" && isUsablepiece(p)).length} Q&As ·{" "}
+                {plan.pieces.filter(p => p.type === "PRESS_RELEASE" && isUsablepiece(p)).length} press releases
               </p>
             </div>
             {/* Send Plan or New Items for Approval */}
@@ -1130,6 +1131,60 @@ export default function ContentHubPage() {
                 <h3 className="text-lg font-bold" style={{ color: "var(--text-muted)" }}>Rejected & Saved Ideas</h3>
                 <div className="h-[1px] flex-1" style={{ background: "var(--border)" }} />
               </div>
+              {/* Select All & Bulk Delete for Rejected */}
+              <div className="flex items-center justify-between mb-4 p-3 rounded-xl border" style={{ borderColor: "var(--border)", background: "rgba(0,0,0,0.15)" }}>
+                <div className="flex items-center gap-3 pl-1">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedRejectedPieces.size === rejectedPieces.length && rejectedPieces.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRejectedPieces(new Set(rejectedPieces.map(p => p.id)));
+                      } else {
+                        setSelectedRejectedPieces(new Set());
+                      }
+                    }}
+                    className="rounded"
+                    style={{ accentColor: "var(--accent)", width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span className="text-sm font-bold" style={{ color: "var(--text-muted)" }}>Select All ({rejectedPieces.length})</span>
+                </div>
+                {selectedRejectedPieces.size > 0 && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold" style={{ color: "#ef4444" }}>{selectedRejectedPieces.size} selected</span>
+                    <button 
+                      onClick={async () => {
+                        if (!confirm(`Are you sure you want to delete ${selectedRejectedPieces.size} rejected items?`)) return;
+                        try {
+                          const res = await fetch(`/api/content/pieces/bulk`, {
+                            method: "DELETE",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ ids: Array.from(selectedRejectedPieces) })
+                          });
+                          if (res.ok) {
+                            setPlans((prev) =>
+                              prev.map((p) => ({
+                                ...p,
+                                pieces: p.pieces.filter((pc) => !selectedRejectedPieces.has(pc.id)),
+                              }))
+                            );
+                            setSelectedRejectedPieces(new Set());
+                          } else {
+                            const data = await res.json();
+                            setError(data.error || "Failed to delete pieces");
+                          }
+                        } catch {
+                          setError("Network error — please try again");
+                        }
+                      }}
+                      className="btn-primary text-xs flex items-center" 
+                      style={{ background: "#ef4444", borderColor: "#ef4444", padding: "6px 14px" }}
+                    >
+                      <Trash2 size={14} className="mr-2" /> Delete Selected
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
                 {rejectedPieces.map((piece) => {
                   const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
@@ -1144,6 +1199,18 @@ export default function ContentHubPage() {
                     <div key={piece.id} className="stat-card" style={{ padding: 0, overflow: "hidden", opacity: 0.6 }}>
                       <div className="px-4 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.1)" }}>
                         <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={selectedRejectedPieces.has(piece.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedRejectedPieces);
+                              if (e.target.checked) newSet.add(piece.id);
+                              else newSet.delete(piece.id);
+                              setSelectedRejectedPieces(newSet);
+                            }}
+                            className="rounded mr-1"
+                            style={{ accentColor: "var(--accent)", width: 16, height: 16, cursor: "pointer" }}
+                          />
                           <span
                             className="w-6 h-6 rounded-md flex items-center justify-center grayscale"
                             style={{ background: `${typeInfo.color}20`, color: typeInfo.color }}
