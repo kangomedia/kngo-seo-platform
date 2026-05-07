@@ -224,6 +224,7 @@ Respond ONLY with a valid JSON array. No markdown, no explanation. Example forma
       plan = await prisma.contentPlan.update({
         where: { id: planId },
         data: {
+          planStatus: "DRAFT",
           pieces: {
             create: pieces.map((p, i) => {
               // Override AI type with strictly guaranteed expected type if available

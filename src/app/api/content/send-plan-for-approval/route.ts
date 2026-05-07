@@ -99,3 +99,30 @@ export async function POST(request: Request) {
     message: `Content plan sent for client approval${client.contactEmail ? ` — email sent to ${client.contactEmail}` : " (no client email configured)"}`,
   });
 }
+
+/** PATCH: Manually update ContentPlan.planStatus without sending email */
+export async function PATCH(request: Request) {
+  const session = await auth();
+  if (!session || (session.user.role !== "AGENCY_ADMIN" && session.user.role !== "AGENCY_MEMBER")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { contentPlanId, planStatus } = body;
+
+  if (!contentPlanId || !planStatus) {
+    return NextResponse.json({ error: "contentPlanId and planStatus are required" }, { status: 400 });
+  }
+
+  const validStatuses = ["DRAFT", "PENDING_APPROVAL", "APPROVED"];
+  if (!validStatuses.includes(planStatus)) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 });
+  }
+
+  await prisma.contentPlan.update({
+    where: { id: contentPlanId },
+    data: { planStatus },
+  });
+
+  return NextResponse.json({ success: true, planStatus });
+}

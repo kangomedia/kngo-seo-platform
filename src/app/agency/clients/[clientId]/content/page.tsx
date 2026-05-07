@@ -816,19 +816,44 @@ export default function ContentHubPage() {
                 ) : (
                   <h2 className="text-xl font-extrabold">{plan.title}</h2>
                 )}
-                {/* Plan status badge */}
+                {/* Plan status badge — clickable dropdown */}
                 {(() => {
                   const effectiveStatus = usablePieceCount === 0 ? "DRAFT" : plan.planStatus;
+                  const statusColor = planStatusColors[effectiveStatus] || planStatusColors.DRAFT;
                   return (
-                    <span
-                      className="text-xs font-bold px-3 py-1 rounded-full"
+                    <select
+                      value={effectiveStatus}
+                      onChange={async (e) => {
+                        const newStatus = e.target.value;
+                        try {
+                          const res = await fetch(`/api/content/send-plan-for-approval`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ contentPlanId: plan.id, planStatus: newStatus }),
+                          });
+                          if (res.ok) {
+                            setPlans((prev) =>
+                              prev.map((p) => p.id === plan.id ? { ...p, planStatus: newStatus } : p)
+                            );
+                          }
+                        } catch {}
+                      }}
+                      className="text-xs font-bold px-3 py-1 rounded-full border-none outline-none cursor-pointer"
                       style={{
-                        background: (planStatusColors[effectiveStatus] || planStatusColors.DRAFT).bg,
-                        color: (planStatusColors[effectiveStatus] || planStatusColors.DRAFT).text,
+                        background: statusColor.bg,
+                        color: statusColor.text,
+                        appearance: "none",
+                        WebkitAppearance: "none",
+                        paddingRight: "20px",
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='${encodeURIComponent(statusColor.text)}'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "right 6px center",
                       }}
                     >
-                      {(planStatusColors[effectiveStatus] || planStatusColors.DRAFT).label}
-                    </span>
+                      <option value="DRAFT">Draft</option>
+                      <option value="PENDING_APPROVAL">Pending Approval</option>
+                      <option value="APPROVED">Plan Approved</option>
+                    </select>
                   );
                 })()}
               </div>
