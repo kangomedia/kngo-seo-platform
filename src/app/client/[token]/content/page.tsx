@@ -31,6 +31,7 @@ interface ContentPiece {
   type: string;
   body: string | null;
   isReserve: boolean;
+  approval?: { outcome: string; notes?: string | null } | null;
 }
 
 interface ContentPlan {
@@ -89,21 +90,14 @@ function ContentApprovalInner() {
             (data.pieces[0] as unknown as { contentPlan?: { title?: string } })?.contentPlan?.title || "Content Review"
           );
         }
-        // Set pending plan if available. The server has already filtered out
-        // rejected/saved pieces, so we only initialize decisions from approved
-        // pieces (the client's prior approvals are pre-filled and editable).
+        // Set pending plan. We do NOT pre-populate `decisions` from the DB —
+        // anything the client previously decided (approved/rejected/saved) is
+        // final until the agency restores it. The active queue only contains
+        // pieces that are truly unreviewed.
         if (data.pendingPlan) {
           setPlanForReview(data.pendingPlan as unknown as ContentPlan);
-          const initialDecisions: Record<string, Decision> = {};
-          const initialNotes: Record<string, string> = {};
-          data.pendingPlan.pieces.forEach((p: any) => {
-            if (p.approval?.outcome === "approved") {
-              initialDecisions[p.id] = "approved";
-              if (p.approval.notes) initialNotes[p.id] = p.approval.notes;
-            }
-          });
-          setDecisions(initialDecisions);
-          setNotes(initialNotes);
+          setDecisions({});
+          setNotes({});
           setCurrentIndex(0);
           setPlanPhase("review");
         }
@@ -161,27 +155,36 @@ function ContentApprovalInner() {
       PRESS_RELEASE: clientLimits.monthlyPressReleases,
     };
 
-    // Compute the visible review queue dynamically based on quotas
+    // Compute approved counts (DB approvals + this-session approvals). Used
+    // for the per-type badge ("X of N approved") and for the summary's
+    // shortfall warning.
+    const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+    for (const p of allPlanPieces) {
+      if (p.approval?.outcome === "approved" || decisions[p.id] === "approved") {
+        approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+      }
+    }
+
+    // Active queue: only pieces awaiting decision in THIS session.
+    // - Pieces decided in a prior session (any outcome in the DB) are
+    //   excluded — the client is not asked to re-review them.
+    // - Pieces decided in the current session stay in the queue so the
+    //   client can navigate back and change their mind before submitting.
+    // - Truly unreviewed pieces are included up to (quota - approved) per type.
     const planPieces: ContentPiece[] = (() => {
       const result: ContentPiece[] = [];
-      const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
       const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
 
       for (const p of allPlanPieces) {
-        if (decisions[p.id] === "approved") {
-          approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+        if (p.approval?.outcome) continue; // already decided in DB
+        if (decisions[p.id]) {
           result.push(p);
-        } else if (decisions[p.id] === "rejected" || decisions[p.id] === "save_for_later") {
+          continue;
+        }
+        const limit = quotaTargets[p.type] || 0;
+        if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < limit) {
+          pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
           result.push(p);
-        } else {
-          // Unreviewed
-          const limit = quotaTargets[p.type] || 0;
-            
-          // Add to queue if the approved + pending for this type is under the limit
-          if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < limit) {
-            pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
-            result.push(p);
-          }
         }
       }
       return result;
@@ -200,24 +203,28 @@ function ContentApprovalInner() {
       setDecisions((prev) => {
         const updated = { ...prev, [pieceId]: decision };
 
-        // Compute what planPieces length will be after this update
-        // so we can correctly determine if we should advance or go to summary
-        const tempResult: ContentPiece[] = [];
-        const approvedCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
-        const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
-
+        // Recompute the queue with the new decision applied so we know
+        // whether to advance or jump to the summary screen. This mirrors
+        // the planPieces algorithm above (DB-decided skipped; this-session
+        // decisions stay in queue; unreviewed up to quota).
+        const tempApproved: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
         for (const p of allPlanPieces) {
-          if (updated[p.id] === "approved") {
-            approvedCounts[p.type] = (approvedCounts[p.type] || 0) + 1;
+          if (p.approval?.outcome === "approved" || updated[p.id] === "approved") {
+            tempApproved[p.type] = (tempApproved[p.type] || 0) + 1;
+          }
+        }
+        const tempResult: ContentPiece[] = [];
+        const tempPending: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
+        for (const p of allPlanPieces) {
+          if (p.approval?.outcome) continue;
+          if (updated[p.id]) {
             tempResult.push(p);
-          } else if (updated[p.id] === "rejected" || updated[p.id] === "save_for_later") {
+            continue;
+          }
+          const limit = quotaTargets[p.type] || 0;
+          if ((tempApproved[p.type] || 0) + (tempPending[p.type] || 0) < limit) {
+            tempPending[p.type] = (tempPending[p.type] || 0) + 1;
             tempResult.push(p);
-          } else {
-            const limit = quotaTargets[p.type] || 0;
-            if ((approvedCounts[p.type] || 0) + (pendingCounts[p.type] || 0) < limit) {
-              pendingCounts[p.type] = (pendingCounts[p.type] || 0) + 1;
-              tempResult.push(p);
-            }
           }
         }
 
@@ -277,9 +284,11 @@ function ContentApprovalInner() {
       const saved = planPieces.filter((p) => decisions[p.id] === "save_for_later").length;
       const skipped = planPieces.length - approved - rejected - saved;
 
-      // Check per-type quota fulfillment
+      // Per-type quota fulfillment uses the total approved count (this session
+      // PLUS prior sessions persisted in the DB) so the shortfall reflects what
+      // the agency still owes after this round of feedback.
       const quotaStatus = Object.entries(quotaTargets).map(([type, target]) => {
-        const typeApproved = planPieces.filter((p) => p.type === type && decisions[p.id] === "approved").length;
+        const typeApproved = approvedCounts[type] || 0;
         const info = typeLabels[type] || typeLabels.BLOG_POST;
         return { type, target, approved: typeApproved, label: info.label, emoji: info.emoji, shortfall: target - typeApproved };
       }).filter((q) => q.target > 0);
@@ -321,7 +330,7 @@ function ContentApprovalInner() {
             if (decided.length === 0) return null;
             const info = typeLabels[type] || typeLabels.BLOG_POST;
             const target = quotaTargets[type] || 0;
-            const typeApproved = decided.filter((p) => decisions[p.id] === "approved").length;
+            const typeApproved = approvedCounts[type] || 0;
             return (
               <div key={type} className="rounded-xl overflow-hidden mb-3" style={{ background: "#fff", border: "1px solid #E4E4E4" }}>
                 <div className="px-4 py-2 flex items-center justify-between" style={{ background: "#FAFAFA", borderBottom: "1px solid #E4E4E4" }}>
@@ -402,9 +411,7 @@ function ContentApprovalInner() {
               </div>
               {(() => {
                 const target = quotaTargets[currentPiece.type] || 0;
-                const approvedOfType = planPieces.filter(
-                  (p) => p.type === currentPiece.type && decisions[p.id] === "approved",
-                ).length;
+                const approvedOfType = approvedCounts[currentPiece.type] || 0;
                 const reachedQuota = approvedOfType >= target;
                 return (
                   <span
