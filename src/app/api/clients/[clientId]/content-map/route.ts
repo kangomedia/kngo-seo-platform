@@ -147,7 +147,7 @@ Important: Generate exactly 3-5 pillars with 3-4 content pieces each. Each piece
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
         max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -192,7 +192,7 @@ Keep it concise and actionable.`;
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
           max_tokens: 300,
           messages: [{ role: "user", content: summaryPrompt }],
         }),

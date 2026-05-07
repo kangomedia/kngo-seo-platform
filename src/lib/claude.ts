@@ -22,24 +22,32 @@ async function claudeChat(
   systemPrompt: string,
   config: ClaudeConfig
 ) {
-  const res = await fetch(`${ANTHROPIC_BASE}/messages`, {
-    method: "POST",
-    headers: {
-      "x-api-key": config.apiKey,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.model || "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages,
-    }),
-  });
+  const model = config.model || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  let res: Response;
+  try {
+    res = await fetch(`${ANTHROPIC_BASE}/messages`, {
+      method: "POST",
+      headers: {
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+  } catch (err) {
+    const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+    const detail = cause?.message || cause?.code || (err instanceof Error ? err.message : String(err));
+    throw new Error(`Anthropic request failed (model=${model}): ${detail}`);
+  }
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Claude API error: ${res.status} — ${err}`);
+    const err = await res.text().catch(() => "");
+    throw new Error(`Claude API error: ${res.status} ${res.statusText} — ${err}`.trim());
   }
 
   const data = await res.json();

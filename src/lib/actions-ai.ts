@@ -27,25 +27,36 @@ async function callClaude(systemPrompt: string, userPrompt: string): Promise<str
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY environment variable is not set.");
   }
+  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
-  const response = await fetch(ANTHROPIC_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+  } catch (err) {
+    // Node's undici throws "TypeError: fetch failed" with the real reason
+    // hidden under `err.cause`. Surface it so the caller (and the logs) can
+    // tell network failures, DNS issues, and TLS errors apart.
+    const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+    const detail = cause?.message || cause?.code || (err instanceof Error ? err.message : String(err));
+    throw new Error(`Anthropic request failed (model=${model}): ${detail}`);
+  }
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Claude API error: ${response.status} ${error}`);
+    const error = await response.text().catch(() => "");
+    throw new Error(`Claude API error: ${response.status} ${response.statusText} ${error}`.trim());
   }
 
   const data = await response.json();
