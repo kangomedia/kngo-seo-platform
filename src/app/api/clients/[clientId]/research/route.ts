@@ -1,10 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import {
+  type BusinessProfile,
+  type RawKeyword,
+  filterByNegativePatterns,
+  filterByAudience,
+  filterByGibberish,
+  filterByIntent,
+  scoreKeywordRelevance,
+  generateStrategicAnalysis,
+} from "@/lib/keyword-intelligence";
 
 /**
  * POST /api/clients/[clientId]/research
- * Run AI-powered keyword research using DataForSEO suggestions + Claude analysis.
+ * Run AI-powered keyword research using DataForSEO suggestions + the same
+ * filter + AI scoring pipeline as the discover route, so manual research
+ * sessions return the same quality of curated keywords.
+ *
  * Body: { seedTopics: string[], location?: string, context?: string }
  */
 export async function POST(
@@ -31,7 +44,8 @@ export async function POST(
     );
   }
 
-  // Get client info for context
+  // Pull the full business profile so the AI scorer has the same context as
+  // the discovery pipeline — without it, "score for THIS business" is hollow.
   const client = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
@@ -41,6 +55,13 @@ export async function POST(
       city: true,
       state: true,
       gbpCategory: true,
+      industryVertical: true,
+      businessDescription: true,
+      idealClientProfile: true,
+      priceRange: true,
+      primaryServices: true,
+      serviceAreas: true,
+      targetCities: true,
       notes: true,
     },
   });
@@ -49,28 +70,42 @@ export async function POST(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Credentials are read exclusively from environment variables.
   const dfLogin = process.env.DATAFORSEO_LOGIN;
   const dfPassword = process.env.DATAFORSEO_PASSWORD;
   const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
-  // Step 1: Fetch keyword suggestions from DataForSEO
-  let allKeywords: Array<{
-    keyword: string;
-    searchVolume: number;
-    competition: number;
-    cpc: number;
-    categories: string[];
-  }> = [];
+  // Build BusinessProfile for downstream scoring + seed generation parity.
+  const parseList = (json: string | null): string[] => {
+    try { return JSON.parse(json || "[]"); } catch { return []; }
+  };
+  const profile: BusinessProfile = {
+    clientName: client.name,
+    domain: client.domain || "",
+    businessDescription: client.businessDescription,
+    primaryServices: parseList(client.primaryServices),
+    idealClientProfile: client.idealClientProfile,
+    priceRange: client.priceRange,
+    industryVertical: client.industryVertical || client.gbpCategory,
+    serviceAreas: parseList(client.serviceAreas),
+    targetCities: parseList(client.targetCities),
+  };
+  // Fill from city/state if targetCities is empty
+  if (profile.targetCities.length === 0 && client.city && client.state) {
+    profile.targetCities = [`${client.city}, ${client.state}`];
+  }
+
+  // ── Step 1: Fetch keyword suggestions from DataForSEO ──
+  // Using `keywords_for_keywords` for ad-hoc seeded research. We also pull
+  // search_intent_info so the intent filter can run downstream.
+  let allKeywords: RawKeyword[] = [];
 
   if (dfLogin && dfPassword) {
     const encoded = Buffer.from(`${dfLogin}:${dfPassword}`).toString("base64");
 
-    // Use keyword suggestions for each seed topic
     for (const seed of seedTopics.slice(0, 5)) {
       try {
         const res = await fetch(
-          "https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_keywords/live",
+          "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live",
           {
             method: "POST",
             headers: {
@@ -79,11 +114,11 @@ export async function POST(
             },
             body: JSON.stringify([
               {
-                keywords: [seed.trim()],
-                location_code: 2840,
-                language_code: "en",
+                keyword: seed.trim(),
+                location_name: "United States",
+                language_name: "English",
                 include_seed_keyword: true,
-                sort_by: "search_volume",
+                limit: 50,
               },
             ]),
           }
@@ -91,20 +126,20 @@ export async function POST(
 
         if (res.ok) {
           const data = await res.json();
-          const results = data?.tasks?.[0]?.result || [];
+          const items = data?.tasks?.[0]?.result?.[0]?.items || [];
 
-          for (const item of results) {
-            if (item.keyword && item.search_volume > 0) {
+          for (const item of items) {
+            const kw = item?.keyword;
+            const info = item?.keyword_info;
+            const intentInfo = item?.search_intent_info;
+            if (kw && info && info.search_volume > 0) {
               allKeywords.push({
-                keyword: item.keyword,
-                searchVolume: item.search_volume || 0,
-                competition: item.competition
-                  ? Math.round(item.competition * 100)
-                  : 0,
-                cpc: item.cpc || 0,
-                categories: item.keyword_annotations?.categories?.map(
-                  (c: { name: string }) => c.name
-                ) || [],
+                keyword: kw,
+                searchVolume: info.search_volume || 0,
+                competition: Math.round((info.competition || 0) * 100),
+                cpc: info.cpc || 0,
+                source: `seed:${seed}`,
+                intent: intentInfo?.main_intent || null,
               });
             }
           }
@@ -114,102 +149,70 @@ export async function POST(
       }
     }
 
-    // Deduplicate by keyword
-    const seen = new Set<string>();
-    allKeywords = allKeywords.filter((kw) => {
+    // Dedupe by keyword (keep highest-volume occurrence)
+    const seen = new Map<string, RawKeyword>();
+    for (const kw of allKeywords) {
       const key = kw.keyword.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    // Sort by search volume descending
-    allKeywords.sort((a, b) => b.searchVolume - a.searchVolume);
-
-    // Cap at top 100 keywords
-    allKeywords = allKeywords.slice(0, 100);
+      const existing = seen.get(key);
+      if (!existing || kw.searchVolume > existing.searchVolume) {
+        seen.set(key, kw);
+      }
+    }
+    allKeywords = Array.from(seen.values());
   }
 
-  // Step 2: AI Analysis — Score keywords by ROI and provide strategy
+  // ── Step 2: Apply the same filter pipeline as discover ──
+  // negative → audience → gibberish → intent
+  let filtered = filterByNegativePatterns(allKeywords);
+  filtered = filterByAudience(filtered);
+  filtered = filterByGibberish(filtered);
+  filtered = filterByIntent(filtered);
+
+  // ── Step 3: AI relevance scoring (same scorer as discover) ──
+  let scored = filtered.map((kw) => ({
+    ...kw,
+    intent: kw.intent || "unknown",
+    relevanceScore: 5,
+    relevanceReason: "Default score — AI scoring not available",
+    suggestedGroup: "General",
+  }));
+  if (claudeKey && filtered.length > 0) {
+    const aiScored = await scoreKeywordRelevance(filtered, profile, claudeKey);
+    if (aiScored.length > 0) scored = aiScored;
+  }
+
+  // Cap at 40 — match the discover pipeline.
+  const finalKeywords = scored.slice(0, 40);
+
+  // ── Step 4: Strategic analysis ──
   let aiAnalysis: string | null = null;
-
-  if (claudeKey && allKeywords.length > 0) {
+  if (claudeKey && finalKeywords.length > 0) {
     try {
-      const locationStr = client.city && client.state
-        ? `${client.city}, ${client.state}`
-        : location || "United States";
-
-      const prompt = `You are an expert SEO strategist for local businesses. Analyze these keyword research results for a client and provide strategic recommendations.
-
-## Client Profile
-- **Business:** ${client.name}
-- **Website:** ${client.domain || "Not provided"}
-- **Location:** ${locationStr}
-- **Industry/Category:** ${client.gbpCategory || "Not specified"}
-- **Additional Context:** ${context || client.notes || "None"}
-- **Seed Topics:** ${seedTopics.join(", ")}
-
-## Keyword Data (Top ${allKeywords.length} keywords)
-${allKeywords.map((kw, i) => `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, Competition: ${kw.competition}%, CPC: $${kw.cpc.toFixed(2)}`).join("\n")}
-
-## Your Task
-1. **ROI Ranking:** Score each keyword 1-100 based on ROI potential (considering volume, competition, commercial intent, and relevance to this specific business). Output the top 20 highest-ROI keywords.
-
-2. **Topic Clusters:** Group the top keywords into 3-5 topical clusters/themes that could form pillar content strategies.
-
-3. **Content Recommendations:** For each cluster, suggest:
-   - 1 pillar blog post idea (long-form, 1500+ words)
-   - 2-3 supporting content ideas (GBP posts, Q&As, shorter blogs)
-   - 1 press release angle
-
-4. **Quick Wins:** Identify 3-5 keywords that are low competition + decent volume = fastest to rank for.
-
-5. **Strategic Summary:** 2-3 paragraph overview of the recommended keyword strategy.
-
-Respond in well-structured markdown.`;
-
-      const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": claudeKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-          max_tokens: 4000,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (claudeRes.ok) {
-        const claudeData = await claudeRes.json();
-        aiAnalysis =
-          claudeData.content?.[0]?.text || null;
-      }
+      aiAnalysis = await generateStrategicAnalysis(finalKeywords, profile, claudeKey);
     } catch (err) {
-      console.warn("[RESEARCH] Claude AI analysis error:", err instanceof Error ? err.message : err);
+      console.warn("[RESEARCH] strategic analysis failed:", err instanceof Error ? err.message : err);
     }
   }
 
-  // Step 3: Save research session
+  // ── Step 5: Save research session ──
   const research = await prisma.keywordResearch.create({
     data: {
       clientId,
       seedTopics: seedTopics.join(", "),
-      location: location || "United States",
-      results: JSON.stringify(allKeywords),
+      location: location || (profile.targetCities[0] ?? "United States"),
+      results: JSON.stringify(finalKeywords),
       aiAnalysis,
-      keywordsFound: allKeywords.length,
+      keywordsFound: finalKeywords.length,
     },
   });
 
   return NextResponse.json({
     id: research.id,
-    keywordsFound: allKeywords.length,
-    keywords: allKeywords,
+    keywordsFound: finalKeywords.length,
+    keywords: finalKeywords,
     aiAnalysis,
-    message: `Found ${allKeywords.length} keywords from ${seedTopics.length} seed topics`,
+    message: `Found ${finalKeywords.length} keywords from ${seedTopics.length} seed topics`,
+    contextUsed: !!context,
   });
 }
 

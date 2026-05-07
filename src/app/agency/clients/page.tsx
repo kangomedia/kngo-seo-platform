@@ -71,6 +71,8 @@ function ClientOnboardingWizard({
   const [category, setCategory] = useState("");
   const [primaryCity, setPrimaryCity] = useState("");
   const [primaryState, setPrimaryState] = useState("");
+  const [businessDescription, setBusinessDescription] = useState("");
+  const [priceRange, setPriceRange] = useState("");
 
   // Step 2 — SEO Intake
   const [serviceInput, setServiceInput] = useState("");
@@ -79,6 +81,7 @@ function ClientOnboardingWizard({
   const [targetCities, setTargetCities] = useState<string[]>([]);
   const [compInput, setCompInput] = useState("");
   const [competitors, setCompetitors] = useState<string[]>([]);
+  const [idealClientProfile, setIdealClientProfile] = useState("");
 
   // Step 3 — Launch
   const [saving, setSaving] = useState(false);
@@ -135,8 +138,17 @@ function ClientOnboardingWizard({
           city: primaryCity,
           state: primaryState,
           serviceAreas,
+          // Send services to BOTH columns. The AI relevance scorer reads
+          // primaryServices; the seed generator falls back to serviceAreas.
+          primaryServices: serviceAreas,
           targetCities,
           competitors: competitors.map((c) => c.replace(/^https?:\/\//, "").replace(/\/$/, "")),
+          // Business profile depth — used by the AI keyword scorer to
+          // distinguish prospects from learners/DIY/wrong-audience searchers.
+          businessDescription: businessDescription.trim() || null,
+          idealClientProfile: idealClientProfile.trim() || null,
+          priceRange: priceRange || null,
+          industryVertical: category || null,
         }),
       });
 
@@ -311,6 +323,33 @@ function ClientOnboardingWizard({
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  Business Description <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— what they do, in a sentence or two</span>
+                </label>
+                <textarea
+                  className="input-field"
+                  value={businessDescription}
+                  onChange={(e) => setBusinessDescription(e.target.value)}
+                  placeholder="e.g. Full-service HVAC company specializing in residential AC repair and furnace replacement"
+                  rows={2}
+                  style={{ resize: "vertical", minHeight: 60 }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  Price Range
+                </label>
+                <select className="input-field" value={priceRange} onChange={(e) => setPriceRange(e.target.value)}>
+                  <option value="">Select price range...</option>
+                  <option value="budget">Budget — under $1K avg job</option>
+                  <option value="mid-range">Mid-range — $1K–$10K avg job</option>
+                  <option value="premium">Premium — $10K–$50K avg job</option>
+                  <option value="enterprise">Enterprise — $50K+ avg job</option>
+                </select>
+              </div>
+
               <div className="flex justify-end mt-2">
                 <button
                   onClick={() => setStep(2)}
@@ -335,6 +374,22 @@ function ClientOnboardingWizard({
                   <Sparkles size={12} /> Why we need this
                 </strong>
                 This helps our AI discover the most relevant keywords for your client's business. The more context, the better the recommendations.
+              </div>
+
+              {/* Ideal Customer */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <User size={12} className="inline mr-1" />
+                  Ideal Customer <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— who pays them, why, and at what budget</span>
+                </label>
+                <textarea
+                  className="input-field"
+                  value={idealClientProfile}
+                  onChange={(e) => setIdealClientProfile(e.target.value)}
+                  placeholder="e.g. Homeowners 45+ in the suburbs with $300K+ homes who need their AC repaired same-day"
+                  rows={2}
+                  style={{ resize: "vertical", minHeight: 60 }}
+                />
               </div>
 
               {/* Service Areas */}
@@ -520,7 +575,29 @@ function ClientOnboardingWizard({
                       <strong>{primaryCity}, {primaryState}</strong>
                     </div>
                   )}
+                  {priceRange && (
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>Price range:</span>{" "}
+                      <strong>{priceRange}</strong>
+                    </div>
+                  )}
                 </div>
+                {(businessDescription || idealClientProfile) && (
+                  <div className="mt-3 pt-3 flex flex-col gap-2 text-xs" style={{ borderTop: "1px solid var(--border)" }}>
+                    {businessDescription && (
+                      <div>
+                        <div style={{ color: "var(--text-muted)" }}>Business:</div>
+                        <div>{businessDescription}</div>
+                      </div>
+                    )}
+                    {idealClientProfile && (
+                      <div>
+                        <div style={{ color: "var(--text-muted)" }}>Ideal customer:</div>
+                        <div>{idealClientProfile}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* What we'll discover */}

@@ -131,8 +131,20 @@ export async function POST(request: Request) {
       city: body.city || null,
       state: body.state || null,
       serviceAreas: body.serviceAreas ? JSON.stringify(body.serviceAreas) : null,
+      // primaryServices is what the AI keyword scorer reads. Wizard sends
+      // the same array as serviceAreas; older callers may omit it.
+      primaryServices: body.primaryServices
+        ? JSON.stringify(body.primaryServices)
+        : body.serviceAreas
+          ? JSON.stringify(body.serviceAreas)
+          : null,
       targetCities: body.targetCities ? JSON.stringify(body.targetCities) : null,
       competitors: body.competitors ? JSON.stringify(body.competitors) : null,
+      // Business profile depth (used by AI scoring + seed generation)
+      businessDescription: body.businessDescription || null,
+      idealClientProfile: body.idealClientProfile || null,
+      industryVertical: body.industryVertical || body.category || null,
+      priceRange: body.priceRange || null,
       onboardingStatus: body.domain ? "PENDING" : null,
       monthlyBlogs: defaults.monthlyBlogs,
       monthlyGbpPosts: defaults.monthlyGbpPosts,

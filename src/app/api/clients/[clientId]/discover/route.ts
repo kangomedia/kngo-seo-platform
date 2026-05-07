@@ -6,7 +6,10 @@ import {
   type BusinessProfile,
   type RawKeyword,
   generateSmartSeeds,
+  generateAISeeds,
   filterByNegativePatterns,
+  filterByAudience,
+  filterByGibberish,
   filterByIntent,
   scoreKeywordRelevance,
   generateStrategicAnalysis,
@@ -424,8 +427,14 @@ async function discoverKeywords(
   const allKeywords: RawKeyword[] = [];
 
   // ── Stage 1: Smart Seed-Based Discovery (keyword_suggestions) ──
-  const seeds = generateSmartSeeds(profile);
-  console.log(`[DISCOVER] Generated ${seeds.length} smart seeds: ${seeds.slice(0, 5).join(", ")}...`);
+  // Prefer Claude-generated seeds when an Anthropic key is available — they
+  // produce sharper, intent-laden phrases than mechanical templates can.
+  // Falls back to generateSmartSeeds() automatically inside generateAISeeds().
+  const earlyAnthropicKey = process.env.ANTHROPIC_API_KEY;
+  const seeds = earlyAnthropicKey
+    ? await generateAISeeds(profile, earlyAnthropicKey)
+    : generateSmartSeeds(profile);
+  console.log(`[DISCOVER] Generated ${seeds.length} seeds (${earlyAnthropicKey ? "AI" : "mechanical"}): ${seeds.slice(0, 5).join(", ")}...`);
 
   for (const seed of seeds.slice(0, 15)) {
     try {
@@ -548,11 +557,19 @@ async function discoverKeywords(
   let filtered = Array.from(seen.values());
   console.log(`[DISCOVER] After dedup: ${filtered.length} keywords`);
 
-  // ── Stage 4: Negative Pattern Filter ──
+  // ── Stage 4: Negative Pattern Filter ── universal noise (piracy, porn, etc.)
   filtered = filterByNegativePatterns(filtered);
   console.log(`[DISCOVER] After negative pattern filter: ${filtered.length} keywords`);
 
-  // ── Stage 5: Intent Filter ──
+  // ── Stage 4b: Audience Filter ── drops learner / DIY / job-seeker queries
+  filtered = filterByAudience(filtered);
+  console.log(`[DISCOVER] After audience filter: ${filtered.length} keywords`);
+
+  // ── Stage 4c: Gibberish Filter ── drops keyword-stuffing artifacts from DFS
+  filtered = filterByGibberish(filtered);
+  console.log(`[DISCOVER] After gibberish filter: ${filtered.length} keywords`);
+
+  // ── Stage 5: Intent Filter ── only keep commercial / transactional intent
   filtered = filterByIntent(filtered);
   console.log(`[DISCOVER] After intent filter: ${filtered.length} keywords`);
 
@@ -576,8 +593,10 @@ async function discoverKeywords(
     }
   }
 
-  // Limit to top 80
-  const finalKeywords = scoredKeywords.slice(0, 80);
+  // Limit to top 40 — the AI scorer is now stricter (≥5 to pass) and
+  // pre-scoring biases toward local commercial intent, so a tighter cap
+  // surfaces the keywords actually worth tracking instead of a long tail.
+  const finalKeywords = scoredKeywords.slice(0, 40);
 
   // ── Stage 7: Strategic Analysis ──
   let aiAnalysis: string | null = null;

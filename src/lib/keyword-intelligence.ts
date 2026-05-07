@@ -82,6 +82,83 @@ export function filterByNegativePatterns(keywords: RawKeyword[]): RawKeyword[] {
   });
 }
 
+// ─── Audience Filter ─────────────────────────────────────
+
+/**
+ * Wrong-audience patterns: keywords searched by people who are NOT prospects
+ * for a service business. These exit the funnel before they ever convert:
+ *   - Students/learners ("course", "tutorial", "how to learn")
+ *   - DIY ("diy", "make your own")
+ *   - Job-seekers ("salary", "jobs", "intern")
+ *   - Self-study materials ("template", "ebook", "cheat sheet")
+ *
+ * If you ever onboard a client whose business genuinely targets these people
+ * (an online course, a job board), this filter would need a per-client opt-out.
+ * For service-business clients — which is everyone the platform is built for —
+ * blocking these immediately removes ~70% of the noise from DataForSEO's
+ * keyword expansion.
+ */
+const AUDIENCE_NEGATIVE_PATTERNS: RegExp[] = [
+  // Educational / training / certification — they want to learn, not hire
+  /\b(courses?|tutorial[s]?|trainings?|bootcamps?|classes?|lessons?|webinars?|syllabus|curriculum)\b/i,
+  /\b(certification|certificates?|certified|practice test|quiz(z?es)?)\b/i,
+  /\bhow to (learn|become|build|make|do|start|teach|study|create|design|develop|code|program)\b/i,
+  /\b(learn|teach|study) (about|how|to)\b/i,
+  /\bbeginner[s']?\b/i,
+
+  // DIY / self-service — they're going to do it themselves
+  /\b(diy|do it yourself)\b/i,
+  /\b(make|build|create) your own\b/i,
+
+  // Job-seekers / career questions — wrong end of the market
+  /\b(salary|salaries|wages?|hourly rate|pay ?scale)\b/i,
+  /\b(jobs?|career[s]?|hiring|recruit(er|ment|ing)?)\b/i,
+  /\bintern(ship[s]?)?\b/i,
+  /\bresume[s]?\b/i,
+  /\b(vacancy|vacancies|employment|employer)\b/i,
+
+  // Self-study materials / freebies that are not commercial
+  /\b(template[s]?|samples?|examples?|demos?)\b/i,
+  /\b(books?|ebooks?|pdfs?|cheat[- ]?sheets?)\b/i,
+
+  // Pure informational query forms (handled here only when keyword starts
+  // with these — "cost of X" style phrases are still allowed)
+  /^what (is|are|does|was|were|do|don't|doesn't)\b/i,
+  /^why (is|are|does|do|don't|doesn't)\b/i,
+];
+
+export function filterByAudience(keywords: RawKeyword[]): RawKeyword[] {
+  return keywords.filter((kw) => {
+    return !AUDIENCE_NEGATIVE_PATTERNS.some((pattern) => pattern.test(kw.keyword));
+  });
+}
+
+/**
+ * Filter out gibberish keywords from DataForSEO's keyword expansion that are
+ * just repeated words or near-duplicates ("web design web design web development",
+ * "design in web design"). Heuristic: any non-stop-word that appears 2+ times
+ * is treated as keyword stuffing and dropped.
+ */
+const STOP_WORDS = new Set([
+  "the", "a", "an", "in", "for", "of", "to", "with", "and", "or", "on", "at", "by", "is", "are",
+]);
+
+export function filterByGibberish(keywords: RawKeyword[]): RawKeyword[] {
+  return keywords.filter((kw) => {
+    const words = kw.keyword
+      .toLowerCase()
+      .split(/[\s\-]+/)
+      .filter((w) => w && !STOP_WORDS.has(w));
+    if (words.length < 2) return true; // single-word keywords aren't gibberish
+    const counts = new Map<string, number>();
+    for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+    for (const c of counts.values()) {
+      if (c >= 2) return false; // repeated content word = keyword stuffing
+    }
+    return true;
+  });
+}
+
 // ─── Intent Filter ───────────────────────────────────────
 
 /**
@@ -177,13 +254,146 @@ export function generateSmartSeeds(profile: BusinessProfile): string[] {
   return unique.slice(0, 20);
 }
 
+/**
+ * Ask Claude to propose 20 high-quality seed phrases tailored to the
+ * business profile. This is the preferred path when an Anthropic key is
+ * configured — Claude understands buying intent and customer journey
+ * context that mechanical templates can't reproduce.
+ *
+ * Falls back to `generateSmartSeeds` if the request fails for any reason.
+ */
+export async function generateAISeeds(
+  profile: BusinessProfile,
+  anthropicKey: string,
+): Promise<string[]> {
+  const cityLine = profile.targetCities[0] || "(no city specified)";
+  const profileLines = [
+    `Business: ${profile.clientName}`,
+    profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
+    profile.primaryServices.length > 0 ? `Services: ${profile.primaryServices.join(", ")}` : null,
+    profile.idealClientProfile ? `Ideal customer: ${profile.idealClientProfile}` : null,
+    profile.industryVertical ? `Industry vertical: ${profile.industryVertical}` : null,
+    profile.serviceAreas.length > 0 ? `Service areas: ${profile.serviceAreas.join(", ")}` : null,
+    `Primary city: ${cityLine}`,
+  ].filter(Boolean).join("\n");
+
+  const prompt = `You are an SEO strategist preparing seed keywords for a LOCAL SERVICE BUSINESS that sells to paying customers in ${cityLine}.
+
+BUSINESS PROFILE:
+${profileLines}
+
+Produce 20 seed phrases that, when expanded by a keyword research tool, will yield keywords a real prospect would actually search before HIRING this business. Cover this mix across the 20:
+
+  - 5–7 LOCAL MONEY phrases ("{service} {city}", "best {service} near me", "{service} agency {city}", "hire {service} {city}")
+  - 4–6 SERVICE COMMERCIAL phrases ("{service} cost", "{service} pricing", "{service} services", "{service} company")
+  - 3–5 VERTICAL-SPECIFIC phrases tied to the business's actual ideal customer ("{service} for {vertical}", "{vertical} {service}")
+  - 3–5 TOP-OF-FUNNEL problem-aware phrases real prospects have right before buying ("how to choose a {service}", "{service} vs alternative")
+
+Rules — do not break these:
+  - Each seed must look like something a paying customer would actually type
+  - DO NOT include educational ("course", "tutorial", "how to learn"), DIY ("make your own"), or job-seeker ("salary", "jobs") phrases
+  - DO NOT include single-word generic terms unless paired with a qualifier
+  - Use the business's exact service names where possible
+  - Lowercase, trimmed, no punctuation other than spaces
+
+Respond with a JSON array of 20 strings only — no prose, no markdown, no code fences.
+Example shape: ["wordpress developer denver", "best web design agency colorado", ...]`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!res.ok) throw new Error(`Claude HTTP ${res.status}`);
+    const data = await res.json();
+    const text = (data?.content?.[0]?.text || "").trim();
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+    const seeds = JSON.parse(cleaned);
+    if (!Array.isArray(seeds)) throw new Error("Not an array");
+    const filtered = seeds
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      .map((s) => s.toLowerCase().trim())
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .slice(0, 20);
+    if (filtered.length === 0) throw new Error("Empty seed list");
+    return filtered;
+  } catch (err) {
+    console.warn("[KW-INTEL] generateAISeeds fell back to mechanical seeds:", err instanceof Error ? err.message : err);
+    return generateSmartSeeds(profile);
+  }
+}
+
 // ─── AI Relevance Scorer ─────────────────────────────────
+
+/**
+ * Pre-AI relevance score. Used to pick the 100 keywords we send to Claude
+ * for full scoring. The previous version sorted by volume × CPC, which
+ * meant the 100 we picked were "the highest-volume garbage." This version
+ * boosts keywords that look local + commercial + service-aligned, and
+ * penalizes generic single/double-word terms that don't qualify the search.
+ */
+function preRelevanceScore(kw: RawKeyword, profile: BusinessProfile): number {
+  const lc = kw.keyword.toLowerCase();
+  let score = Math.log(kw.searchVolume + 1) + kw.cpc * 0.5;
+
+  // Geo signal — strongest indicator that the searcher is local
+  const cities = profile.targetCities.map((c) => c.split(",")[0].trim().toLowerCase()).filter(Boolean);
+  if (cities.some((c) => c && lc.includes(c))) score += 5;
+  const states = profile.targetCities
+    .map((c) => c.split(",")[1]?.trim().toLowerCase())
+    .filter(Boolean) as string[];
+  if (states.some((s) => lc.includes(s))) score += 2;
+  if (/\bnear me\b/i.test(kw.keyword)) score += 4;
+
+  // Buying / commercial qualifier — "hire", "best", "agency", "cost"
+  const BUYING_TERMS = /\b(hire|agency|company|firm|services?|cost|costs|price|pricing|rates?|quote|estimate|best|top|professional|experts?|specialists?)\b/i;
+  if (BUYING_TERMS.test(kw.keyword)) score += 3;
+
+  // Industry vertical match (e.g. "for plumbers", "hvac", "contractor")
+  if (profile.industryVertical) {
+    const v = profile.industryVertical.toLowerCase();
+    if (lc.includes(v)) score += 3;
+  }
+
+  // Service-name match — keyword references one of their services
+  for (const s of profile.primaryServices) {
+    const svc = s.toLowerCase();
+    if (svc && lc.includes(svc)) {
+      score += 1;
+      break;
+    }
+  }
+
+  // Penalty: too short / too generic. A two-word keyword with no local or
+  // buying qualifier ("web design", "lawn care") is a national-generic term
+  // a small business will never rank for — push it out of the top 100.
+  const words = lc.split(/\s+/).filter(Boolean);
+  const hasQualifier =
+    BUYING_TERMS.test(kw.keyword) ||
+    /\bnear me\b/i.test(kw.keyword) ||
+    cities.some((c) => c && lc.includes(c)) ||
+    states.some((s) => lc.includes(s));
+  if (words.length <= 2 && !hasQualifier) score -= 3;
+
+  return score;
+}
 
 /**
  * Use Claude to score each keyword's relevance to the business.
  * Returns keywords with relevanceScore, reasoning, and suggested group.
- * 
- * Keywords scoring < 4 are dropped entirely.
+ *
+ * Keywords scoring < 5 are dropped entirely (was 4 — bumped up to push
+ * mediocre matches out of the final list).
  */
 export async function scoreKeywordRelevance(
   keywords: RawKeyword[],
@@ -193,6 +403,7 @@ export async function scoreKeywordRelevance(
   if (keywords.length === 0) return [];
 
   // Build business context for Claude
+  const cityLabel = profile.targetCities.length > 0 ? profile.targetCities[0] : "their service area";
   const businessContext = [
     `Business: ${profile.clientName}`,
     `Website: ${profile.domain}`,
@@ -205,20 +416,19 @@ export async function scoreKeywordRelevance(
     profile.targetCities.length > 0 ? `Target Cities: ${profile.targetCities.join(", ")}` : null,
   ].filter(Boolean).join("\n");
 
-  // Take top 100 by a balanced score (volume * cpc weight)
+  // Pick the 100 most LOCALLY + COMMERCIALLY promising keywords. Bias
+  // selection toward geo-anchored, buying-intent terms before AI scoring.
   const toScore = keywords
-    .sort((a, b) => {
-      const scoreA = Math.log(a.searchVolume + 1) * (a.cpc + 1);
-      const scoreB = Math.log(b.searchVolume + 1) * (b.cpc + 1);
-      return scoreB - scoreA;
-    })
-    .slice(0, 100);
+    .map((kw) => ({ kw, s: preRelevanceScore(kw, profile) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 100)
+    .map((x) => x.kw);
 
   const kwList = toScore.map((kw, i) =>
     `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, CPC: $${kw.cpc.toFixed(2)}, Competition: ${kw.competition}%, Intent: ${kw.intent || "unknown"}`
   ).join("\n");
 
-  const prompt = `You are an SEO strategist evaluating keyword relevance for a specific business.
+  const prompt = `You are an SEO strategist scoring keywords for a LOCAL SERVICE BUSINESS that wants to attract paying clients in ${cityLabel} through content marketing.
 
 BUSINESS PROFILE:
 ${businessContext}
@@ -226,20 +436,46 @@ ${businessContext}
 KEYWORDS TO EVALUATE:
 ${kwList}
 
-For each keyword, provide:
-1. relevanceScore (1-10): How relevant is this keyword to THIS specific business?
-   - 9-10: Perfect match — directly describes their service/product
-   - 7-8: Strong match — closely related to their offerings
-   - 5-6: Moderate match — tangentially related, could bring good leads
-   - 3-4: Weak match — mostly irrelevant but has some connection
-   - 1-2: No match — completely unrelated to this business
-2. reason: One sentence explaining the score
-3. group: Assign a topic group (e.g., "Core Services", "Location", "Service Variation", "Competitor Gap", "Long-tail Opportunity")
+────────────────────────────────────────────────────────
+SCORING RUBRIC — read carefully and follow it strictly.
 
-Respond ONLY with a JSON array. No markdown, no explanation. Just the array:
-[{"index":1,"score":8,"reason":"Directly matches their core offering","group":"Core Services"},...]
+A "good" keyword for this business is one a real prospect — someone in or near ${cityLabel} who would pay this business to perform their core service — would actually type into Google.
 
-IMPORTANT: Be strict. If a keyword wouldn't bring a qualified lead to THIS specific business based on their profile above, score it low. Consider their industry, services, price range, and ideal client when scoring.`;
+  9-10  Perfect: clear local commercial intent. Examples of patterns:
+        - "{service} {city}" / "{service} near me"
+        - "best {service} {city}" / "{service} agency {city}"
+        - "{service} for {their target vertical}"
+        - "hire {service}" / "{service} cost" / "{service} pricing"
+  7-8   Strong: matches core service AND has commercial qualifier even if
+        not local (e.g. "wordpress development services").
+  5-6   Useful as supporting/blog content (top-of-funnel info that a real
+        prospect might read) but won't directly drive leads on its own.
+  3-4   Weak relevance — vaguely on-topic but the searcher is unlikely
+        to be a paying prospect.
+  1-2   Drop entirely. Use this for ALL of the following — no exceptions:
+        - Searchers who want to LEARN the skill (course/tutorial/how-to-learn)
+        - DIY searchers ("make your own", "do it yourself")
+        - Job seekers (salary, jobs, intern, career)
+        - Generic single-term industry words with no qualifier ("web design",
+          "lawn care") — a small local business cannot realistically rank
+          for these and they don't signal local commercial intent
+        - Definitional queries ("what is X", "why does Y")
+        - National brand/franchise names
+        - Software / tool / template / book / pdf searches
+
+BE STRICT. The client should never see a keyword that wouldn't pass the
+"would my actual paying customer type this?" test. When in doubt, score lower.
+
+For each keyword return:
+  - index: the keyword's number above
+  - score: 1-10 per the rubric
+  - reason: one short sentence
+  - group: one of "Local Money" (high-intent local), "Service Commercial",
+    "Vertical-Specific", "Top-of-Funnel" (educational but useful for blog),
+    "Long-Tail Opportunity", or "Brand/Authority"
+
+Respond with ONLY a JSON array. No markdown, no prose, no code fences:
+[{"index":1,"score":9,"reason":"Local hiring intent for a core service","group":"Local Money"}, ...]`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -292,7 +528,7 @@ IMPORTANT: Be strict. If a keyword wouldn't bring a qualified lead to THIS speci
     const scored: ScoredKeyword[] = [];
     for (const s of scores) {
       const idx = s.index - 1;
-      if (idx >= 0 && idx < toScore.length && s.score >= 4) {
+      if (idx >= 0 && idx < toScore.length && s.score >= 5) {
         scored.push({
           ...toScore[idx],
           intent: toScore[idx].intent || "unknown",
