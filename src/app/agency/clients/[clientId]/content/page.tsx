@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { countPiecesPendingReview } from "@/lib/content-plan-utils";
 import {
   Sparkles,
   FileText,
@@ -433,9 +434,18 @@ export default function ContentHubPage() {
   };
 
   const handleOpenEmailPreview = (type: "plan" | "drafts", isFirstSend: boolean = false) => {
-    const unreviewedCount = plan ? plan.pieces.filter((p) => p.status !== "REJECTED" && !p.approval?.outcome).length : 0;
+    // Client-facing count: pending primary pieces only (mirrors the backend
+    // logic in /api/content/send-plan-for-approval). Reserves never count.
+    const clientPendingCount = plan
+      ? countPiecesPendingReview(plan.pieces, {
+          BLOG_POST: clientLimits.monthlyBlogs,
+          GBP_POST: clientLimits.monthlyGbpPosts,
+          GBP_QA: clientLimits.monthlyGbpQAs,
+          PRESS_RELEASE: clientLimits.monthlyPressReleases,
+        })
+      : 0;
     if (type === "plan") {
-      if (!plan || unreviewedCount === 0) return;
+      if (!plan || clientPendingCount === 0) return;
     } else {
       if (!plan || plan.pieces.filter((p) => p.body).length === 0) return;
     }
@@ -446,7 +456,7 @@ export default function ContentHubPage() {
       const isNewItems = plan.planStatus !== "DRAFT" && plan.planStatus !== "PENDING_APPROVAL";
       setEmailSubject(isNewItems ? `📋 Additional content ready for your review — ${clientName}` : `📋 Content plan ready for your review — ${clientName}`);
       const reviewUrl = getReviewUrl("plan") || "";
-      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, unreviewedCount, reviewUrl));
+      setEmailHtml(buildPlanEmailHtml(clientName, plan.title, clientPendingCount, reviewUrl));
     } else {
       const draftCount = plan?.pieces.filter((p) => p.body).length || 0;
       setEmailSubject(`✍️ ${draftCount} content draft${draftCount !== 1 ? "s" : ""} ready for review — ${clientName}`);

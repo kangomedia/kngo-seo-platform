@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { selectPrimaryPieces, quotasFromClient } from "@/lib/content-plan-utils";
 
 /**
  * Public client actions — NO authentication required.
@@ -72,7 +73,15 @@ export async function getClientContentForReview(accessToken: string) {
     },
   });
 
-  return { client, pieces, pendingPlan };
+  // The client must never see reserve pieces — clamp every piece list to the
+  // first N per type by sortOrder, where N is their tier quota.
+  const quotas = quotasFromClient(client);
+  const filteredPieces = selectPrimaryPieces(pieces, quotas);
+  const filteredPendingPlan = pendingPlan
+    ? { ...pendingPlan, pieces: selectPrimaryPieces(pendingPlan.pieces, quotas) }
+    : null;
+
+  return { client, pieces: filteredPieces, pendingPlan: filteredPendingPlan };
 }
 
 export async function submitPublicContentApproval(
@@ -188,7 +197,12 @@ export async function getClientPlanForReview(accessToken: string) {
     },
   });
 
-  return { client, plan };
+  // Strip reserves before returning to the client portal.
+  const filteredPlan = plan
+    ? { ...plan, pieces: selectPrimaryPieces(plan.pieces, quotasFromClient(client)) }
+    : null;
+
+  return { client, plan: filteredPlan };
 }
 
 export async function submitPublicPlanApproval(
