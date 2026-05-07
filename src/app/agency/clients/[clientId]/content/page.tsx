@@ -1342,9 +1342,9 @@ export default function ContentHubPage() {
             </div>
           )}
 
-          {/* Active pieces — with draft actions (exclude REJECTED and unused reserves) */}
+          {/* Active pieces — only approved items shown in Drafts tab */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-            {plan.pieces.filter((p) => isUsablepiece(p)).map((piece) => {
+            {plan.pieces.filter((p) => isDraftablePiece(p)).map((piece) => {
               const typeInfo = typeIcons[piece.type] || typeIcons.BLOG_POST;
               const statusInfo = statusConfig[piece.status] || statusConfig.PLANNED;
               const isGeneratingThis = generatingPieceId === piece.id;
