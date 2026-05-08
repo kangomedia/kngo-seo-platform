@@ -354,23 +354,29 @@ export async function generatePainPointSeeds(
     painLines.length > 0 ? `ICP pain points (verbatim from the agency):\n  - ${painLines.join("\n  - ")}` : null,
   ].filter(Boolean).join("\n");
 
+  const verticalNudge = profile.industryVertical
+    ? `\nIMPORTANT: This business operates in **${profile.industryVertical}**. Generate seeds in the language THIS vertical's customers use — not generic SaaS or service-business automation phrases. A customer's vocabulary in this industry is specific (e.g. an HVAC homeowner doesn't search the same terms as a personal-injury claimant).`
+    : "";
+
   const prompt = `You are an SEO strategist generating DEMAND-CREATION seed keywords for top-of-funnel and middle-of-funnel content. Unlike commercial keywords, these target people who don't yet know they need this exact solution — they're searching for the PAIN, the OUTCOME, or a COMPARISON.
 
 BUSINESS PROFILE:
 ${profileLines}
+${verticalNudge}
 
-Produce 25 seed phrases across these angles. People type these BEFORE they know the agency's exact category exists:
+Produce 25 seed phrases across these four angles. **All examples must be invented fresh from THIS business's profile and vertical — do not copy or adapt the structural placeholders below.**
 
-  - 6–8 PAIN seeds — what people Google when feeling the pain ("how to reduce no-shows", "missed call text back", "losing leads to slow follow up", "after hours phone answering for small business")
-  - 5–7 OUTCOME seeds — what people search for the result they want ("automated appointment reminders", "automated review requests", "lead nurturing for service businesses")
-  - 5–7 COMPARISON / ALTERNATIVE seeds — buyer-research stage ("gohighlevel vs hubspot", "ai receptionist for small business", "best crm for hvac", "service business automation software")
-  - 3–5 EDUCATIONAL "how to" seeds about the discipline itself ("how to follow up with leads automatically", "what is marketing automation", "client onboarding automation tutorial")
+  - 6–8 PAIN seeds — what people Google when feeling the pain. Structural shape: "[problem] for [vertical]", "how to fix [problem]", "[problem] symptoms". Phrase in the customer's voice, not the vendor's.
+  - 5–7 OUTCOME seeds — what people search for the result they want. Structural shape: "[desired outcome]", "[fast/easy/cheap] [outcome]", "[outcome] for [their specific situation]".
+  - 5–7 COMPARISON / ALTERNATIVE seeds — buyer-research stage. Structural shape: "[brand A] vs [brand B]", "best [category] for [vertical]", "[category] alternatives", "[category] reviews".
+  - 3–5 EDUCATIONAL "how to" / "what is" seeds about the discipline itself. Structural shape: "what is [concept]", "how does [process] work", "[concept] explained".
 
 Rules:
-  - DO NOT include the agency's name or city
+  - DO NOT include the agency's/business's name or city
   - DO NOT include educational/job/DIY phrases like "course", "salary", "make your own"
-  - These seeds should yield real search volume — pick phrases people actually type, not industry jargon nobody Googles
-  - Prefer specific verticals over generic ones when the ideal customer is a vertical (e.g. "hvac scheduling software" beats "scheduling software")
+  - DO NOT use phrases that are obviously vendor/tooling jargon when the customer wouldn't (e.g. "missed call text back" is a vendor's framing — a homeowner searches "couldn't reach a plumber after hours" instead). Only use vendor-tool phrases if the buyer for this business IS another business shopping for that tool (B2B SaaS).
+  - These seeds must yield real search volume — pick phrases people actually type, not industry jargon nobody Googles
+  - Prefer vertical-specific phrasings over generic ones when the ideal customer is a vertical (e.g. "hvac scheduling software" beats "scheduling software" for a tool sold to HVAC companies)
   - Lowercase, trimmed, no punctuation other than spaces
 
 Respond with a JSON array of 25 strings only — no prose, no markdown, no code fences.`;

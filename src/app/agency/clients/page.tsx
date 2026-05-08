@@ -88,6 +88,9 @@ function ClientOnboardingWizard({
   const [idealClientProfile, setIdealClientProfile] = useState("");
   const [painInput, setPainInput] = useState("");
   const [icpPains, setIcpPains] = useState<string[]>([]);
+  const [painSuggestions, setPainSuggestions] = useState<string[]>([]);
+  const [suggestingPains, setSuggestingPains] = useState(false);
+  const [painSuggestError, setPainSuggestError] = useState("");
 
   // Step 3 — Launch
   const [saving, setSaving] = useState(false);
@@ -123,6 +126,48 @@ function ClientOnboardingWizard({
 
   const removeTag = (value: string, list: string[], setList: (v: string[]) => void) => {
     setList(list.filter((t) => t !== value));
+  };
+
+  const suggestPains = async () => {
+    setSuggestingPains(true);
+    setPainSuggestError("");
+    try {
+      const res = await fetch("/api/wizard/suggest-pains", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessDescription: businessDescription.trim() || undefined,
+          idealClientProfile: idealClientProfile.trim() || undefined,
+          industryVertical: category || undefined,
+          primaryServices: services,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Suggestion failed");
+      }
+      const data = await res.json();
+      // Only show suggestions the operator hasn't already added
+      const fresh = (data.pains || []).filter(
+        (p: string) => !icpPains.includes(p)
+      );
+      setPainSuggestions(fresh);
+    } catch (e) {
+      setPainSuggestError(e instanceof Error ? e.message : "Suggestion failed");
+    } finally {
+      setSuggestingPains(false);
+    }
+  };
+
+  const acceptPainSuggestion = (pain: string) => {
+    if (!icpPains.includes(pain) && icpPains.length < 12) {
+      setIcpPains([...icpPains, pain]);
+    }
+    setPainSuggestions(painSuggestions.filter((p) => p !== pain));
+  };
+
+  const dismissPainSuggestion = (pain: string) => {
+    setPainSuggestions(painSuggestions.filter((p) => p !== pain));
   };
 
   const handleLaunch = async () => {
@@ -398,10 +443,44 @@ function ClientOnboardingWizard({
 
               {/* ICP Pains — drives pain-point keyword research */}
               <div>
-                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
-                  <AlertCircle size={12} className="inline mr-1" />
-                  Top Pain Points <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— problems your ICP complains about (one per tag)</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    <AlertCircle size={12} className="inline mr-1" />
+                    Top Pain Points <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— problems your ICP complains about (one per tag)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={suggestPains}
+                    disabled={
+                      suggestingPains ||
+                      (!businessDescription.trim() && !idealClientProfile.trim() && !category && services.length === 0)
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
+                    style={{
+                      background: "rgba(124,58,237,0.12)",
+                      color: "#7C3AED",
+                      opacity:
+                        suggestingPains ||
+                        (!businessDescription.trim() && !idealClientProfile.trim() && !category && services.length === 0)
+                          ? 0.5
+                          : 1,
+                      cursor: suggestingPains ? "wait" : "pointer",
+                    }}
+                    title="Claude reads the business profile fields above and proposes pain candidates"
+                  >
+                    {suggestingPains ? (
+                      <>
+                        <Loader2 size={11} className="animate-spin" />
+                        Thinking…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={11} />
+                        Suggest from profile
+                      </>
+                    )}
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <input
                     className="input-field flex-1"
@@ -423,6 +502,57 @@ function ClientOnboardingWizard({
                     <Plus size={14} />
                   </button>
                 </div>
+
+                {/* AI-suggested pain chips — click to add, × to dismiss */}
+                {painSuggestError && (
+                  <p className="text-[10px] mt-1.5" style={{ color: "var(--danger)" }}>
+                    {painSuggestError}
+                  </p>
+                )}
+                {painSuggestions.length > 0 && (
+                  <div
+                    className="mt-2 p-3 rounded-lg"
+                    style={{
+                      background: "rgba(124,58,237,0.06)",
+                      border: "1px dashed rgba(124,58,237,0.30)",
+                    }}
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-2" style={{ color: "#7C3AED" }}>
+                      AI Suggestions · click to add
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {painSuggestions.map((p) => (
+                        <span
+                          key={p}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                          style={{
+                            background: "rgba(124,58,237,0.12)",
+                            color: "#7C3AED",
+                            border: "1px solid rgba(124,58,237,0.25)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => acceptPainSuggestion(p)}
+                            className="hover:opacity-70"
+                            disabled={icpPains.length >= 12}
+                          >
+                            + {p}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissPainSuggestion(p)}
+                            className="opacity-50 hover:opacity-100"
+                            title="Dismiss"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {icpPains.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {icpPains.map((p) => (
