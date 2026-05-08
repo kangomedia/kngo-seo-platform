@@ -15,7 +15,8 @@ export async function middleware(request: NextRequest) {
     isPublic ||
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/brand/") ||
-    pathname.startsWith("/api/auth")
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/debug/")
   ) {
     return NextResponse.next();
   }
