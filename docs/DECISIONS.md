@@ -53,6 +53,7 @@ All credentials and config live in env vars. There are **no admin UI pages** for
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth for binding GSC + GA4 properties | If using Google integration |
 | `MAILGUN_API_KEY` / `MAILGUN_DOMAIN` / `MAILGUN_FROM_EMAIL` | Transactional email | If sending email |
 | `GHL_API_KEY` / `GHL_LOCATION_ID` | GoHighLevel CRM (not yet used) | No |
+| `DEBUG_TOKEN` | Token for the read-only `/api/debug/*` snapshot endpoints. Leave unset to keep the routes closed (they 503 without it). Rotate after sharing. | No |
 
 `.env.example` in the repo root is the source of truth; keep it in sync.
 
@@ -137,6 +138,11 @@ All credentials and config live in env vars. There are **no admin UI pages** for
 ### D20. Quarterly reports are narrative-first, not table-first
 **Decision:** New `QUARTERLY` report type renders an AI-generated narrative paragraph as the primary content, followed by trend chart + top-5 content list. Generated via Claude (`generateNarrative`) with a non-technical-owner system prompt. Falls back to a deterministic summary if Claude fails.
 **Why:** Monthly reports are operational ("what happened"); quarterly reports are persuasive ("why renew"). Story beats data when the audience is a small-business owner — but the story must be grounded in the actual snapshots, not invented.
+
+### D21. Debug snapshot endpoint for external assistant inspection
+**Decision:** `/api/debug/clients` (list) and `/api/debug/[clientId]/snapshot` (full bundle) are read-only routes gated by an `x-debug-token` header matched against the `DEBUG_TOKEN` env var. Built so the agency operator can pipe live state to an external assistant (e.g. Claude via WebFetch). Returns 8 buckets: client config, business profile, keywords, latest keyword research, active content maps, latest site audit, deliverables, recent activity.
+**Why:** Strict NextAuth session gating breaks for tools that can't carry a session cookie; a single-purpose token header is the simplest secure path.
+**Constraints:** Read-only Prisma queries only; no INSERT/UPDATE/DELETE. PII not masked — the token + non-public deployment are the security boundary. Set `DEBUG_TOKEN` in Coolify env. Rotate after each debugging session. Returns 503 if the env var is unset (closed by default — won't accidentally expose if env wasn't configured).
 
 ---
 
