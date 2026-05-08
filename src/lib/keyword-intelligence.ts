@@ -333,6 +333,83 @@ Example shape: ["wordpress developer denver", "best web design agency colorado",
   }
 }
 
+// ─── Pain-Point Seed Generator ───────────────────────────
+//
+// Demand-creation seeds: works backwards from the ICP's *problems*, not the
+// agency's services. Produces TOFU/MOFU keyword candidates that target
+// people who don't yet know the agency's category exists but are searching
+// for the pain or the comparison they're already in.
+
+export async function generatePainPointSeeds(
+  profile: BusinessProfile & { icpPains?: string[] },
+  anthropicKey: string,
+): Promise<string[]> {
+  const painLines = (profile.icpPains || []).filter(Boolean);
+  const profileLines = [
+    `Business: ${profile.clientName}`,
+    profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
+    profile.primaryServices.length > 0 ? `Services: ${profile.primaryServices.join(", ")}` : null,
+    profile.idealClientProfile ? `Ideal customer: ${profile.idealClientProfile}` : null,
+    profile.industryVertical ? `Industry vertical: ${profile.industryVertical}` : null,
+    painLines.length > 0 ? `ICP pain points (verbatim from the agency):\n  - ${painLines.join("\n  - ")}` : null,
+  ].filter(Boolean).join("\n");
+
+  const prompt = `You are an SEO strategist generating DEMAND-CREATION seed keywords for top-of-funnel and middle-of-funnel content. Unlike commercial keywords, these target people who don't yet know they need this exact solution — they're searching for the PAIN, the OUTCOME, or a COMPARISON.
+
+BUSINESS PROFILE:
+${profileLines}
+
+Produce 25 seed phrases across these angles. People type these BEFORE they know the agency's exact category exists:
+
+  - 6–8 PAIN seeds — what people Google when feeling the pain ("how to reduce no-shows", "missed call text back", "losing leads to slow follow up", "after hours phone answering for small business")
+  - 5–7 OUTCOME seeds — what people search for the result they want ("automated appointment reminders", "automated review requests", "lead nurturing for service businesses")
+  - 5–7 COMPARISON / ALTERNATIVE seeds — buyer-research stage ("gohighlevel vs hubspot", "ai receptionist for small business", "best crm for hvac", "service business automation software")
+  - 3–5 EDUCATIONAL "how to" seeds about the discipline itself ("how to follow up with leads automatically", "what is marketing automation", "client onboarding automation tutorial")
+
+Rules:
+  - DO NOT include the agency's name or city
+  - DO NOT include educational/job/DIY phrases like "course", "salary", "make your own"
+  - These seeds should yield real search volume — pick phrases people actually type, not industry jargon nobody Googles
+  - Prefer specific verticals over generic ones when the ideal customer is a vertical (e.g. "hvac scheduling software" beats "scheduling software")
+  - Lowercase, trimmed, no punctuation other than spaces
+
+Respond with a JSON array of 25 strings only — no prose, no markdown, no code fences.`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!res.ok) throw new Error(`Claude HTTP ${res.status}`);
+    const data = await res.json();
+    const text = (data?.content?.[0]?.text || "").trim();
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+    const seeds = JSON.parse(cleaned);
+    if (!Array.isArray(seeds)) throw new Error("Not an array");
+    const filtered = seeds
+      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      .map((s) => s.toLowerCase().trim())
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .slice(0, 25);
+    if (filtered.length === 0) throw new Error("Empty seed list");
+    return filtered;
+  } catch (err) {
+    console.warn("[KW-INTEL] generatePainPointSeeds failed:", err instanceof Error ? err.message : err);
+    // Fall back to literal user-supplied pains as seeds
+    return painLines.slice(0, 12);
+  }
+}
+
 // ─── AI Relevance Scorer ─────────────────────────────────
 
 /**

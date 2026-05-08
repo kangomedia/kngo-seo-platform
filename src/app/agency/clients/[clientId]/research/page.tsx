@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import CompetitorPanel from "./CompetitorPanel";
 import {
   Microscope,
   Search,
@@ -222,14 +223,45 @@ export default function ResearchPage() {
             Discover high-ROI keywords with AI-powered analysis
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="btn-primary"
-        >
-          <Search size={16} />
-          New Research
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              if (isResearching) return;
+              setIsResearching(true);
+              try {
+                const res = await fetch(`/api/clients/${clientId}/research/pain-point`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({}),
+                });
+                if (res.ok) {
+                  const d = await res.json();
+                  setActiveResults(d.keywords || []);
+                  setActiveAnalysis(d.aiAnalysis || null);
+                  loadSessions();
+                }
+              } finally {
+                setIsResearching(false);
+              }
+            }}
+            className="btn-secondary inline-flex items-center gap-2 text-sm"
+            disabled={isResearching}
+            title="Generates seeds from your ICP pains + business profile, then validates volume via DataForSEO"
+          >
+            🔥 Pain-Point Research
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="btn-primary"
+          >
+            <Search size={16} />
+            New Research
+          </button>
+        </div>
       </div>
+
+      {/* Competitor Intelligence panel */}
+      <CompetitorPanel clientId={clientId} />
 
       {/* Discovery Suggestions */}
       {discoverySuggestions.length > 0 && !showForm && !isResearching && (

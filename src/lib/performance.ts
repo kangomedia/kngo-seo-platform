@@ -9,6 +9,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { google } from "googleapis";
+import { resolveCpcs, weightedAverageCpc } from "@/lib/cpc-cache";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -59,7 +60,8 @@ export interface PerformanceSummary {
   brandedClicks: number;
   nonBrandedClicks: number;
   estTrafficValueUsd: number;
-  cpcUsedUsd: number;
+  cpcUsedUsd: number;            // weighted-average CPC actually applied (for display)
+  cpcSource: "per-query" | "derived-average" | "client-fallback" | "none";
 
   // Engagement
   events: EngagementEvents;
@@ -389,6 +391,9 @@ export async function fetchPerformanceSummary(
   let totalImpressions = 0;
   let brandedClicks = 0;
   let nonBrandedClicks = 0;
+  let estTrafficValueUsd = 0;
+  let cpcUsedUsd = client.avgCpcUsd;
+  let cpcSource: PerformanceSummary["cpcSource"] = "client-fallback";
 
   if (authClient && client.gscProperty) {
     const queries = await fetchGSCQueries(authClient, client.gscProperty, range, 100);
@@ -401,6 +406,52 @@ export async function fetchPerformanceSummary(
       totalImpressions += q.impressions;
       if (q.isBranded) brandedClicks += q.clicks;
       else nonBrandedClicks += q.clicks;
+    }
+
+    // ── Per-query traffic value ────────────────────────
+    // Resolve CPC for each non-branded query (branded clicks aren't "new
+    // demand the SEO created" — exclude from value math).
+    const nonBrandedRows = topQueries.filter((q) => !q.isBranded);
+    if (nonBrandedRows.length > 0) {
+      try {
+        const cpcMap = await resolveCpcs(
+          nonBrandedRows.map((q) => q.query),
+          2840 // US — TODO: derive location code from client.state when we have a mapping
+        );
+        const derivedAvg = weightedAverageCpc(nonBrandedRows, cpcMap);
+
+        let pricedClicks = 0;
+        let valueAccum = 0;
+        for (const q of nonBrandedRows) {
+          const cpc =
+            cpcMap.get(q.query.trim().toLowerCase()) ??
+            derivedAvg ??
+            client.avgCpcUsd;
+          if (cpc != null && cpc > 0) {
+            valueAccum += q.clicks * cpc;
+            pricedClicks += q.clicks;
+          }
+        }
+        estTrafficValueUsd = Math.round(valueAccum * 100) / 100;
+        cpcUsedUsd =
+          pricedClicks > 0
+            ? Math.round((valueAccum / pricedClicks) * 100) / 100
+            : client.avgCpcUsd;
+        cpcSource =
+          cpcMap.size > 0 && Array.from(cpcMap.values()).some((v) => v != null)
+            ? "per-query"
+            : derivedAvg != null
+              ? "derived-average"
+              : "client-fallback";
+      } catch (err) {
+        console.warn("[performance] CPC resolution failed; falling back", err);
+        estTrafficValueUsd =
+          Math.round(nonBrandedClicks * client.avgCpcUsd * 100) / 100;
+        cpcUsedUsd = client.avgCpcUsd;
+        cpcSource = "client-fallback";
+      }
+    } else {
+      cpcSource = "none";
     }
 
     // Build content performance: pages → matched ContentPiece rows
@@ -474,9 +525,6 @@ export async function fetchPerformanceSummary(
     }
   }
 
-  const cpcUsedUsd = client.avgCpcUsd;
-  const estTrafficValueUsd = Math.round(nonBrandedClicks * cpcUsedUsd * 100) / 100;
-
   return {
     dateRange: range,
     hasGSC: !!(authClient && client.gscProperty),
@@ -487,6 +535,7 @@ export async function fetchPerformanceSummary(
     nonBrandedClicks,
     estTrafficValueUsd,
     cpcUsedUsd,
+    cpcSource,
     events,
     organicSessions,
     totalSessions,

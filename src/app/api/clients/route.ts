@@ -130,19 +130,19 @@ export async function POST(request: Request) {
       gbpCategory: body.category || null,
       city: body.city || null,
       state: body.state || null,
+      // serviceAreas = geographic regions (e.g. "Northern Colorado").
+      // primaryServices = the actual services sold. Distinct fields, distinct
+      // semantics — historically the wizard wrote services to both.
       serviceAreas: body.serviceAreas ? JSON.stringify(body.serviceAreas) : null,
-      // primaryServices is what the AI keyword scorer reads. Wizard sends
-      // the same array as serviceAreas; older callers may omit it.
       primaryServices: body.primaryServices
         ? JSON.stringify(body.primaryServices)
-        : body.serviceAreas
-          ? JSON.stringify(body.serviceAreas)
-          : null,
+        : null,
       targetCities: body.targetCities ? JSON.stringify(body.targetCities) : null,
       competitors: body.competitors ? JSON.stringify(body.competitors) : null,
       // Business profile depth (used by AI scoring + seed generation)
       businessDescription: body.businessDescription || null,
       idealClientProfile: body.idealClientProfile || null,
+      icpPains: body.icpPains ? JSON.stringify(body.icpPains) : null,
       industryVertical: body.industryVertical || body.category || null,
       priceRange: body.priceRange || null,
       onboardingStatus: body.domain ? "PENDING" : null,
@@ -153,6 +153,30 @@ export async function POST(request: Request) {
       monthlyDirectoryListings: defaults.monthlyDirectoryListings,
     },
   });
+
+  // Mirror wizard-supplied competitors into the structured Competitor table.
+  // The legacy Client.competitors JSON column is kept for read-back compat.
+  if (Array.isArray(body.competitors) && body.competitors.length > 0) {
+    for (const raw of body.competitors as string[]) {
+      const domain = raw.replace(/^https?:\/\//, "").replace(/\/$/, "").trim();
+      if (!domain) continue;
+      try {
+        await prisma.competitor.upsert({
+          where: { clientId_domain: { clientId: client.id, domain } },
+          create: {
+            clientId: client.id,
+            domain,
+            classification: "PEER",
+            isAccepted: true,
+            source: "wizard",
+          },
+          update: {},
+        });
+      } catch (err) {
+        console.warn("[clients POST] competitor upsert failed", domain, err);
+      }
+    }
+  }
 
   return NextResponse.json(client, { status: 201 });
 }

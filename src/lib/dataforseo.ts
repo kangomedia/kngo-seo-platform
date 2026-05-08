@@ -166,4 +166,36 @@ export async function getCompetitorKeywords(
   );
 }
 
+// ─── Competitors Domain (SERP-overlap candidates) ─────
+//
+// Returns domains that share keyword rankings with the target — the raw
+// pool of "competitors" before Claude classifies them as PEER/PLATFORM/etc.
+// Each result includes intersection count + estimated traffic so we can
+// prioritize meaningful overlap.
+
+export async function getCompetitorsDomain(
+  domain: string,
+  config: DataForSEOConfig,
+  opts: { locationCode?: number; limit?: number; minIntersections?: number } = {}
+) {
+  const body = [
+    {
+      target: domain,
+      location_code: opts.locationCode || 2840,
+      language_code: "en",
+      limit: opts.limit || 50,
+      intersections: true,
+      ...(opts.minIntersections
+        ? { intersections_min_value: opts.minIntersections }
+        : {}),
+    },
+  ];
+
+  return apiCall(
+    "/dataforseo_labs/google/competitors_domain/live",
+    body,
+    config
+  );
+}
+
 export type { DataForSEOConfig };

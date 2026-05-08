@@ -24,6 +24,7 @@ import {
   Zap,
   Mail,
   User,
+  AlertCircle,
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
@@ -75,13 +76,18 @@ function ClientOnboardingWizard({
   const [priceRange, setPriceRange] = useState("");
 
   // Step 2 — SEO Intake
+  // Note: `services` populates `primaryServices` (what the agency *sells*).
+  // `services` (geographic regions like "Denver Metro") is a separate
+  // optional field — captured in step 2 only if relevant.
   const [serviceInput, setServiceInput] = useState("");
-  const [serviceAreas, setServiceAreas] = useState<string[]>([]);
+  const [services, setServices] = useState<string[]>([]);
   const [cityInput, setCityInput] = useState("");
   const [targetCities, setTargetCities] = useState<string[]>([]);
   const [compInput, setCompInput] = useState("");
   const [competitors, setCompetitors] = useState<string[]>([]);
   const [idealClientProfile, setIdealClientProfile] = useState("");
+  const [painInput, setPainInput] = useState("");
+  const [icpPains, setIcpPains] = useState<string[]>([]);
 
   // Step 3 — Launch
   const [saving, setSaving] = useState(false);
@@ -137,16 +143,14 @@ function ClientOnboardingWizard({
           category,
           city: primaryCity,
           state: primaryState,
-          serviceAreas,
-          // Send services to BOTH columns. The AI relevance scorer reads
-          // primaryServices; the seed generator falls back to serviceAreas.
-          primaryServices: serviceAreas,
+          // serviceAreas (geographic) left empty unless explicitly captured.
+          serviceAreas: [],
+          primaryServices: services,
           targetCities,
           competitors: competitors.map((c) => c.replace(/^https?:\/\//, "").replace(/\/$/, "")),
-          // Business profile depth — used by the AI keyword scorer to
-          // distinguish prospects from learners/DIY/wrong-audience searchers.
           businessDescription: businessDescription.trim() || null,
           idealClientProfile: idealClientProfile.trim() || null,
+          icpPains,
           priceRange: priceRange || null,
           industryVertical: category || null,
         }),
@@ -392,6 +396,52 @@ function ClientOnboardingWizard({
                 />
               </div>
 
+              {/* ICP Pains — drives pain-point keyword research */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <AlertCircle size={12} className="inline mr-1" />
+                  Top Pain Points <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— problems your ICP complains about (one per tag)</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="input-field flex-1"
+                    placeholder="e.g. losing leads to no-shows"
+                    value={painInput}
+                    onChange={(e) => setPainInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag(painInput, icpPains, setIcpPains, setPainInput, 12);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => addTag(painInput, icpPains, setIcpPains, setPainInput, 12)}
+                    className="btn-secondary"
+                    disabled={icpPains.length >= 12}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                {icpPains.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {icpPains.map((p) => (
+                      <span
+                        key={p}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-70 transition-all"
+                        style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}
+                        onClick={() => removeTag(p, icpPains, setIcpPains)}
+                      >
+                        {p} ×
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  These power the pain-point research mode — Claude generates demand-creation keywords from these pains.
+                </p>
+              </div>
+
               {/* Service Areas */}
               <div>
                 <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
@@ -407,26 +457,26 @@ function ClientOnboardingWizard({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        addTag(serviceInput, serviceAreas, setServiceAreas, setServiceInput);
+                        addTag(serviceInput, services, setServices, setServiceInput);
                       }
                     }}
                   />
                   <button
-                    onClick={() => addTag(serviceInput, serviceAreas, setServiceAreas, setServiceInput)}
+                    onClick={() => addTag(serviceInput, services, setServices, setServiceInput)}
                     className="btn-secondary"
-                    disabled={serviceAreas.length >= 10}
+                    disabled={services.length >= 10}
                   >
                     <Plus size={14} />
                   </button>
                 </div>
-                {serviceAreas.length > 0 && (
+                {services.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {serviceAreas.map((s) => (
+                    {services.map((s) => (
                       <span
                         key={s}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-70 transition-all"
                         style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
-                        onClick={() => removeTag(s, serviceAreas, setServiceAreas)}
+                        onClick={() => removeTag(s, services, setServices)}
                       >
                         {s} ×
                       </span>
@@ -630,13 +680,13 @@ function ClientOnboardingWizard({
               </div>
 
               {/* Intake summary */}
-              {(serviceAreas.length > 0 || targetCities.length > 0 || competitors.length > 0) && (
+              {(services.length > 0 || targetCities.length > 0 || competitors.length > 0) && (
                 <div className="rounded-xl p-3" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                  {serviceAreas.length > 0 && (
+                  {services.length > 0 && (
                     <div className="mb-2">
                       <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-muted)" }}>Services:</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {serviceAreas.map((s) => (
+                        {services.map((s) => (
                           <span key={s} className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: "var(--accent-muted)", color: "var(--accent)" }}>{s}</span>
                         ))}
                       </div>

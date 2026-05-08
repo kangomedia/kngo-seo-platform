@@ -46,6 +46,7 @@ interface Summary {
   nonBrandedClicks: number;
   estTrafficValueUsd: number;
   cpcUsedUsd: number;
+  cpcSource: "per-query" | "derived-average" | "client-fallback" | "none";
   events: { phoneClicks: number; formSubmits: number; emailClicks: number };
   organicSessions: number;
   totalSessions: number;
@@ -53,6 +54,19 @@ interface Summary {
   contentPerformance: ContentRow[];
   brandTermsUsed: string[];
   error?: string;
+}
+
+function cpcSourceCopy(source: Summary["cpcSource"], cpcUsed: number): string {
+  switch (source) {
+    case "per-query":
+      return `Computed at the query level from DataForSEO advertiser CPC (avg $${cpcUsed.toFixed(2)})`;
+    case "derived-average":
+      return `Weighted-average CPC ($${cpcUsed.toFixed(2)}) — DataForSEO had partial data`;
+    case "client-fallback":
+      return `Flat $${cpcUsed.toFixed(2)} fallback — DataForSEO returned no advertiser data`;
+    case "none":
+      return "No non-branded clicks this period";
+  }
 }
 
 function MetricCard({
@@ -212,8 +226,10 @@ export default function PerformancePage() {
           {valueFmt.format(data.estTrafficValueUsd)}
         </div>
         <div style={{ fontSize: 13, color: "#a7f3d0" }}>
-          {data.nonBrandedClicks.toLocaleString()} non-branded clicks × ${data.cpcUsedUsd.toFixed(2)} avg CPC
-          — what these visitors would cost in Google Ads.
+          {data.nonBrandedClicks.toLocaleString()} non-branded clicks · what these visitors would cost in Google Ads.
+        </div>
+        <div style={{ fontSize: 11, color: "#86efac", marginTop: 4, fontStyle: "italic" }}>
+          {cpcSourceCopy(data.cpcSource, data.cpcUsedUsd)}
         </div>
       </div>
 

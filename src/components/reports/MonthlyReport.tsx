@@ -71,6 +71,7 @@ interface PerformanceBlock {
   nonBrandedClicks: number;
   estTrafficValueUsd: number;
   cpcUsedUsd: number;
+  cpcSource?: "per-query" | "derived-average" | "client-fallback" | "none";
   events: { phoneClicks: number; formSubmits: number; emailClicks: number };
   organicSessions: number;
   contentPerformance: ContentPerfEntry[];
@@ -171,10 +172,16 @@ export default function MonthlyReport({ data }: { data: ReportData }) {
                 maximumFractionDigits: 0,
               }).format(d.performance.estTrafficValueUsd)}
             </p>
-            <p className="text-sm mb-4" style={{ color: "#a7f3d0" }}>
-              {d.performance.nonBrandedClicks.toLocaleString()} non-branded clicks ×{" "}
-              ${d.performance.cpcUsedUsd.toFixed(2)} avg CPC — what these visitors would
+            <p className="text-sm" style={{ color: "#a7f3d0" }}>
+              {d.performance.nonBrandedClicks.toLocaleString()} non-branded clicks — what these visitors would
               have cost in Google Ads.
+            </p>
+            <p className="text-xs italic mb-4" style={{ color: "#86efac", marginTop: 2 }}>
+              {d.performance.cpcSource === "per-query"
+                ? `Computed at the query level from DataForSEO advertiser CPC (avg $${d.performance.cpcUsedUsd.toFixed(2)})`
+                : d.performance.cpcSource === "derived-average"
+                ? `Weighted-average CPC: $${d.performance.cpcUsedUsd.toFixed(2)}`
+                : `Estimated at $${d.performance.cpcUsedUsd.toFixed(2)} per click`}
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

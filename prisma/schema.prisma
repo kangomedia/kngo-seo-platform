@@ -111,9 +111,10 @@ model Client {
 
   // Onboarding
   onboardingStatus  String?  @default("PENDING")  // PENDING, DISCOVERING, COMPLETE
-  serviceAreas      String?  @db.Text              // JSON array: ["plumbing", "water heater repair"]
+  serviceAreas      String?  @db.Text              // JSON array: geographic regions (e.g. ["Northern Colorado", "Denver Metro"]). NOT a duplicate of primaryServices.
   targetCities      String?  @db.Text              // JSON array: ["McAllen, TX", "Mission, TX"]
-  competitors       String?  @db.Text              // JSON array: ["competitor1.com", "competitor2.com"]
+  competitors       String?  @db.Text              // DEPRECATED — use Competitor table. Kept for backward-compat reads.
+  icpPains          String?  @db.Text              // JSON array of pain points the ICP feels (drives pain-point keyword research)
 
   // Business Profile (for AI keyword targeting)
   businessDescription  String?  @db.Text  // "Custom website development for contractors $10K+"
@@ -144,6 +145,7 @@ model Client {
   contentMaps        ContentMap[]
   urlCrawls          UrlCrawl[]
   monthlySnapshots   MonthlySnapshot[]
+  competitorEntries  Competitor[]
 }
 
 model ClientUser {
@@ -164,6 +166,7 @@ model Keyword {
   keyword      String
   searchVolume Int?
   difficulty   Int?
+  cpc          Float?   // USD; from DataForSEO Google Ads — refreshed when metrics update
   targetUrl    String?
   group        String?  // keyword group/cluster name
   isTracking   Boolean  @default(true)
@@ -197,6 +200,8 @@ model RankSnapshot {
 model KeywordResearch {
   id            String   @id @default(cuid())
   clientId      String
+  mode          String   @default("SERVICE")  // SERVICE | PAIN_POINT | MIXED
+  pillarSlug    String?  // optional — researched specifically for a pillar
   seedTopics    String   @db.Text  // comma-separated seed topics used
   location      String   @default("United States")
   results       String   @db.Text  // JSON: array of discovered keywords with metrics + ROI
@@ -441,6 +446,24 @@ model GoogleToken {
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
 
+// ─── CPC cache ────────────────────────────────────────
+// DataForSEO Google Ads CPC values cached so we don't re-pay for the same
+// query each month. Looked up by (query, locationCode). Refresh policy:
+// stale after 30 days. Used by traffic-value calc — see src/lib/cpc-cache.ts.
+
+model KeywordCpc {
+  id           String   @id @default(cuid())
+  keyword      String
+  locationCode Int      // DataForSEO location code (e.g. 2840 = US)
+  cpc          Float?   // USD; null = DataForSEO returned no CPC for this query
+  competition  Float?
+  searchVolume Int?
+  fetchedAt    DateTime @default(now())
+
+  @@unique([keyword, locationCode])
+  @@index([fetchedAt])
+}
+
 // ─── Monthly Performance Snapshots ────────────────────
 // Persists month-end aggregates so historical trends survive even if upstream
 // APIs (GSC, GA4) are reconfigured. Filled by a monthly cron + on-demand
@@ -484,6 +507,40 @@ model MonthlySnapshot {
 
   @@unique([clientId, month, year])
   @@index([clientId, year, month])
+}
+
+// ─── Competitor Discovery ─────────────────────────────
+// Replaces the legacy Client.competitors JSON array with structured rows
+// that carry classification metadata. PEER rows where isAccepted=true are
+// the working set used by keyword research (legacy `Client.competitors`
+// reads still work but new code should query this table).
+
+model Competitor {
+  id             String   @id @default(cuid())
+  clientId       String
+  domain         String
+  // Classification mirrors what the discovery prompt outputs:
+  //   PEER          — same business model + similar tier (real competition)
+  //   PLATFORM      — DIY tool clients use INSTEAD of an agency (Wix, GoDaddy, Squarespace)
+  //   DIRECTORY     — listing/aggregator (Yelp, Clutch, UpCity)
+  //   MARKETPLACE   — freelancer/job platform (Fiverr, Upwork)
+  //   TIER_MISMATCH — same model, different tier (national giants for a local agency)
+  //   ADJACENT      — different category but related (SaaS vendors for an agency)
+  //   IRRELEVANT    — wrong category entirely
+  classification String   @default("PEER")
+  reasoning      String?  @db.Text         // one-sentence rationale from Claude
+  pillarSlug     String?                   // optional — relevant only to a specific pillar
+  isAccepted     Boolean  @default(true)   // included in research scrapes when true
+  source         String   @default("manual")  // 'manual' | 'discovery' | 'wizard'
+  domainRank     Int?                      // Optional: DR/DA snapshot at discovery
+  estTraffic     Int?                      // Optional: est monthly organic traffic
+  discoveredAt   DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, domain])
+  @@index([clientId, isAccepted])
+  @@index([clientId, classification])
 }
 
 // ─── Domain Migration / URL Crawl ─────────────────────

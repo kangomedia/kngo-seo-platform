@@ -44,23 +44,81 @@ export async function POST(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Get keywords either from a research session or directly
-  let keywords: Array<{ keyword: string; searchVolume: number; competition: number; cpc: number }> = [];
+  // Get keywords from one or more research sessions, or pass them directly.
+  // Multi-research is the normal mode — service research + pain-point research
+  // both feed into a single content map so pillars can span the full business.
+  type ResearchKw = {
+    keyword: string;
+    searchVolume: number;
+    competition: number;
+    cpc: number;
+    source?: string;
+    intent?: string | null;
+    suggestedGroup?: string;
+    relevanceScore?: number;
+  };
+  const researchIds: string[] = Array.isArray(body.researchIds)
+    ? body.researchIds
+    : body.researchId
+      ? [body.researchId]
+      : [];
 
-  if (body.researchId) {
-    const research = await prisma.keywordResearch.findUnique({
-      where: { id: body.researchId },
+  let keywords: ResearchKw[] = [];
+  // Track which mode each keyword came from so the prompt can spread pieces
+  // across pillars informed by both demand-capture and demand-creation data.
+  const keywordModes = new Map<string, string>();
+
+  if (researchIds.length > 0) {
+    const researches = await prisma.keywordResearch.findMany({
+      where: { id: { in: researchIds }, clientId },
     });
-    if (research) {
-      keywords = JSON.parse(research.results || "[]");
+    for (const r of researches) {
+      try {
+        const arr: ResearchKw[] = JSON.parse(r.results || "[]");
+        for (const kw of arr) {
+          keywords.push(kw);
+          keywordModes.set(kw.keyword.toLowerCase(), r.mode);
+        }
+      } catch {
+        /* skip malformed */
+      }
     }
   } else if (body.keywords && Array.isArray(body.keywords)) {
     keywords = body.keywords;
+  } else {
+    // Default: fold ALL active research sessions for this client into one map.
+    const all = await prisma.keywordResearch.findMany({
+      where: { clientId },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+    for (const r of all) {
+      try {
+        const arr: ResearchKw[] = JSON.parse(r.results || "[]");
+        for (const kw of arr) {
+          keywords.push(kw);
+          keywordModes.set(kw.keyword.toLowerCase(), r.mode);
+        }
+      } catch {
+        /* skip */
+      }
+    }
   }
+
+  // Dedupe by keyword (keep highest-volume occurrence)
+  const seen = new Map<string, ResearchKw>();
+  for (const kw of keywords) {
+    const key = kw.keyword.toLowerCase();
+    const existing = seen.get(key);
+    if (!existing || (kw.searchVolume || 0) > (existing.searchVolume || 0)) {
+      seen.set(key, kw);
+    }
+  }
+  keywords = Array.from(seen.values());
 
   if (keywords.length === 0) {
     return NextResponse.json(
-      { error: "No keywords provided. Pass researchId or keywords array." },
+      { error: "No keywords found. Run keyword research (and optionally pain-point research) first." },
       { status: 400 }
     );
   }
@@ -96,16 +154,20 @@ export async function POST(
 - **Service Tier:** ${client.tier}
 - **Monthly Content Capacity:** ${monthlyCapacity.blogs} blogs, ${monthlyCapacity.gbpPosts} GBP posts, ${monthlyCapacity.gbpQAs} GBP Q&As, ${monthlyCapacity.pressReleases} press releases
 
-## Available Keywords (Top ${Math.min(keywords.length, 50)})
-${keywords.slice(0, 50).map((kw, i) => `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, Competition: ${kw.competition}%`).join("\n")}
+## Available Keywords (Top ${Math.min(keywords.length, 80)})
+${keywords.slice(0, 80).map((kw, i) => {
+  const mode = keywordModes.get(kw.keyword.toLowerCase());
+  const modeTag = mode === "PAIN_POINT" ? " [PAIN]" : mode === "SERVICE" ? " [SERVICE]" : "";
+  return `${i + 1}.${modeTag} "${kw.keyword}" — Vol: ${kw.searchVolume}, Comp: ${kw.competition}%, CPC: $${(kw.cpc || 0).toFixed(2)}`;
+}).join("\n")}
 
 ## Strategy rules
 
-1. **Pillars are topical territories**, not single articles. 4–6 pillars covering the business's full service surface area. Each pillar has a primary keyword that the pillar-page itself targets, plus 5–8 supporting pieces that link upward to it.
+1. **Pillars are topical territories**, not single articles. 4–6 pillars covering the business's full surface area. **If the keyword pool spans multiple distinct themes** (look for [SERVICE] vs [PAIN] tags — they often represent different revenue lines), build pillars across both. A web-design agency that ALSO does CRM automations should get a "Web Design" pillar AND a "Service Business Automation" pillar — don't collapse them.
 2. **Tag every piece with a funnel stage**:
-   - **TOFU** = top-of-funnel — informational, "how does X work", broad awareness
+   - **TOFU** = top-of-funnel — informational, "how does X work", broad awareness — most [PAIN] keywords land here
    - **MOFU** = middle-of-funnel — comparison, "X vs Y", "best X", buyer-research
-   - **BOFU** = bottom-of-funnel — commercial, "hire X near me", "X cost", ready-to-buy
+   - **BOFU** = bottom-of-funnel — commercial, "hire X near me", "X cost", ready-to-buy — most [SERVICE] keywords land here
 3. **Pace difficulty across 6 months.** Month 1 = quick wins (BOFU, low competition). Month 2-3 = MOFU buildouts. Month 4-5 = TOFU pillar pages + thought leadership. Month 6 = quarterly recap + refresh. Respect the monthly capacity limit.
 4. **Quick wins** = low-competition, high-intent keywords that should be published this month regardless of pillar architecture. Aim for 5–10.
 5. **Be concrete** — every piece needs a unique \`id\`, a publishable \`title\`, a \`keyword\` target, a \`description\` (one sentence outline), \`funnelStage\`, \`monthIndex\` (1–6), and \`pillarSlug\`.
