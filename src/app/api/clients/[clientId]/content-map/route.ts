@@ -86,7 +86,7 @@ export async function POST(
     pressReleases: client.monthlyPressReleases,
   };
 
-  const prompt = `You are an expert SEO content strategist. Generate a comprehensive content strategy map for this business.
+  const prompt = `You are an expert SEO content strategist building a 6-month topical authority plan for this business. Your output drives the agency's content workflow — every piece you propose must be specific, scoped, and promotable to a writer without further refinement.
 
 ## Client Profile
 - **Business:** ${client.name}
@@ -99,44 +99,67 @@ export async function POST(
 ## Available Keywords (Top ${Math.min(keywords.length, 50)})
 ${keywords.slice(0, 50).map((kw, i) => `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, Competition: ${kw.competition}%`).join("\n")}
 
-## Generate a Content Strategy Map in the following JSON structure:
+## Strategy rules
+
+1. **Pillars are topical territories**, not single articles. 4–6 pillars covering the business's full service surface area. Each pillar has a primary keyword that the pillar-page itself targets, plus 5–8 supporting pieces that link upward to it.
+2. **Tag every piece with a funnel stage**:
+   - **TOFU** = top-of-funnel — informational, "how does X work", broad awareness
+   - **MOFU** = middle-of-funnel — comparison, "X vs Y", "best X", buyer-research
+   - **BOFU** = bottom-of-funnel — commercial, "hire X near me", "X cost", ready-to-buy
+3. **Pace difficulty across 6 months.** Month 1 = quick wins (BOFU, low competition). Month 2-3 = MOFU buildouts. Month 4-5 = TOFU pillar pages + thought leadership. Month 6 = quarterly recap + refresh. Respect the monthly capacity limit.
+4. **Quick wins** = low-competition, high-intent keywords that should be published this month regardless of pillar architecture. Aim for 5–10.
+5. **Be concrete** — every piece needs a unique \`id\`, a publishable \`title\`, a \`keyword\` target, a \`description\` (one sentence outline), \`funnelStage\`, \`monthIndex\` (1–6), and \`pillarSlug\`.
+
+## Output JSON exactly in this structure:
 
 \`\`\`json
 {
   "pillars": [
     {
-      "topic": "Pillar topic name",
-      "description": "Why this pillar matters for SEO authority",
-      "targetKeyword": "primary keyword",
-      "contentPlan": [
+      "slug": "kebab-case-slug",
+      "title": "Pillar topic name",
+      "description": "Why this pillar wins authority",
+      "targetKeyword": "primary keyword the pillar page targets",
+      "pieces": [
         {
+          "id": "unique-id",
           "type": "BLOG_POST",
-          "title": "Content title",
+          "title": "Specific publishable title",
           "keyword": "target keyword",
-          "description": "Brief content outline",
-          "priority": 1-5,
-          "month": 1
+          "description": "One-sentence outline",
+          "funnelStage": "TOFU",
+          "monthIndex": 1,
+          "priority": 3,
+          "promoted": false
         }
       ]
     }
   ],
   "quickWins": [
     {
+      "id": "unique-id",
+      "type": "BLOG_POST",
+      "title": "Specific publishable title",
       "keyword": "low competition keyword",
-      "suggestedType": "BLOG_POST|GBP_POST|GBP_QA",
-      "title": "Quick content idea",
-      "reason": "Why this is a quick win"
+      "description": "One-sentence outline",
+      "funnelStage": "BOFU",
+      "monthIndex": 1,
+      "reason": "Why this ranks fast",
+      "promoted": false
     }
   ],
-  "monthlyPlan": {
-    "month1": { "focus": "Theme", "pieces": ["Title 1", "Title 2"] },
-    "month2": { "focus": "Theme", "pieces": ["Title 1", "Title 2"] },
-    "month3": { "focus": "Theme", "pieces": ["Title 1", "Title 2"] }
+  "monthlyFocus": {
+    "1": "Theme for month 1",
+    "2": "Theme for month 2",
+    "3": "Theme for month 3",
+    "4": "Theme for month 4",
+    "5": "Theme for month 5",
+    "6": "Theme for month 6"
   }
 }
 \`\`\`
 
-Important: Generate exactly 3-5 pillars with 3-4 content pieces each. Each piece should have a specific keyword target. Plan content across 3 months respecting the monthly capacity limits. Return ONLY the JSON, no surrounding text.`;
+Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pieces should be 30–60. Use mostly BLOG_POST; sprinkle GBP_POST for very-local pieces and GBP_QA for FAQ-style content. Return ONLY the JSON, no surrounding text.`;
 
   try {
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -172,6 +195,51 @@ Important: Generate exactly 3-5 pillars with 3-4 content pieces each. Each piece
     } catch {
       // If JSON parsing fails, store the raw text
       mapData = { raw: rawText, error: "Could not parse structured map" };
+    }
+
+    // Normalize: ensure every piece has an id, promoted flag, and funnelStage.
+    // Claude usually obeys the schema but we don't trust it absolutely.
+    let nextSerial = 1;
+    const ensureId = (existing: unknown) =>
+      typeof existing === "string" && existing.length > 0
+        ? existing
+        : `mp_${Date.now().toString(36)}_${nextSerial++}`;
+
+    if (mapData?.pillars && Array.isArray(mapData.pillars)) {
+      for (const pillar of mapData.pillars) {
+        if (!pillar.slug && pillar.title) {
+          pillar.slug = String(pillar.title)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "");
+        }
+        if (Array.isArray(pillar.pieces)) {
+          for (const p of pillar.pieces) {
+            p.id = ensureId(p.id);
+            p.promoted = p.promoted === true;
+            p.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(p.funnelStage)
+              ? p.funnelStage
+              : "MOFU";
+            p.monthIndex = Number.isInteger(p.monthIndex)
+              ? Math.max(1, Math.min(6, p.monthIndex))
+              : 1;
+            p.pillarSlug = pillar.slug;
+          }
+        }
+      }
+    }
+    if (Array.isArray(mapData?.quickWins)) {
+      for (const q of mapData.quickWins) {
+        q.id = ensureId(q.id);
+        q.promoted = q.promoted === true;
+        q.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(q.funnelStage)
+          ? q.funnelStage
+          : "BOFU";
+        q.monthIndex = Number.isInteger(q.monthIndex)
+          ? Math.max(1, Math.min(6, q.monthIndex))
+          : 1;
+        q.pillarSlug = "quick-wins";
+      }
     }
 
     // Generate AI summary

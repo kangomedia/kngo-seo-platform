@@ -6,6 +6,7 @@ import {
   getClientByToken,
   getClientRankHistory,
   getClientPerformance,
+  getClientStrategy,
 } from "@/lib/actions-public";
 import {
   TrendingUp,
@@ -15,6 +16,8 @@ import {
   ArrowRight,
   Phone,
   DollarSign,
+  Layers,
+  MapPin,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import Link from "next/link";
@@ -76,12 +79,39 @@ interface PerformanceData {
   }>;
 }
 
+interface StrategyMapPiece {
+  id: string;
+  title: string;
+  type: string;
+  funnelStage?: "TOFU" | "MOFU" | "BOFU";
+  monthIndex?: number;
+  promoted?: boolean;
+}
+
+interface StrategyData {
+  id: string;
+  title: string;
+  aiSummary: string | null;
+  createdAt: string | Date;
+  mapData: {
+    pillars?: Array<{
+      slug: string;
+      title: string;
+      description?: string;
+      pieces?: StrategyMapPiece[];
+    }>;
+    quickWins?: StrategyMapPiece[];
+    monthlyFocus?: Record<string, string>;
+  };
+}
+
 export default function ClientDashboard() {
   const params = useParams();
   const token = params.token as string;
   const [client, setClient] = useState<ClientData | null>(null);
   const [trendData, setTrendData] = useState<Array<{ date: string; page1Count: number }>>([]);
   const [perf, setPerf] = useState<PerformanceData | null>(null);
+  const [strategy, setStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -94,6 +124,11 @@ export default function ClientDashboard() {
         // so load it in parallel with the rank history)
         getClientPerformance(token, 30).then((p) => {
           if (p) setPerf(p as unknown as PerformanceData);
+        });
+
+        // Strategy / 6-month roadmap
+        getClientStrategy(token).then((s) => {
+          if (s) setStrategy(s as unknown as StrategyData);
         });
 
         // Build trend data from rank history
@@ -351,6 +386,130 @@ export default function ClientDashboard() {
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* 6-Month Roadmap — strategic story */}
+      {strategy && strategy.mapData.pillars && strategy.mapData.pillars.length > 0 && (() => {
+        const allPieces = [
+          ...(strategy.mapData.pillars || []).flatMap((p) => p.pieces || []),
+          ...(strategy.mapData.quickWins || []),
+        ];
+        const total = allPieces.length;
+        const promoted = allPieces.filter((p) => p.promoted).length;
+        const monthlyFocus = strategy.mapData.monthlyFocus || {};
+        const now = new Date();
+        const startMonth = new Date(strategy.createdAt).getMonth();
+        const monthsElapsed = Math.max(
+          1,
+          (now.getFullYear() - new Date(strategy.createdAt).getFullYear()) * 12 +
+            (now.getMonth() - startMonth) + 1
+        );
+
+        return (
+          <div
+            className="rounded-2xl p-6 mb-8"
+            style={{
+              background: "linear-gradient(135deg, rgba(124,58,237,0.07), rgba(16,185,129,0.04))",
+              border: "1px solid rgba(124,58,237,0.20)",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Layers size={18} style={{ color: "#7C3AED" }} />
+              <h2 className="text-lg font-extrabold" style={{ color: "#222" }}>
+                Your 6-Month Roadmap
+              </h2>
+            </div>
+            <p className="text-sm mb-4" style={{ color: "#666" }}>
+              You&apos;re in <strong>month {Math.min(monthsElapsed, 6)} of 6</strong> · {promoted} of {total} planned pieces scheduled
+            </p>
+
+            {strategy.aiSummary && (
+              <p className="text-sm leading-relaxed mb-5" style={{ color: "#444" }}>
+                {strategy.aiSummary}
+              </p>
+            )}
+
+            {/* Pillars */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              {strategy.mapData.pillars.map((pillar) => {
+                const pp = (pillar.pieces || []).filter((p) => p.promoted).length;
+                const pt = (pillar.pieces || []).length;
+                const pct = pt > 0 ? Math.round((pp / pt) * 100) : 0;
+                return (
+                  <div
+                    key={pillar.slug}
+                    className="p-3 rounded-xl"
+                    style={{ background: "#FFFFFF", border: "1px solid #E4E4E4" }}
+                  >
+                    <div className="flex items-start gap-2">
+                      <MapPin size={14} style={{ color: "#7C3AED", marginTop: 2 }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate" style={{ color: "#222" }}>
+                          {pillar.title}
+                        </p>
+                        {pillar.description && (
+                          <p className="text-xs line-clamp-2" style={{ color: "#888" }}>
+                            {pillar.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold uppercase" style={{ color: "#888" }}>
+                          {pp} / {pt} scheduled
+                        </span>
+                        <span className="text-[10px] font-bold" style={{ color: "#7C3AED" }}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="rounded-full overflow-hidden" style={{ height: 4, background: "#F1F5F9" }}>
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            background: pct >= 100 ? "#16a34a" : "#7C3AED",
+                            transition: "width 0.5s",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Monthly themes */}
+            {Object.keys(monthlyFocus).length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                {Object.entries(monthlyFocus)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([m, focus]) => {
+                    const isCurrent = Number(m) === Math.min(monthsElapsed, 6);
+                    return (
+                      <div
+                        key={m}
+                        className="p-2 rounded-lg"
+                        style={{
+                          background: isCurrent ? "#7C3AED" : "#FFFFFF",
+                          border: `1px solid ${isCurrent ? "#7C3AED" : "#E4E4E4"}`,
+                          color: isCurrent ? "#fff" : "#444",
+                        }}
+                      >
+                        <p
+                          className="text-[10px] font-bold uppercase"
+                          style={{ color: isCurrent ? "rgba(255,255,255,0.85)" : "#888" }}
+                        >
+                          Month {m}
+                        </p>
+                        <p className="text-xs font-semibold leading-tight">{focus}</p>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Content Performance — which articles drove traffic */}
       {perf && perf.contentPerformance.length > 0 && (

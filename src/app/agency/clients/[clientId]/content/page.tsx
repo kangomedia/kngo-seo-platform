@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { countPiecesPendingReview } from "@/lib/content-plan-utils";
+import StrategyTab from "./StrategyTab";
 import {
   Sparkles,
   FileText,
@@ -34,6 +35,7 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
+  Layers,
 } from "lucide-react";
 
 interface ContentPiece {
@@ -77,7 +79,7 @@ export default function ContentHubPage() {
   const [clientTier, setClientTier] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"plan" | "generate" | "drafts" | "publishing">("generate");
+  const [activeTab, setActiveTab] = useState<"strategy" | "plan" | "generate" | "drafts" | "publishing">("strategy");
 
   // Publishing modal
   const [publishingPiece, setPublishingPiece] = useState<ContentPiece | null>(null);
@@ -647,7 +649,18 @@ export default function ContentHubPage() {
   return (
     <div className="max-w-6xl">
       {/* Tabs */}
-      <div className="flex gap-1 mb-6">
+      <div className="flex gap-1 mb-6 flex-wrap">
+        <button
+          onClick={() => setActiveTab("strategy")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+          style={{
+            background: activeTab === "strategy" ? "var(--accent-muted)" : "transparent",
+            color: activeTab === "strategy" ? "var(--accent)" : "var(--text-muted)",
+          }}
+        >
+          <Layers size={14} className="inline mr-2" />
+          Strategy
+        </button>
         <button
           onClick={() => setActiveTab("generate")}
           className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
@@ -657,7 +670,7 @@ export default function ContentHubPage() {
           }}
         >
           <Sparkles size={14} className="inline mr-2" />
-          AI Generator
+          Quick Generate
         </button>
         <button
           onClick={() => setActiveTab("plan")}
@@ -721,6 +734,19 @@ export default function ContentHubPage() {
             <X size={14} style={{ color: "var(--danger)" }} />
           </button>
         </div>
+      )}
+
+      {/* ═══ STRATEGY TAB ═══ */}
+      {activeTab === "strategy" && (
+        <StrategyTab
+          clientId={clientId}
+          onPromoted={() => {
+            // After a promote, refresh plans + jump to Plan tab so the user
+            // sees the piece they just scheduled.
+            loadData();
+            setActiveTab("plan");
+          }}
+        />
       )}
 
       {/* ═══ AI GENERATOR TAB ═══ */}

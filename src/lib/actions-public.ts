@@ -165,6 +165,33 @@ export async function getClientReports(accessToken: string) {
   return { client, reports };
 }
 
+export async function getClientStrategy(accessToken: string) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) return null;
+
+  const map = await prisma.contentMap.findFirst({
+    where: { clientId: client.id, isActive: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!map) return null;
+
+  let mapData;
+  try {
+    mapData = JSON.parse(map.mapData);
+  } catch {
+    return null;
+  }
+
+  return {
+    id: map.id,
+    title: map.title,
+    aiSummary: map.aiSummary,
+    createdAt: map.createdAt,
+    mapData,
+  };
+}
+
 export async function getClientPerformance(accessToken: string, days: number = 30) {
   const client = await prisma.client.findUnique({ where: { accessToken } });
   if (!client || !client.isActive) return null;

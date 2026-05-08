@@ -142,7 +142,16 @@ All credentials and config live in env vars. There are **no admin UI pages** for
 ### D21. Debug snapshot endpoint for external assistant inspection
 **Decision:** `/api/debug/clients` (list) and `/api/debug/[clientId]/snapshot` (full bundle) are read-only routes gated by an `x-debug-token` header matched against the `DEBUG_TOKEN` env var. Built so the agency operator can pipe live state to an external assistant (e.g. Claude via WebFetch). Returns 8 buckets: client config, business profile, keywords, latest keyword research, active content maps, latest site audit, deliverables, recent activity.
 **Why:** Strict NextAuth session gating breaks for tools that can't carry a session cookie; a single-purpose token header is the simplest secure path.
-**Constraints:** Read-only Prisma queries only; no INSERT/UPDATE/DELETE. PII not masked — the token + non-public deployment are the security boundary. Set `DEBUG_TOKEN` in Coolify env. Rotate after each debugging session. Returns 503 if the env var is unset (closed by default — won't accidentally expose if env wasn't configured).
+**Constraints:** Read-only Prisma queries only; no INSERT/UPDATE/DELETE. PII not masked — the token + non-public deployment are the security boundary. Set `DEBUG_TOKEN` in Coolify env. Rotate after each debugging session. Returns 503 if the env var is unset (closed by default — won't accidentally expose if env wasn't configured). Middleware bypasses `/api/debug/*` so the token header is the only gate.
+
+### D22. Path B — Topic-strategy layer wired (ContentMap → ContentPiece promotion)
+**Decision:** The `ContentMap` model is now the entry point for ongoing content work. New "Strategy" tab in the Content Hub (default tab) displays the active map: pillars (4–6), funnel-stage tagged pieces (TOFU/MOFU/BOFU), 6-month pacing, quick wins. Each piece has a "Promote" button that creates a `ContentPiece` in the current month's `ContentPlan` (creating the plan on demand). Promotion is idempotent — flags `promoted: true` and `contentPieceId` in the map JSON. The seed-keyword "Topical Content Generator" is demoted to a "Quick Generate" tab for ad-hoc one-offs. Client portal shows a read-only roadmap with pillar progress bars + monthly theme strip + AI summary.
+**Why:** The original design generated 10 blogs / 8 GBP / 8 QAs / 1 PR from a single seed keyword each month — produced disconnected batches with no through-line, no pillar authority, no funnel pacing. The map-as-strategy + plan-as-curated-subset design produces internal-linking compound effects, predictable monthly pacing, and a story the client can follow ("you're in month 3 of 6"). Closes D16 ("Path B is the next major project").
+**How it works:**
+- `/api/clients/[id]/content-map` POST prompt now requires `funnelStage`, `pillarSlug`, `monthIndex`, `priority`, `id`, `promoted` on every piece. Server normalizes Claude's output to guarantee these fields exist.
+- `/api/clients/[id]/content-map/active` GET returns the most recent active map.
+- `/api/clients/[id]/content-map/promote` POST/DELETE moves pieces in/out of `ContentPlan`. Creates the plan on demand. Idempotent.
+- Strategy tab (`StrategyTab.tsx`) is the new default surface in Content Hub. AI Generator demoted to "Quick Generate" tab for non-strategy use.
 
 ---
 
@@ -255,6 +264,8 @@ This session's work, in order:
 7. **Anthropic model fix** (deprecated `claude-sonnet-4-20250514` → `claude-sonnet-4-6` via `ANTHROPIC_MODEL` env, with retry + timeout wrapper).
 8. **Path A keyword pipeline overhaul** (audience + gibberish filters, geo-weighted pre-scoring, stronger AI prompt, Claude-generated seeds, wizard expanded with business profile fields, research endpoint refactored).
 9. **Performance & ROI layer** (D17–D20). New `MonthlySnapshot` Prisma model (migration `20260507_add_performance_tracking`), `Client.brandTerms` + `Client.avgCpcUsd` config fields, `src/lib/performance.ts` with branded-query split + per-URL content performance + traffic-value math + monthly snapshot writer, new `/api/clients/[id]/performance` route, new `/agency/clients/[id]/performance` page, ROI hero + content performance + branded-split sections in `MonthlyReport`, new `QuarterlyReport` component with AI narrative, public report viewer routes the new `QUARTERLY` type, client portal token-page gets a results hero block + content-performance list.
+10. **Debug snapshot endpoint** (D21). Token-gated read-only routes at `/api/debug/clients` and `/api/debug/[clientId]/snapshot` exposing 8 buckets for external-assistant inspection. `DEBUG_TOKEN` env var added; middleware bypasses `/api/debug/*` so the route's own token check is the gate.
+11. **Path B — Topic strategy layer wired** (D22). Promoted `ContentMap` from orphaned data to first-class strategy surface. Upgraded content-map prompt with funnel-stage/pillar/month tagging. New `/api/clients/[id]/content-map/active` (GET) and `/api/clients/[id]/content-map/promote` (POST/DELETE) routes. New `StrategyTab.tsx` in Content Hub (now the default tab); AI Generator demoted to "Quick Generate". Client portal gets a read-only 6-month roadmap section with pillar progress bars and monthly themes. Closes D16.
 
 ---
 
