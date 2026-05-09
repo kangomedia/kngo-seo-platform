@@ -74,6 +74,9 @@ export async function PUT(
     // Business Profile (AI keyword targeting)
     "businessDescription", "primaryServices", "idealClientProfile",
     "priceRange", "industryVertical",
+    // Strategy / ROI fields
+    "serviceAreas", "icpPains", "competitors",
+    "avgCpcUsd", "brandTerms",
   ];
 
   for (const field of editableFields) {

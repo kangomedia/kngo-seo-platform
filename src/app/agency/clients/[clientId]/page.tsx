@@ -73,6 +73,10 @@ interface ClientDetail {
   idealClientProfile: string | null;
   priceRange: string | null;
   industryVertical: string | null;
+  serviceAreas: string | null;
+  icpPains: string | null;
+  brandTerms: string | null;
+  avgCpcUsd: number;
   keywords: Array<{
     id: string;
     keyword: string;
@@ -616,7 +620,16 @@ export default function ClientOverview() {
     idealClientProfile: "",
     priceRange: "",
     industryVertical: "",
+    // Strategy / ROI fields stored as JSON strings server-side
+    serviceAreas: "",
+    icpPains: "",
+    brandTerms: "",
+    avgCpcUsd: 3.5,
   });
+  const [painSuggestions, setPainSuggestions] = useState<string[]>([]);
+  const [suggestingPains, setSuggestingPains] = useState(false);
+  const [painSuggestError, setPainSuggestError] = useState("");
+  const [painInput, setPainInput] = useState("");
 
   useEffect(() => {
     fetch(`/api/clients/${clientId}`)
@@ -660,7 +673,14 @@ export default function ClientOverview() {
       idealClientProfile: data.idealClientProfile || "",
       priceRange: data.priceRange || "",
       industryVertical: data.industryVertical || "",
+      serviceAreas: data.serviceAreas || "",
+      icpPains: data.icpPains || "",
+      brandTerms: data.brandTerms || "",
+      avgCpcUsd: data.avgCpcUsd ?? 3.5,
     });
+    setPainSuggestions([]);
+    setPainSuggestError("");
+    setPainInput("");
     setIsEditing(true);
   };
 
@@ -1133,7 +1153,7 @@ export default function ClientOverview() {
                 placeholder="e.g. custom websites, SEO, web applications"
               />
             </div>
-            <div className="grid grid-cols-1 gap-4 mb-8">
+            <div className="grid grid-cols-1 gap-4 mb-4">
               <div>
                 <label
                   className="text-xs font-bold uppercase tracking-wide mb-2 block"
@@ -1149,6 +1169,260 @@ export default function ClientOverview() {
                   placeholder="e.g. Large contractor companies with $5M+ revenue looking for premium digital presence"
                 />
               </div>
+            </div>
+
+            {/* ── ICP Pains (drives pain-point keyword research) ── */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <label
+                  className="text-xs font-bold uppercase tracking-wide"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Top Pain Points <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— problems the ICP complains about</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSuggestingPains(true);
+                    setPainSuggestError("");
+                    try {
+                      const services = (() => {
+                        try { const a = JSON.parse(editForm.primaryServices || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
+                      })();
+                      const res = await fetch("/api/wizard/suggest-pains", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          businessDescription: editForm.businessDescription || undefined,
+                          idealClientProfile: editForm.idealClientProfile || undefined,
+                          industryVertical: editForm.industryVertical || editForm.gbpCategory || undefined,
+                          primaryServices: services,
+                        }),
+                      });
+                      if (!res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        throw new Error(d.error || "Suggestion failed");
+                      }
+                      const data = await res.json();
+                      const current = (() => {
+                        try { const a = JSON.parse(editForm.icpPains || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
+                      })();
+                      const fresh = (data.pains || []).filter((p: string) => !current.includes(p));
+                      setPainSuggestions(fresh);
+                    } catch (e) {
+                      setPainSuggestError(e instanceof Error ? e.message : "Suggestion failed");
+                    } finally {
+                      setSuggestingPains(false);
+                    }
+                  }}
+                  disabled={suggestingPains || (!editForm.businessDescription && !editForm.idealClientProfile && !editForm.industryVertical && !editForm.primaryServices)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
+                  style={{
+                    background: "rgba(124,58,237,0.12)",
+                    color: "#7C3AED",
+                    opacity:
+                      suggestingPains || (!editForm.businessDescription && !editForm.idealClientProfile && !editForm.industryVertical && !editForm.primaryServices)
+                        ? 0.5
+                        : 1,
+                    cursor: suggestingPains ? "wait" : "pointer",
+                  }}
+                  title="Claude reads this client's profile and proposes pain candidates"
+                >
+                  {suggestingPains ? (
+                    <>
+                      <Loader2 size={11} className="animate-spin" />
+                      Thinking…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={11} />
+                      Suggest from profile
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Input row */}
+              <div className="flex gap-2">
+                <input
+                  className="input-field flex-1"
+                  placeholder="e.g. losing leads to no-shows"
+                  value={painInput}
+                  onChange={(e) => setPainInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const v = painInput.trim();
+                      if (!v) return;
+                      const list = (() => {
+                        try { const a = JSON.parse(editForm.icpPains || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
+                      })();
+                      if (list.length < 12 && !list.includes(v)) {
+                        updateField("icpPains", JSON.stringify([...list, v]));
+                      }
+                      setPainInput("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    const v = painInput.trim();
+                    if (!v) return;
+                    const list = (() => {
+                      try { const a = JSON.parse(editForm.icpPains || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
+                    })();
+                    if (list.length < 12 && !list.includes(v)) {
+                      updateField("icpPains", JSON.stringify([...list, v]));
+                    }
+                    setPainInput("");
+                  }}
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+
+              {/* AI suggestion chips */}
+              {painSuggestError && (
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--danger)" }}>
+                  {painSuggestError}
+                </p>
+              )}
+              {painSuggestions.length > 0 && (
+                <div
+                  className="mt-2 p-3 rounded-lg"
+                  style={{
+                    background: "rgba(124,58,237,0.06)",
+                    border: "1px dashed rgba(124,58,237,0.30)",
+                  }}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wide mb-2" style={{ color: "#7C3AED" }}>
+                    AI Suggestions · click to add
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {painSuggestions.map((p) => (
+                      <span
+                        key={p}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+                        style={{
+                          background: "rgba(124,58,237,0.12)",
+                          color: "#7C3AED",
+                          border: "1px solid rgba(124,58,237,0.25)",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const list = (() => {
+                              try { const a = JSON.parse(editForm.icpPains || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
+                            })();
+                            if (list.length < 12 && !list.includes(p)) {
+                              updateField("icpPains", JSON.stringify([...list, p]));
+                            }
+                            setPainSuggestions(painSuggestions.filter((x) => x !== p));
+                          }}
+                          className="hover:opacity-70"
+                        >
+                          + {p}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPainSuggestions(painSuggestions.filter((x) => x !== p))}
+                          className="opacity-50 hover:opacity-100"
+                          title="Dismiss"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Existing tags */}
+              {(() => {
+                let list: string[] = [];
+                try { const a = JSON.parse(editForm.icpPains || "[]"); if (Array.isArray(a)) list = a; } catch {}
+                if (list.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {list.map((p) => (
+                      <span
+                        key={p}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-70 transition-all"
+                        style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}
+                        onClick={() => updateField("icpPains", JSON.stringify(list.filter((x) => x !== p)))}
+                      >
+                        {p} ×
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+              <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                Drives the pain-point keyword research mode. The Suggest button uses Claude to propose pains specific to this client&apos;s profile.
+              </p>
+            </div>
+
+            {/* ── Service Areas (geographic) — comma list ── */}
+            <div className="mb-4">
+              <EditField
+                label="Service Areas (geographic regions, comma-separated)"
+                value={(() => { try { const a = JSON.parse(editForm.serviceAreas || "[]"); return Array.isArray(a) ? a.join(", ") : editForm.serviceAreas; } catch { return editForm.serviceAreas; } })()}
+                onChange={(v) =>
+                  updateField(
+                    "serviceAreas",
+                    JSON.stringify(v.split(",").map((s) => s.trim()).filter(Boolean))
+                  )
+                }
+                placeholder="e.g. Denver Metro, Northern Colorado — leave blank if not relevant"
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Geographic regions ONLY. Specific cities go in Target Cities. Leave empty if you don&apos;t serve named regions.
+              </p>
+            </div>
+
+            {/* ── Brand Terms (for branded vs non-branded query split) ── */}
+            <div className="mb-4">
+              <EditField
+                label="Brand Terms (comma-separated; auto-derived if blank)"
+                value={(() => { try { const a = JSON.parse(editForm.brandTerms || "[]"); return Array.isArray(a) ? a.join(", ") : editForm.brandTerms; } catch { return editForm.brandTerms; } })()}
+                onChange={(v) =>
+                  updateField(
+                    "brandTerms",
+                    JSON.stringify(v.split(",").map((s) => s.trim()).filter(Boolean))
+                  )
+                }
+                placeholder="e.g. kangomedia, kango"
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Used to separate branded clicks from non-branded clicks in performance reports. Leave blank to derive from name + domain.
+              </p>
+            </div>
+
+            {/* ── Average CPC ── */}
+            <div className="mb-8">
+              <label
+                className="text-xs font-bold uppercase tracking-wide mb-2 block"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Avg CPC Fallback (USD)
+              </label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                className="input-field"
+                value={editForm.avgCpcUsd}
+                onChange={(e) =>
+                  updateField("avgCpcUsd", parseFloat(e.target.value) || 0)
+                }
+                placeholder="3.50"
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Used only when DataForSEO has no advertiser data for a query. Real CPC is computed per-query when available — bump this up only for verticals where the long tail rarely has DataForSEO data (legal $40+, medical $20+, home services $15+).
+              </p>
             </div>
 
             {/* Service Plan */}
