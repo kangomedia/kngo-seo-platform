@@ -28,6 +28,10 @@ interface KeywordResult {
   competition: number;
   cpc: number;
   categories?: string[];
+  suggestedGroup?: string;
+  intent?: string | null;
+  relevanceScore?: number;
+  relevanceReason?: string;
 }
 
 interface ResearchSession {
@@ -519,13 +523,16 @@ export default function ResearchPage() {
             </div>
           </div>
 
-          {/* AI Analysis */}
+          {/* AI Analysis — research-run insights, NOT the master action plan */}
           {activeAnalysis && (
             <div className="stat-card mb-6" style={{ borderLeft: "3px solid var(--accent)" }}>
-              <h3 className="text-lg font-extrabold mb-3 flex items-center gap-2">
+              <h3 className="text-lg font-extrabold mb-1 flex items-center gap-2">
                 <Brain size={20} style={{ color: "var(--accent)" }} />
-                AI Strategic Analysis
+                Research Insights · this run
               </h3>
+              <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+                What this research run uncovered. Each session has its own insights — your unified content roadmap lives in the <strong>Content Hub → Strategy</strong> tab. That&apos;s where the action plan, pillars, and monthly schedule are managed.
+              </p>
               <div
                 className="prose prose-sm max-w-none"
                 style={{ color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.7 }}
@@ -662,13 +669,12 @@ export default function ResearchPage() {
                   className="flex items-center gap-4 p-4 cursor-pointer transition-all hover:opacity-80"
                   style={{ minWidth: 0 }}
                   onClick={() => {
-                    if (expandedSession === session.id) {
-                      setExpandedSession(null);
-                    } else {
-                      setExpandedSession(session.id);
-                      setActiveResults(session.results);
-                      setActiveAnalysis(session.aiAnalysis);
-                    }
+                    // Toggle inline expansion only. Don't swap the active panel above —
+                    // doing so previously made it look like the "strategic plan" changed
+                    // every time you clicked a history item.
+                    setExpandedSession(
+                      expandedSession === session.id ? null : session.id
+                    );
                   }}
                 >
                   <div className="flex-1 min-w-0 overflow-hidden">
@@ -743,6 +749,75 @@ export default function ResearchPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Inline expansion body — keywords + per-session insights */}
+                {expandedSession === session.id && (
+                  <div style={{ borderTop: "1px solid var(--border)", padding: 16, background: "var(--surface-elevated)" }}>
+                    {session.aiAnalysis && (
+                      <div className="mb-4 p-3 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide mb-2" style={{ color: "var(--accent)" }}>
+                          🧠 Insights from this {session.mode === "PAIN_POINT" ? "pain-point" : "service"} run
+                        </p>
+                        <p className="text-[10px] mb-2 italic" style={{ color: "var(--text-muted)" }}>
+                          Note: this is a snapshot of what THIS research run uncovered. Your unified content plan lives in the Content Hub Strategy tab — that&apos;s the source of truth.
+                        </p>
+                        <div
+                          className="prose prose-sm max-w-none"
+                          style={{ color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.6 }}
+                          dangerouslySetInnerHTML={{ __html: simpleMarkdownToHtml(session.aiAnalysis) }}
+                        />
+                      </div>
+                    )}
+                    {session.results.length > 0 ? (
+                      <div className="overflow-x-auto" style={{ maxWidth: "100%" }}>
+                        <table className="text-xs w-full" style={{ minWidth: 600 }}>
+                          <thead>
+                            <tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+                              <th className="py-2 pr-3 font-bold">Keyword</th>
+                              <th className="py-2 px-2 font-bold text-right">Volume</th>
+                              <th className="py-2 px-2 font-bold text-right">Comp</th>
+                              <th className="py-2 px-2 font-bold text-right">CPC</th>
+                              <th className="py-2 pl-2 font-bold">Group</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {session.results.slice(0, 50).map((kw, i) => (
+                              <tr
+                                key={`${kw.keyword}-${i}`}
+                                style={{ borderTop: "1px solid var(--border)" }}
+                              >
+                                <td className="py-1.5 pr-3" style={{ color: "var(--text-primary)" }}>
+                                  {kw.keyword}
+                                </td>
+                                <td className="py-1.5 px-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                                  {kw.searchVolume.toLocaleString()}
+                                </td>
+                                <td className="py-1.5 px-2 text-right" style={{ color: getCompetitionColor(kw.competition) }}>
+                                  {getCompetitionLabel(kw.competition)}
+                                </td>
+                                <td className="py-1.5 px-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                                  ${kw.cpc.toFixed(2)}
+                                </td>
+                                <td className="py-1.5 pl-2" style={{ color: "var(--text-muted)" }}>
+                                  {kw.suggestedGroup || "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {session.results.length > 50 && (
+                          <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>
+                            Showing 50 of {session.results.length}.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+                        No keywords were saved for this run.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

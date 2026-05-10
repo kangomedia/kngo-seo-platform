@@ -230,6 +230,14 @@
 - [ ] Different review flow — service pages typically need 2-3 revision rounds vs blog one-shot
 - [ ] WordPress publish: posts vs pages distinction respected at publish time
 
+### Phase 9a-2 — Unified Strategic Plan (single source of truth)
+> **Today:** Each `KeywordResearch` row carries its own AI strategic analysis. Clicking different research sessions surfaces different "action plans," which makes the platform feel like the master plan changes every time you research. **It shouldn't.**
+- [ ] New `StrategicPlan` model OR `Client.strategicPlan` field — captures the unified, current action plan that pulls from ALL research sessions + the active content map
+- [ ] "Regenerate plan" button on the Strategy tab — re-synthesizes from all data sources at once
+- [ ] Per-research analyses get demoted to "Research Insights" (already done in UI as of D-current) — they describe what THAT run found, not what to do
+- [ ] Plan history: when regenerated, the prior plan is archived (not lost) so you can compare strategic evolution over months
+- [ ] Optional client-facing version of the plan in the read-only client portal
+
 ### Phase 9b — Strategic task tracker
 - [ ] New `StrategicTask` model — captures recommendations from the AI analysis that aren't content (e.g. "add LocalBusiness schema", "build 3 backlinks from local newspapers", "fix slow LCP on /services page")
 - [ ] Categories: technical, on-page, off-page, link-building, schema, conversion
