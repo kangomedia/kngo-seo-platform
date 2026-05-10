@@ -216,6 +216,48 @@
 
 ---
 
+## 📋 Phase 8 — AI Image Generation for Content
+
+> **Goal:** Eliminate the manual round-trip of taking blog content to Gemini, getting featured images, and copying back filenames + alt text. Native image generation tied to each content piece, with a per-client brand-style guide for visual consistency.
+>
+> **Validated approach:** Operator already manually drives this with Gemini and gets good results — productize that flow.
+
+### Phase 8a — Per-piece image generator (MVP)
+- [ ] Schema: `MediaAsset` model (clientId, contentPieceId nullable, type, prompt, model, aspectRatio, fileName, altText, storageUrl, regenerationCount, createdAt)
+- [ ] Schema: `Client.imageStyle` field — brand visual style guide prepended to every prompt for that client
+- [ ] `src/lib/gemini.ts` wrapper for Imagen 3 via Google AI Studio API (same shape as `claude.ts`)
+- [ ] Vultr S3 upload helper (bucket: `kngo-images`)
+- [ ] `POST /api/clients/[id]/images/generate` — builds prompt from content piece context + brand style, calls Imagen, stores image, returns SEO filename + alt text
+- [ ] Inline Images panel on the draft editor — Generate button, image preview, regenerate, save & insert
+- [ ] Filename generation: kebab-case from target keyword + position
+- [ ] Alt text generation: Claude reads piece context + image prompt to write SEO-friendly alt text
+- [ ] WordPress integration: on publish, upload `MediaAsset` rows via WP Media API, set featured image, swap markdown placeholders
+
+### Phase 8b — Library + brand consistency
+- [ ] Client-level "Images" tab — browseable library of all generated assets, search/filter
+- [ ] `Client.imageStyle` editable in Edit Client modal
+- [ ] Multi-aspect-ratio support: hero (16:9), square (1:1), Pinterest (2:3), OG (1.91:1)
+- [ ] Re-use existing library images on new pieces (click-insert from library)
+- [ ] Re-prompt UX: "Refine prompt" button shows editable prompt before regenerating
+
+### Phase 8c — Multi-image automation
+- [ ] Auto-generate one section image per H2 from a published draft (batch)
+- [ ] Quote-card generator from Claude-extracted pull quotes
+- [ ] Social-format variants (1200×630 OG, 1000×1500 Pinterest) from a single source prompt
+- [ ] Per-piece image checklist — "post needs hero + 3 section images + 1 social"
+
+### Phase 8d — Stretch
+- [ ] Image-understanding pass: send generated image back to Gemini/Claude to refine alt text from actual visual content (more accurate than alt-from-prompt)
+- [ ] GBP post image automation (already-tracked `gbp_posts` content type → auto-generate accompanying image)
+- [ ] Bulk regeneration when brand style changes (re-run all hero images for a client with the new style guide)
+- [ ] Image performance tracking — which images correlate with higher CTR / time-on-page
+
+**Estimated cost:** ~$0.04/image via Imagen 3. At 10 blogs × 3 images per client = $1.20/mo per client. Negligible.
+
+**New env vars:** `GEMINI_API_KEY` (Google AI Studio).
+
+---
+
 ## 🐛 Known Issues & Technical Debt
 
 - [ ] Report frequency limiting (prevent generating multiple reports per month)
@@ -244,3 +286,4 @@
 | Google OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Phase 4) |
 | GHL | `GHL_API_KEY` (Phase 6) |
 | Email | `RESEND_API_KEY` or `SENDGRID_API_KEY` (Phase 7) |
+| Image Generation | `GEMINI_API_KEY` (Phase 8) |
