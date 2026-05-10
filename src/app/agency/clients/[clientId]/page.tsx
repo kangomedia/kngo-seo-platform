@@ -316,14 +316,27 @@ function OnboardingTracker({
   const isDiscovering = status === "DISCOVERING" || discoveryData?.onboardingStatus === "DISCOVERING";
   const isComplete = discoveryData?.onboardingStatus === "COMPLETE";
 
-  const handleTrackKeyword = async (kw: { keyword: string; searchVolume: number; competition: number }) => {
+  const handleTrackKeyword = async (kw: {
+    keyword: string;
+    searchVolume: number;
+    competition: number;
+    cpc?: number;
+  }) => {
     setTrackingInProgress((prev) => new Set([...prev, kw.keyword]));
     try {
       const res = await fetch(`/api/clients/${clientId}/keywords`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          keywords: [{ keyword: kw.keyword, searchVolume: kw.searchVolume, difficulty: kw.competition, group: "Discovery" }],
+          keywords: [
+            {
+              keyword: kw.keyword,
+              searchVolume: kw.searchVolume,
+              difficulty: kw.competition,
+              cpc: kw.cpc,
+              group: "Discovery",
+            },
+          ],
         }),
       });
       if (res.ok) {
@@ -350,6 +363,7 @@ function OnboardingTracker({
             keyword: kw.keyword,
             searchVolume: kw.searchVolume,
             difficulty: kw.competition,
+            cpc: kw.cpc,
             group: "Discovery",
           })),
         }),

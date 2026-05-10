@@ -2,6 +2,37 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
+// GET — list tracked keywords for a client. Used by the Discovery card on
+// the client overview to know which suggested keywords are already tracked
+// (so the button can render "Tracked" instead of "+ Track" on refresh).
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ clientId: string }> }
+) {
+  const session = await auth();
+  if (
+    !session ||
+    (session.user.role !== "AGENCY_ADMIN" &&
+      session.user.role !== "AGENCY_MEMBER")
+  ) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { clientId } = await params;
+  const keywords = await prisma.keyword.findMany({
+    where: { clientId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      snapshots: {
+        orderBy: { checkedAt: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  return NextResponse.json({ keywords });
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ clientId: string }> }
@@ -50,6 +81,7 @@ export async function POST(
           keyword,
           searchVolume: typeof kw === "object" ? kw.searchVolume || null : null,
           difficulty: typeof kw === "object" ? kw.difficulty || null : null,
+          cpc: typeof kw === "object" && typeof kw.cpc === "number" ? kw.cpc : null,
           group: typeof kw === "object" ? kw.group || body.group || null : body.group || null,
           isTracking: true,
         },
@@ -83,8 +115,39 @@ export async function POST(
               difficulty: metric.competition_level
                 ? Math.round(metric.competition_level * 100)
                 : null,
+              // Persist CPC. Only overwrite if DataForSEO returned a real value
+              // — preserves the value already supplied by the caller otherwise.
+              ...(typeof metric.cpc === "number" ? { cpc: metric.cpc } : {}),
             },
           });
+          // Also seed the per-query CPC cache used by traffic-value math.
+          if (typeof metric.cpc === "number") {
+            try {
+              await prisma.keywordCpc.upsert({
+                where: {
+                  keyword_locationCode: {
+                    keyword: result.keyword.toLowerCase(),
+                    locationCode: 2840,
+                  },
+                },
+                create: {
+                  keyword: result.keyword.toLowerCase(),
+                  locationCode: 2840,
+                  cpc: metric.cpc,
+                  searchVolume: metric.search_volume || null,
+                  competition: metric.competition_level || null,
+                },
+                update: {
+                  cpc: metric.cpc,
+                  searchVolume: metric.search_volume || null,
+                  competition: metric.competition_level || null,
+                  fetchedAt: new Date(),
+                },
+              });
+            } catch {
+              /* cache write is best-effort */
+            }
+          }
         }
       }
     } catch (err) {
