@@ -358,25 +358,30 @@ export async function generatePainPointSeeds(
     ? `\nIMPORTANT: This business operates in **${profile.industryVertical}**. Generate seeds in the language THIS vertical's customers use — not generic SaaS or service-business automation phrases. A customer's vocabulary in this industry is specific (e.g. an HVAC homeowner doesn't search the same terms as a personal-injury claimant).`
     : "";
 
-  const prompt = `You are an SEO strategist generating DEMAND-CREATION seed keywords for top-of-funnel and middle-of-funnel content. Unlike commercial keywords, these target people who don't yet know they need this exact solution — they're searching for the PAIN, the OUTCOME, or a COMPARISON.
+  const prompt = `You are an SEO strategist generating DEMAND-CREATION SEED keywords for top-of-funnel and middle-of-funnel content. These will be EXPANDED by a keyword research tool (DataForSEO) into related queries — so the seeds themselves need to be **short, head-term phrases** that the tool can match against its index, NOT long descriptive sentences.
 
 BUSINESS PROFILE:
 ${profileLines}
 ${verticalNudge}
 
-Produce 25 seed phrases across these four angles. **All examples must be invented fresh from THIS business's profile and vertical — do not copy or adapt the structural placeholders below.**
+CRITICAL CONSTRAINT — seed length:
+**Most seeds must be 2–5 words.** A few may go up to 7 words for very specific intent. Never longer.
 
-  - 6–8 PAIN seeds — what people Google when feeling the pain. Structural shape: "[problem] for [vertical]", "how to fix [problem]", "[problem] symptoms". Phrase in the customer's voice, not the vendor's.
-  - 5–7 OUTCOME seeds — what people search for the result they want. Structural shape: "[desired outcome]", "[fast/easy/cheap] [outcome]", "[outcome] for [their specific situation]".
-  - 5–7 COMPARISON / ALTERNATIVE seeds — buyer-research stage. Structural shape: "[brand A] vs [brand B]", "best [category] for [vertical]", "[category] alternatives", "[category] reviews".
-  - 3–5 EDUCATIONAL "how to" / "what is" seeds about the discipline itself. Structural shape: "what is [concept]", "how does [process] work", "[concept] explained".
+Why: DataForSEO can't expand a 10-word descriptive sentence (e.g. "office admin spending all day on follow up emails" returns nothing). It CAN expand a 3-word head term (e.g. "follow up automation" returns dozens of related queries with real volume). The seed is a starting point for expansion — be a fishing rod, not a fish.
+
+Produce 25 seeds across these four angles. **All examples must be invented fresh from THIS business's profile and vertical — do not copy the structural placeholders below.**
+
+  - 6–8 PAIN head terms (2–4 words) — short phrases naming the problem. Shape: "[problem]", "[problem] [vertical]", "missed [thing]", "slow [thing]". The pain itself, not a sentence about it.
+  - 5–7 OUTCOME head terms (2–5 words) — what people search for the result. Shape: "automated [thing]", "[fast/easy] [outcome]", "[outcome] software/tool/system".
+  - 5–7 COMPARISON head terms (3–6 words) — Shape: "[brand A] vs [brand B]", "best [category] for [vertical]", "[category] reviews", "[category] alternatives".
+  - 3–5 EDUCATIONAL head terms (2–5 words) — Shape: "what is [concept]", "how [concept] works", "[concept] explained", "[concept] guide".
 
 Rules:
+  - SHORT phrases. If your seed has more than 6 words, rewrite it shorter.
   - DO NOT include the agency's/business's name or city
   - DO NOT include educational/job/DIY phrases like "course", "salary", "make your own"
-  - DO NOT use phrases that are obviously vendor/tooling jargon when the customer wouldn't (e.g. "missed call text back" is a vendor's framing — a homeowner searches "couldn't reach a plumber after hours" instead). Only use vendor-tool phrases if the buyer for this business IS another business shopping for that tool (B2B SaaS).
-  - These seeds must yield real search volume — pick phrases people actually type, not industry jargon nobody Googles
-  - Prefer vertical-specific phrasings over generic ones when the ideal customer is a vertical (e.g. "hvac scheduling software" beats "scheduling software" for a tool sold to HVAC companies)
+  - DO NOT use phrases that are obviously vendor/tooling jargon when the customer wouldn't. Only use vendor-tool phrases if the buyer for this business IS another business shopping for that tool (B2B SaaS).
+  - Prefer vertical-specific phrasings over generic ones when the ideal customer is a vertical (e.g. "hvac scheduling software" beats "scheduling software")
   - Lowercase, trimmed, no punctuation other than spaces
 
 Respond with a JSON array of 25 strings only — no prose, no markdown, no code fences.`;

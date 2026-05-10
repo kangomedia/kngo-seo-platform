@@ -140,22 +140,35 @@ export async function GET(
     latestCheckedAt: k.snapshots[0]?.checkedAt ?? null,
   }));
 
-  // ── Bucket 6: Most recent keyword research ───────────
-  const research = await prisma.keywordResearch.findFirst({
+  // ── Bucket 6: Keyword research — full history + most recent details ──
+  const allResearch = await prisma.keywordResearch.findMany({
     where: { clientId },
     orderBy: { createdAt: "desc" },
   });
-  const keywordResearch = research
-    ? {
-        id: research.id,
-        seedTopics: research.seedTopics,
-        location: research.location,
-        keywordsFound: research.keywordsFound,
-        createdAt: research.createdAt,
-        results: safeParseJson<unknown[]>(research.results, []),
-        aiAnalysis: research.aiAnalysis,
-      }
-    : null;
+  const keywordResearch = {
+    history: allResearch.map((r) => ({
+      id: r.id,
+      mode: r.mode,
+      pillarSlug: r.pillarSlug,
+      keywordsFound: r.keywordsFound,
+      seedTopicsPreview: r.seedTopics.slice(0, 200) + (r.seedTopics.length > 200 ? "…" : ""),
+      seedCount: r.seedTopics.split(",").length,
+      createdAt: r.createdAt,
+    })),
+    mostRecent: allResearch[0]
+      ? {
+          id: allResearch[0].id,
+          mode: allResearch[0].mode,
+          pillarSlug: allResearch[0].pillarSlug,
+          seedTopics: allResearch[0].seedTopics,
+          location: allResearch[0].location,
+          keywordsFound: allResearch[0].keywordsFound,
+          createdAt: allResearch[0].createdAt,
+          results: safeParseJson<unknown[]>(allResearch[0].results, []),
+          aiAnalysis: allResearch[0].aiAnalysis,
+        }
+      : null,
+  };
 
   // ── Bucket 7: Active content maps ────────────────────
   const contentMapRows = await prisma.contentMap.findMany({

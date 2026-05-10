@@ -134,11 +134,11 @@ export async function POST(
             const kw = item?.keyword;
             const info = item?.keyword_info;
             const intentInfo = item?.search_intent_info;
-            // Pain-point research is the TOFU funnel — long-tail queries with
-            // 10–100 monthly searches are EXACTLY what we want. Filtering at
-            // ≥50 here defeats the purpose (service research uses >0).
-            // Keep ≥10 to drop pure noise but preserve real long-tail.
-            if (kw && info && (info.search_volume || 0) >= 10) {
+            // Pain-point research is the TOFU funnel. We INTENTIONALLY keep
+            // any keyword DataForSEO has measurement for (≥1 vol). Even 5-vol
+            // queries compound when an article ranks for dozens of them.
+            // The AI scorer downstream drops genuine noise.
+            if (kw && info && (info.search_volume || 0) >= 1) {
               allKeywords.push({
                 keyword: kw,
                 searchVolume: info.search_volume || 0,

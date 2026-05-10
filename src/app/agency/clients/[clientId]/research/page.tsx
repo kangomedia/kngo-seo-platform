@@ -38,6 +38,8 @@ interface ResearchSession {
   aiAnalysis: string | null;
   keywordsFound: number;
   createdAt: string;
+  mode?: string | null;       // "SERVICE" | "PAIN_POINT" — null on legacy rows
+  pillarSlug?: string | null;
 }
 
 export default function ResearchPage() {
@@ -635,9 +637,24 @@ export default function ResearchPage() {
                   }}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <Microscope size={14} style={{ color: "var(--accent)" }} />
-                      <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                      {session.mode === "PAIN_POINT" ? (
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded font-bold"
+                          style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}
+                        >
+                          🔥 Pain-Point
+                        </span>
+                      ) : (
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded font-bold"
+                          style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
+                        >
+                          Service
+                        </span>
+                      )}
+                      <span className="text-sm font-bold truncate" style={{ color: "var(--text-primary)" }}>
                         {session.seedTopics}
                       </span>
                     </div>
