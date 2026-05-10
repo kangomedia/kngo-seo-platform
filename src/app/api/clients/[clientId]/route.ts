@@ -75,7 +75,7 @@ export async function PUT(
     "businessDescription", "primaryServices", "idealClientProfile",
     "priceRange", "industryVertical",
     // Strategy / ROI fields
-    "serviceAreas", "icpPains", "competitors",
+    "serviceAreas", "targetCities", "icpPains", "competitors",
     "avgCpcUsd", "brandTerms",
   ];
 

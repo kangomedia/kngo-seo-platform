@@ -74,6 +74,7 @@ interface ClientDetail {
   priceRange: string | null;
   industryVertical: string | null;
   serviceAreas: string | null;
+  targetCities: string | null;
   icpPains: string | null;
   brandTerms: string | null;
   avgCpcUsd: number;
@@ -113,6 +114,32 @@ interface ClientDetail {
     month: number;
     year: number;
   }>;
+}
+
+// Helpers for JSON-array TEXT fields edited as comma-separated strings.
+// Bug we're fixing: round-tripping JSON↔display on every keystroke ran
+// `filter(Boolean)` and stripped any in-progress trailing comma/space.
+// Now we keep them as raw strings during edit and only stringify on save.
+function jsonArrayToCommaString(stored: string | null | undefined): string {
+  if (!stored) return "";
+  try {
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((s) => typeof s === "string").join(", ");
+    }
+  } catch {
+    // Legacy rows where the column might hold a non-JSON string
+    return String(stored);
+  }
+  return "";
+}
+
+function commaStringToJsonArray(value: string): string {
+  const items = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return JSON.stringify(items);
 }
 
 function MiniStat({
@@ -616,14 +643,19 @@ export default function ClientOverview() {
     monthlyPressReleases: 1,
     monthlyDirectoryListings: 25,
     businessDescription: "",
+    // Comma-separated text fields. Stored as JSON arrays in the DB; we
+    // keep them as plain strings while editing so commas/spaces don't get
+    // stripped on every keystroke. handleSave does the JSON-stringify.
     primaryServices: "",
+    serviceAreas: "",
+    targetCities: "",
+    brandTerms: "",
     idealClientProfile: "",
     priceRange: "",
     industryVertical: "",
-    // Strategy / ROI fields stored as JSON strings server-side
-    serviceAreas: "",
+    // icpPains stays as a JSON string in editForm because the tag-list UI
+    // mutates it as a structured value, not a free-typed string.
     icpPains: "",
-    brandTerms: "",
     avgCpcUsd: 3.5,
   });
   const [painSuggestions, setPainSuggestions] = useState<string[]>([]);
@@ -669,13 +701,16 @@ export default function ClientOverview() {
       monthlyPressReleases: data.monthlyPressReleases || 1,
       monthlyDirectoryListings: data.monthlyDirectoryListings || 25,
       businessDescription: data.businessDescription || "",
-      primaryServices: data.primaryServices || "",
+      // JSON-array fields → joined comma string for editing
+      primaryServices: jsonArrayToCommaString(data.primaryServices),
+      serviceAreas: jsonArrayToCommaString(data.serviceAreas),
+      targetCities: jsonArrayToCommaString(data.targetCities),
+      brandTerms: jsonArrayToCommaString(data.brandTerms),
       idealClientProfile: data.idealClientProfile || "",
       priceRange: data.priceRange || "",
       industryVertical: data.industryVertical || "",
-      serviceAreas: data.serviceAreas || "",
+      // icpPains stays JSON-stringified (tag-list reads/writes the JSON form)
       icpPains: data.icpPains || "",
-      brandTerms: data.brandTerms || "",
       avgCpcUsd: data.avgCpcUsd ?? 3.5,
     });
     setPainSuggestions([]);
@@ -687,10 +722,19 @@ export default function ClientOverview() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Convert the comma-separated text fields back to JSON arrays before
+      // sending. icpPains is already a JSON string (tag-list manages it).
+      const payload = {
+        ...editForm,
+        primaryServices: commaStringToJsonArray(editForm.primaryServices),
+        serviceAreas: commaStringToJsonArray(editForm.serviceAreas),
+        targetCities: commaStringToJsonArray(editForm.targetCities),
+        brandTerms: commaStringToJsonArray(editForm.brandTerms),
+      };
       const res = await fetch(`/api/clients/${clientId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -1148,8 +1192,8 @@ export default function ClientOverview() {
             <div className="grid grid-cols-1 gap-4 mb-4">
               <EditField
                 label="Primary Services (comma-separated)"
-                value={(() => { try { const arr = JSON.parse(editForm.primaryServices || "[]"); return Array.isArray(arr) ? arr.join(", ") : editForm.primaryServices; } catch { return editForm.primaryServices; } })()}
-                onChange={(v) => updateField("primaryServices", JSON.stringify(v.split(",").map(s => s.trim()).filter(Boolean)))}
+                value={editForm.primaryServices}
+                onChange={(v) => updateField("primaryServices", v)}
                 placeholder="e.g. custom websites, SEO, web applications"
               />
             </div>
@@ -1186,9 +1230,11 @@ export default function ClientOverview() {
                     setSuggestingPains(true);
                     setPainSuggestError("");
                     try {
-                      const services = (() => {
-                        try { const a = JSON.parse(editForm.primaryServices || "[]"); return Array.isArray(a) ? a : []; } catch { return []; }
-                      })();
+                      // editForm.primaryServices is a comma-separated string
+                      const services = editForm.primaryServices
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
                       const res = await fetch("/api/wizard/suggest-pains", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -1365,21 +1411,29 @@ export default function ClientOverview() {
               </p>
             </div>
 
-            {/* ── Service Areas (geographic) — comma list ── */}
+            {/* ── Target Cities (specific cities served) ── */}
             <div className="mb-4">
               <EditField
-                label="Service Areas (geographic regions, comma-separated)"
-                value={(() => { try { const a = JSON.parse(editForm.serviceAreas || "[]"); return Array.isArray(a) ? a.join(", ") : editForm.serviceAreas; } catch { return editForm.serviceAreas; } })()}
-                onChange={(v) =>
-                  updateField(
-                    "serviceAreas",
-                    JSON.stringify(v.split(",").map((s) => s.trim()).filter(Boolean))
-                  )
-                }
+                label="Target Cities (comma-separated)"
+                value={editForm.targetCities}
+                onChange={(v) => updateField("targetCities", v)}
+                placeholder="e.g. Westminster, CO, Denver, CO, Aurora, CO"
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Specific cities the client actively serves. Used by keyword research for local-intent seeds.
+              </p>
+            </div>
+
+            {/* ── Service Areas (geographic regions, broader than cities) ── */}
+            <div className="mb-4">
+              <EditField
+                label="Service Areas (broader regions, comma-separated)"
+                value={editForm.serviceAreas}
+                onChange={(v) => updateField("serviceAreas", v)}
                 placeholder="e.g. Denver Metro, Northern Colorado — leave blank if not relevant"
               />
               <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-                Geographic regions ONLY. Specific cities go in Target Cities. Leave empty if you don&apos;t serve named regions.
+                Broader geographic regions, distinct from individual cities. Leave empty if the client doesn&apos;t market named regions.
               </p>
             </div>
 
@@ -1387,13 +1441,8 @@ export default function ClientOverview() {
             <div className="mb-4">
               <EditField
                 label="Brand Terms (comma-separated; auto-derived if blank)"
-                value={(() => { try { const a = JSON.parse(editForm.brandTerms || "[]"); return Array.isArray(a) ? a.join(", ") : editForm.brandTerms; } catch { return editForm.brandTerms; } })()}
-                onChange={(v) =>
-                  updateField(
-                    "brandTerms",
-                    JSON.stringify(v.split(",").map((s) => s.trim()).filter(Boolean))
-                  )
-                }
+                value={editForm.brandTerms}
+                onChange={(v) => updateField("brandTerms", v)}
                 placeholder="e.g. kangomedia, kango"
               />
               <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
