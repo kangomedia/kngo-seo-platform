@@ -56,6 +56,7 @@ export default function ResearchPage() {
   const [seedTopics, setSeedTopics] = useState<string[]>([]);
   const [context, setContext] = useState("");
   const [isResearching, setIsResearching] = useState(false);
+  const [painPointError, setPainPointError] = useState("");
   const [showForm, setShowForm] = useState(false);
 
   // Active results
@@ -230,18 +231,28 @@ export default function ResearchPage() {
             onClick={async () => {
               if (isResearching) return;
               setIsResearching(true);
+              setPainPointError("");
               try {
                 const res = await fetch(`/api/clients/${clientId}/research/pain-point`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({}),
                 });
+                const d = await res.json().catch(() => ({}));
                 if (res.ok) {
-                  const d = await res.json();
                   setActiveResults(d.keywords || []);
                   setActiveAnalysis(d.aiAnalysis || null);
                   loadSessions();
+                } else {
+                  setPainPointError(
+                    d.error ||
+                      `Pain-point research failed (HTTP ${res.status}). Check ANTHROPIC_API_KEY + DATAFORSEO creds.`
+                  );
                 }
+              } catch (err) {
+                setPainPointError(
+                  err instanceof Error ? err.message : "Pain-point research failed"
+                );
               } finally {
                 setIsResearching(false);
               }
@@ -250,16 +261,39 @@ export default function ResearchPage() {
             disabled={isResearching}
             title="Generates seeds from your ICP pains + business profile, then validates volume via DataForSEO"
           >
-            🔥 Pain-Point Research
+            {isResearching ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Generating seeds &amp; expanding…
+              </>
+            ) : (
+              <>🔥 Pain-Point Research</>
+            )}
           </button>
           <button
             onClick={() => setShowForm(!showForm)}
             className="btn-primary"
+            disabled={isResearching}
           >
             <Search size={16} />
             New Research
           </button>
         </div>
+        {painPointError && (
+          <div
+            className="mt-3 p-3 rounded-lg text-sm flex items-start gap-2"
+            style={{
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.25)",
+              color: "var(--danger)",
+            }}
+          >
+            <span style={{ flex: 1 }}>{painPointError}</span>
+            <button onClick={() => setPainPointError("")} className="opacity-60 hover:opacity-100">
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Competitor Intelligence panel */}
