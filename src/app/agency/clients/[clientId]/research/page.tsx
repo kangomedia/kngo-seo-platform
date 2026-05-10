@@ -655,11 +655,12 @@ export default function ResearchPage() {
             <Clock size={18} style={{ color: "var(--text-muted)" }} />
             Research History
           </h3>
-          <div className="grid gap-3">
+          <div className="grid gap-3" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
             {sessions.map((session) => (
-              <div key={session.id} className="stat-card" style={{ padding: 0 }}>
+              <div key={session.id} className="stat-card" style={{ padding: 0, overflow: "hidden", maxWidth: "100%" }}>
                 <div
                   className="flex items-center gap-4 p-4 cursor-pointer transition-all hover:opacity-80"
+                  style={{ minWidth: 0 }}
                   onClick={() => {
                     if (expandedSession === session.id) {
                       setExpandedSession(null);
@@ -701,8 +702,18 @@ export default function ResearchPage() {
                       </div>
                     </div>
                     <p
-                      className="text-sm font-bold overflow-hidden text-ellipsis whitespace-nowrap"
-                      style={{ color: "var(--text-primary)" }}
+                      className="text-sm font-bold"
+                      style={{
+                        color: "var(--text-primary)",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 1,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        wordBreak: "break-word",
+                        maxWidth: "100%",
+                        minWidth: 0,
+                      }}
                       title={session.seedTopics}
                     >
                       {session.seedTopics}
