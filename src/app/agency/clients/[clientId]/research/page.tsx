@@ -670,39 +670,43 @@ export default function ResearchPage() {
                     }
                   }}
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <Microscope size={14} style={{ color: "var(--accent)" }} />
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Microscope size={14} style={{ color: "var(--accent)" }} className="flex-shrink-0" />
                       {session.mode === "PAIN_POINT" ? (
                         <span
-                          className="text-[10px] px-2 py-0.5 rounded font-bold"
+                          className="text-[10px] px-2 py-0.5 rounded font-bold flex-shrink-0"
                           style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}
                         >
                           🔥 Pain-Point
                         </span>
                       ) : (
                         <span
-                          className="text-[10px] px-2 py-0.5 rounded font-bold"
+                          className="text-[10px] px-2 py-0.5 rounded font-bold flex-shrink-0"
                           style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
                         >
                           Service
                         </span>
                       )}
-                      <span className="text-sm font-bold truncate" style={{ color: "var(--text-primary)" }}>
-                        {session.seedTopics}
-                      </span>
+                      <div className="flex items-center gap-3 text-xs flex-1 min-w-0" style={{ color: "var(--text-muted)" }}>
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Search size={10} /> {session.keywordsFound} keywords
+                        </span>
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <MapPin size={10} /> {session.location}
+                        </span>
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Clock size={10} /> {new Date(session.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
-                      <span className="flex items-center gap-1">
-                        <Search size={10} /> {session.keywordsFound} keywords
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin size={10} /> {session.location}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={10} /> {new Date(session.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
+                    <p
+                      className="text-sm font-bold overflow-hidden text-ellipsis whitespace-nowrap"
+                      style={{ color: "var(--text-primary)" }}
+                      title={session.seedTopics}
+                    >
+                      {session.seedTopics}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button

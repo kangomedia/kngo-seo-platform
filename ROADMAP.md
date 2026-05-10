@@ -216,6 +216,45 @@
 
 ---
 
+## 📋 Phase 9 — Strategic SEO Planning (beyond content)
+
+> **Goal:** Expand from monthly content delivery (blogs, GBP, Q&As, press releases) into full-strategy execution: service pages, landing pages, technical SEO tasks, link-building checklists, on-page optimizations.
+>
+> **Why this is its own phase:** The AI strategic analysis already recommends things like "add a service page for X" or "rewrite the homepage hero." Today the platform can't act on those — they're advisory only. This phase makes them first-class deliverables.
+>
+> **Customer-facing distinction:** The current content-only package is what's sold to most clients. This phase opens an upsell tier ("Strategy + Build") for clients who want pages added/rewritten, not just monthly content.
+
+### Phase 9a — New content types
+- [ ] Schema: extend `ContentType` enum with `SERVICE_PAGE`, `LANDING_PAGE`, `HOMEPAGE_SECTION`, `ABOUT_PAGE`
+- [ ] Per-type generation prompts (service pages aren't structured like blog posts — different headings, CTA placement, schema markup, internal linking patterns)
+- [ ] Different review flow — service pages typically need 2-3 revision rounds vs blog one-shot
+- [ ] WordPress publish: posts vs pages distinction respected at publish time
+
+### Phase 9b — Strategic task tracker
+- [ ] New `StrategicTask` model — captures recommendations from the AI analysis that aren't content (e.g. "add LocalBusiness schema", "build 3 backlinks from local newspapers", "fix slow LCP on /services page")
+- [ ] Categories: technical, on-page, off-page, link-building, schema, conversion
+- [ ] Status workflow: identified → scheduled → in_progress → completed → verified
+- [ ] Surface on a "Strategic Tasks" tab — separate from content
+- [ ] Auto-populate from the Strategic Analysis output (parse and propose tasks)
+
+### Phase 9c — Page-level optimization workflow
+- [ ] Per-URL view: existing copy, current rankings, suggested rewrites, schema gaps, internal linking gaps
+- [ ] Generate optimized copy for an existing page (vs. generating a new page)
+- [ ] Track before/after performance per URL once changes are published
+
+### Phase 9d — Constrain analysis to package tier
+- [ ] AI strategic analysis prompt accepts a `packageScope` param — `"content_only" | "content_plus_pages" | "full_strategy"`
+- [ ] Recommendations outside scope are clearly tagged "stretch" so agency can have an upsell conversation rather than the client expecting them
+- [ ] Per-client `packageTier` setting determines default scope for that client's analysis
+
+### Phase 9e — Stretch
+- [ ] Link-building outreach kanban (already partially in `guest_posts` but not wired)
+- [ ] Press release distribution tracking
+- [ ] Citations / directory submission tracker
+- [ ] Conversion-rate optimization recommendations from heatmap data (would need 3rd-party integration)
+
+---
+
 ## 📋 Phase 8 — AI Image Generation for Content
 
 > **Goal:** Eliminate the manual round-trip of taking blog content to Gemini, getting featured images, and copying back filenames + alt text. Native image generation tied to each content piece, with a per-client brand-style guide for visual consistency.

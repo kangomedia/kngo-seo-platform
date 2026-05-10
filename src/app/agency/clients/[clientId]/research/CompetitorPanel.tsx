@@ -10,6 +10,8 @@ import {
   Building2,
   Tag,
   ExternalLink,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 interface Competitor {
@@ -43,6 +45,8 @@ export default function CompetitorPanel({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [error, setError] = useState("");
+  // Default: collapsed once discovery has run, expanded if empty.
+  const [expanded, setExpanded] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,6 +62,17 @@ export default function CompetitorPanel({ clientId }: { clientId: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // First time the list resolves: collapse if populated, expand if empty.
+  // Subsequent toggles are user-controlled.
+  useEffect(() => {
+    if (loading) return;
+    if (expanded === null) {
+      setExpanded(list.length === 0);
+    }
+  }, [loading, list.length, expanded]);
+
+  const isOpen = expanded ?? list.length === 0;
 
   const discover = async () => {
     setDiscovering(true);
@@ -102,42 +117,55 @@ export default function CompetitorPanel({ clientId }: { clientId: string }) {
         border: "1px solid var(--border)",
       }}
     >
-      <div className="flex items-start justify-between mb-3 gap-3">
-        <div className="flex items-start gap-3">
+      <div className={`flex items-start justify-between gap-3 ${isOpen ? "mb-3" : ""}`}>
+        <button
+          type="button"
+          onClick={() => setExpanded(!isOpen)}
+          className="flex items-start gap-3 flex-1 text-left min-w-0"
+        >
           <div
             className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ background: "rgba(124,58,237,0.15)", color: "#7C3AED" }}
           >
-            <Building2 size={16} />
+            {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </div>
-          <div>
-            <h3 className="text-base font-extrabold">Competitor Intelligence</h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-extrabold flex items-center gap-2">
+              <Building2 size={14} style={{ color: "#7C3AED" }} />
+              Competitor Intelligence
+            </h3>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {totalCount === 0
                 ? "Run discovery to find peer agencies via SERP overlap + AI classification"
-                : `${peerCount} peer${peerCount === 1 ? "" : "s"} accepted of ${totalCount} classified`}
+                : `${peerCount} peer${peerCount === 1 ? "" : "s"} accepted · ${totalCount} classified`}
             </p>
           </div>
-        </div>
-        <button
-          onClick={discover}
-          disabled={discovering}
-          className="btn-primary inline-flex items-center gap-2 text-sm flex-shrink-0"
-          style={{ opacity: discovering ? 0.6 : 1 }}
-        >
-          {discovering ? (
-            <>
-              <Loader2 size={14} className="animate-spin" />
-              Discovering…
-            </>
-          ) : (
-            <>
-              <Sparkles size={14} />
-              {totalCount === 0 ? "Discover Competitors" : "Re-run Discovery"}
-            </>
-          )}
         </button>
+        {isOpen && (
+          <button
+            onClick={discover}
+            disabled={discovering}
+            className="btn-primary inline-flex items-center gap-2 text-sm flex-shrink-0"
+            style={{ opacity: discovering ? 0.6 : 1 }}
+          >
+            {discovering ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Discovering…
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                {totalCount === 0 ? "Discover Competitors" : "Re-run Discovery"}
+              </>
+            )}
+          </button>
+        )}
       </div>
+
+      {!isOpen ? null : (
+      <>
+
 
       {error && (
         <div
@@ -259,6 +287,8 @@ export default function CompetitorPanel({ clientId }: { clientId: string }) {
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );
