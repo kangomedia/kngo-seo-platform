@@ -314,6 +314,11 @@ Return ONLY the JSON, no surrounding text.`;
       heartbeat = setInterval(() => send({ type: "heartbeat", at: Date.now() }), 15000);
 
       try {
+        // We call Anthropic with `stream: true` and forward each text delta
+        // as a `progress` event in our NDJSON output. That way Cloudflare
+        // sees bytes flowing continuously (every few hundred ms) for the
+        // full duration of the generation — a blocking fetch hits CF's
+        // ~100s timeout even with heartbeats every 15s.
         const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
@@ -323,24 +328,82 @@ Return ONLY the JSON, no surrounding text.`;
           },
           body: JSON.stringify({
             model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-            // Output sizing: a PRO-tier strategy with the full per-pillar
-            // distribution (10 + 8 + 8 + 1 = 27 pieces × 6 pillars + 10
-            // quickWins = ~172 pieces × ~150 tokens) approaches 25K tokens
-            // of pure JSON. 40K leaves comfortable headroom and stays under
-            // Sonnet 4.6's 64K output cap.
+            // Output sizing: PRO-tier strategy with the full per-pillar
+            // distribution (~170 pieces × ~150 tokens) approaches 25K tokens
+            // of pure JSON. 40K leaves comfortable headroom under Sonnet
+            // 4.6's 64K output cap.
             max_tokens: 40000,
             messages: [{ role: "user", content: prompt }],
+            stream: true,
           }),
         });
 
-        if (!claudeRes.ok) {
-          const errorText = await claudeRes.text();
+        if (!claudeRes.ok || !claudeRes.body) {
+          const errorText = await claudeRes.text().catch(() => "");
           throw new Error(`Claude API error: ${claudeRes.status} ${errorText}`);
         }
 
-        const claudeData = await claudeRes.json();
-        const rawText: string = claudeData.content?.[0]?.text || "";
-        const stopReason = claudeData.stop_reason;
+        // Parse Anthropic's SSE stream. Format:
+        //   event: content_block_delta
+        //   data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"…"}}
+        //
+        // We only care about text_delta payloads (accumulate into rawText)
+        // and the message_delta event (carries the final stop_reason).
+        const reader = claudeRes.body.getReader();
+        const decoder = new TextDecoder();
+        let sseBuf = "";
+        let rawText = "";
+        let stopReason: string | null = null;
+        let charsSentToClient = 0;
+
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          sseBuf += decoder.decode(value, { stream: true });
+          // SSE events are separated by blank lines (\n\n).
+          let sep: number;
+          while ((sep = sseBuf.indexOf("\n\n")) !== -1) {
+            const block = sseBuf.slice(0, sep);
+            sseBuf = sseBuf.slice(sep + 2);
+            // Find the `data:` line(s) within this event.
+            for (const line of block.split("\n")) {
+              if (!line.startsWith("data:")) continue;
+              const data = line.slice(5).trimStart();
+              if (!data || data === "[DONE]") continue;
+              try {
+                const ev = JSON.parse(data);
+                if (
+                  ev.type === "content_block_delta" &&
+                  ev.delta?.type === "text_delta" &&
+                  typeof ev.delta.text === "string"
+                ) {
+                  rawText += ev.delta.text;
+                  // Forward a progress ping roughly every 200 chars — enough
+                  // to keep Cloudflare's connection visibly active without
+                  // flooding the client with events.
+                  if (rawText.length - charsSentToClient >= 200) {
+                    charsSentToClient = rawText.length;
+                    send({ type: "progress", chars: rawText.length });
+                  }
+                } else if (ev.type === "message_delta" && ev.delta?.stop_reason) {
+                  stopReason = ev.delta.stop_reason;
+                } else if (ev.type === "message_stop") {
+                  break outer;
+                } else if (ev.type === "error") {
+                  throw new Error(
+                    `Claude streaming error: ${ev.error?.message || JSON.stringify(ev.error)}`
+                  );
+                }
+              } catch (parseErr) {
+                // Malformed SSE chunk — surface only if it's a programming bug,
+                // not just a normal partial line we'll get on the next read.
+                if (parseErr instanceof Error && parseErr.message.startsWith("Claude streaming error")) {
+                  throw parseErr;
+                }
+              }
+            }
+          }
+        }
 
         if (stopReason === "max_tokens") {
           throw new Error(
