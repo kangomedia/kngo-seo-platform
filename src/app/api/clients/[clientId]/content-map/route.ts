@@ -246,16 +246,31 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
     const claudeData = await claudeRes.json();
     const rawText = claudeData.content?.[0]?.text || "";
 
-    // Extract JSON from response (Claude may wrap in code blocks)
+    // Extract JSON from response. Claude is told to return ONLY JSON but
+    // sometimes wraps it in prose, markdown fences, or both. Try in order:
+    //   1. Fenced ```json block
+    //   2. Fenced ``` block
+    //   3. First `{` through last `}` in the text (handles prose wrapping)
+    //   4. Raw text
     let mapData;
-    const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
-                      rawText.match(/```\s*([\s\S]*?)\s*```/);
-    const jsonStr = jsonMatch ? jsonMatch[1] : rawText;
+    let jsonStr = rawText;
+    const fenced =
+      rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
+      rawText.match(/```\s*([\s\S]*?)\s*```/);
+    if (fenced) {
+      jsonStr = fenced[1];
+    } else {
+      const firstBrace = rawText.indexOf("{");
+      const lastBrace = rawText.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = rawText.slice(firstBrace, lastBrace + 1);
+      }
+    }
 
     try {
       mapData = JSON.parse(jsonStr.trim());
-    } catch {
-      // If JSON parsing fails, store the raw text
+    } catch (parseErr) {
+      console.warn("[CONTENT-MAP] JSON parse failed; raw output stored.", parseErr);
       mapData = { raw: rawText, error: "Could not parse structured map" };
     }
 

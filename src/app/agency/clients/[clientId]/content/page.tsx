@@ -662,17 +662,6 @@ export default function ContentHubPage() {
           Strategy
         </button>
         <button
-          onClick={() => setActiveTab("generate")}
-          className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
-          style={{
-            background: activeTab === "generate" ? "var(--accent-muted)" : "transparent",
-            color: activeTab === "generate" ? "var(--accent)" : "var(--text-muted)",
-          }}
-        >
-          <Sparkles size={14} className="inline mr-2" />
-          Quick Generate
-        </button>
-        <button
           onClick={() => setActiveTab("plan")}
           className="px-4 py-2 rounded-lg text-sm font-bold transition-all"
           style={{
@@ -714,6 +703,19 @@ export default function ContentHubPage() {
               {plan.pieces.filter((p) => p.status === "READY_TO_PUBLISH").length}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setActiveTab("generate")}
+          className="px-4 py-2 rounded-lg text-sm font-bold transition-all ml-auto"
+          style={{
+            background: activeTab === "generate" ? "var(--accent-muted)" : "transparent",
+            color: activeTab === "generate" ? "var(--accent)" : "var(--text-muted)",
+            opacity: 0.7,
+          }}
+          title="Ad-hoc seed-keyword generator. Use the Strategy tab as your primary flow."
+        >
+          <Sparkles size={14} className="inline mr-2" />
+          Quick Generate
         </button>
       </div>
 
@@ -1373,14 +1375,24 @@ export default function ContentHubPage() {
 
       {activeTab === "plan" && !plan && (
         <div className="stat-card flex flex-col items-center justify-center py-16 text-center">
-          <Sparkles size={40} style={{ color: "var(--text-muted)" }} className="mb-4" />
+          <Layers size={40} style={{ color: "var(--text-muted)" }} className="mb-4" />
           <h3 className="text-lg font-bold mb-2">No Content Plan Yet</h3>
-          <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
-            Switch to the AI Generator tab to create a content plan from a seed keyword.
+          <p className="text-sm mb-4 max-w-md" style={{ color: "var(--text-muted)" }}>
+            The content plan is built by <strong>promoting pieces from your Strategy</strong>.
+            Open the Strategy tab, find pieces that fit this month, and click Promote on each one — they&apos;ll land here.
           </p>
-          <button onClick={() => setActiveTab("generate")} className="btn-primary">
-            <Sparkles size={16} /> Generate Content Plan
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setActiveTab("strategy")} className="btn-primary">
+              <Layers size={16} /> Open Strategy
+            </button>
+            <button
+              onClick={() => setActiveTab("generate")}
+              className="text-xs font-bold px-3 py-2 rounded-lg"
+              style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+            >
+              Or use Quick Generate (one-off)
+            </button>
+          </div>
         </div>
       )}
 
