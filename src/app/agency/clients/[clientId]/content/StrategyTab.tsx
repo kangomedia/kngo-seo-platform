@@ -72,16 +72,34 @@ export default function StrategyTab({
   const [expandedPillar, setExpandedPillar] = useState<string | null>(null);
   const [funnelFilter, setFunnelFilter] = useState<"ALL" | "TOFU" | "MOFU" | "BOFU">("ALL");
   const [monthFilter, setMonthFilter] = useState<number | "ALL">("ALL");
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState("");
+  const [hasNewerResearch, setHasNewerResearch] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/clients/${clientId}/content-map/active`);
-      if (res.ok) {
-        const data = await res.json();
+      const [mapRes, researchRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}/content-map/active`),
+        fetch(`/api/clients/${clientId}/research`),
+      ]);
+      if (mapRes.ok) {
+        const data = await mapRes.json();
         setMap(data.map);
         if (data.map?.mapData?.pillars?.[0]) {
           setExpandedPillar(data.map.mapData.pillars[0].slug);
+        }
+        // Detect stale-map condition: if there's a KeywordResearch row
+        // created AFTER the active map's createdAt, the map doesn't reflect
+        // it yet — surface a "newer research available" indicator.
+        if (researchRes.ok && data.map?.createdAt) {
+          const research = await researchRes.json();
+          const mapCreated = new Date(data.map.createdAt).getTime();
+          const newer = (research || []).some(
+            (r: { createdAt: string }) =>
+              new Date(r.createdAt).getTime() > mapCreated
+          );
+          setHasNewerResearch(newer);
         }
       }
     } catch {
@@ -90,6 +108,29 @@ export default function StrategyTab({
       setLoading(false);
     }
   }, [clientId]);
+
+  const regenerate = async () => {
+    setRegenerating(true);
+    setRegenError("");
+    try {
+      const res = await fetch(`/api/clients/${clientId}/content-map`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Empty body → the endpoint folds in ALL recent research sessions
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${res.status}`);
+      }
+      // Wait for backend, then reload
+      await load();
+    } catch (e) {
+      setRegenError(e instanceof Error ? e.message : "Regeneration failed");
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -176,10 +217,16 @@ export default function StrategyTab({
         }}
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Layers size={16} style={{ color: "#7C3AED" }} />
               <h3 className="text-lg font-extrabold">{map.title}</h3>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded font-bold"
+                style={{ background: "rgba(124,58,237,0.15)", color: "#7C3AED" }}
+              >
+                Generated {new Date(map.createdAt).toLocaleDateString()}
+              </span>
             </div>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               {pillars.length} pillars · {totalCount} pieces · {promotedCount} promoted
@@ -191,8 +238,61 @@ export default function StrategyTab({
               </p>
             )}
           </div>
+          <button
+            onClick={regenerate}
+            disabled={regenerating}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold flex-shrink-0 transition-all"
+            style={{
+              background: "#7C3AED",
+              color: "#fff",
+              opacity: regenerating ? 0.6 : 1,
+              cursor: regenerating ? "wait" : "pointer",
+            }}
+            title="Regenerate the content strategy by folding in ALL of this client's keyword research sessions"
+          >
+            {regenerating ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Regenerating…
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                Regenerate Strategy
+              </>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Stale-map banner */}
+      {hasNewerResearch && !regenerating && (
+        <div
+          className="rounded-xl p-3 mb-4 flex items-start gap-2 text-sm"
+          style={{
+            background: "rgba(251,191,36,0.10)",
+            border: "1px solid rgba(251,191,36,0.30)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            <strong>Newer research available.</strong> You&apos;ve run keyword research after this strategy was generated. Click <strong>Regenerate Strategy</strong> to fold in the new data — pillar selection will refresh.
+          </span>
+        </div>
+      )}
+
+      {regenError && (
+        <div
+          className="rounded-xl p-3 mb-4 text-sm"
+          style={{
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.30)",
+            color: "var(--danger)",
+          }}
+        >
+          {regenError}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4">

@@ -340,6 +340,15 @@ Keep it concise and actionable.`;
     const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
     const defaultTitle = body.title || `${quarter} ${now.getFullYear()} Content Strategy`;
 
+    // Regenerate semantics: any prior ContentMap for this client gets
+    // deactivated. Only one "active" map at a time — but old maps are
+    // preserved (isActive=false) so the agency can compare strategic
+    // evolution over months.
+    await prisma.contentMap.updateMany({
+      where: { clientId, isActive: true },
+      data: { isActive: false },
+    });
+
     const contentMap = await prisma.contentMap.create({
       data: {
         clientId,
