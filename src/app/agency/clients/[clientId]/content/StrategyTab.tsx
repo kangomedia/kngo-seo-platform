@@ -123,7 +123,40 @@ export default function StrategyTab({
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${res.status}`);
       }
-      // Wait for backend, then reload
+
+      // The endpoint streams NDJSON. The work can run 60–180s; without
+      // streaming the response, Cloudflare returns 524 before Claude finishes.
+      // We read line-by-line until we see a {type:"done"} or {type:"error"}.
+      if (!res.body) throw new Error("No response body from server");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalEvent: { type: string; message?: string } | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === "done" || msg.type === "error") {
+              finalEvent = msg;
+            }
+          } catch {
+            /* ignore malformed line */
+          }
+        }
+      }
+      if (!finalEvent) {
+        throw new Error("Server closed connection before finishing");
+      }
+      if (finalEvent.type === "error") {
+        throw new Error(finalEvent.message || "Regeneration failed");
+      }
+
       await load();
     } catch (e) {
       setRegenError(e instanceof Error ? e.message : "Regeneration failed");

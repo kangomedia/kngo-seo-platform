@@ -223,194 +223,236 @@ ${keywords.slice(0, 80).map((kw, i) => {
 
 Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pieces should be 30–60. Use mostly BLOG_POST; sprinkle GBP_POST for very-local pieces and GBP_QA for FAQ-style content. Return ONLY the JSON, no surrounding text.`;
 
-  try {
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-        // 30–60 detailed pieces × ~9 fields each easily exceeds 4K tokens.
-        // The old 4000 ceiling truncated the JSON mid-stream and silently
-        // produced empty strategies. 16K leaves comfortable headroom.
-        max_tokens: 16000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const errorText = await claudeRes.text();
-      throw new Error(`Claude API error: ${claudeRes.status} ${errorText}`);
-    }
-
-    const claudeData = await claudeRes.json();
-    const rawText = claudeData.content?.[0]?.text || "";
-    const stopReason = claudeData.stop_reason;
-
-    if (stopReason === "max_tokens") {
-      throw new Error(
-        "Strategy generation hit the output token limit before Claude finished. " +
-          "This usually means the keyword pool is too large — try generating with fewer research sessions."
-      );
-    }
-
-    // Extract JSON from response. Claude is told to return ONLY JSON but
-    // sometimes wraps it in prose, markdown fences, or both. Try in order:
-    //   1. Fenced ```json block
-    //   2. Fenced ``` block
-    //   3. First `{` through last `}` in the text (handles prose wrapping)
-    //   4. Raw text
-    let mapData;
-    let jsonStr = rawText;
-    const fenced =
-      rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
-      rawText.match(/```\s*([\s\S]*?)\s*```/);
-    if (fenced) {
-      jsonStr = fenced[1];
-    } else {
-      const firstBrace = rawText.indexOf("{");
-      const lastBrace = rawText.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace > firstBrace) {
-        jsonStr = rawText.slice(firstBrace, lastBrace + 1);
-      }
-    }
-
-    try {
-      mapData = JSON.parse(jsonStr.trim());
-    } catch (parseErr) {
-      console.warn("[CONTENT-MAP] JSON parse failed.", parseErr);
-      throw new Error(
-        "Claude returned malformed JSON for the content strategy. " +
-          "The existing strategy is preserved — try regenerating again."
-      );
-    }
-
-    // Normalize: ensure every piece has an id, promoted flag, and funnelStage.
-    // Claude usually obeys the schema but we don't trust it absolutely.
-    let nextSerial = 1;
-    const ensureId = (existing: unknown) =>
-      typeof existing === "string" && existing.length > 0
-        ? existing
-        : `mp_${Date.now().toString(36)}_${nextSerial++}`;
-
-    if (mapData?.pillars && Array.isArray(mapData.pillars)) {
-      for (const pillar of mapData.pillars) {
-        if (!pillar.slug && pillar.title) {
-          pillar.slug = String(pillar.title)
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/(^-|-$)/g, "");
+  // Stream NDJSON so Cloudflare (and any other proxy with an idle timeout)
+  // sees bytes flowing within the first second. The full Claude call can take
+  // 60–180s, which blows past Cloudflare's 100s default response timeout if
+  // the route stays silent until completion. We send {"type":"started"}
+  // immediately, heartbeat every 15s while Claude works, and finish with
+  // either {"type":"done", ...} or {"type":"error", message}.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      const send = (obj: Record<string, unknown>) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          /* controller already closed */
         }
-        if (Array.isArray(pillar.pieces)) {
-          for (const p of pillar.pieces) {
-            p.id = ensureId(p.id);
-            p.promoted = p.promoted === true;
-            p.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(p.funnelStage)
-              ? p.funnelStage
-              : "MOFU";
-            p.monthIndex = Number.isInteger(p.monthIndex)
-              ? Math.max(1, Math.min(6, p.monthIndex))
-              : 1;
-            p.pillarSlug = pillar.slug;
+      };
+
+      send({ type: "started" });
+      heartbeat = setInterval(() => send({ type: "heartbeat", at: Date.now() }), 15000);
+
+      try {
+        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": claudeKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+            // 30–60 detailed pieces × ~9 fields each easily exceeds 4K tokens.
+            // The old 4000 ceiling truncated the JSON mid-stream and silently
+            // produced empty strategies. 16K leaves comfortable headroom.
+            max_tokens: 16000,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        if (!claudeRes.ok) {
+          const errorText = await claudeRes.text();
+          throw new Error(`Claude API error: ${claudeRes.status} ${errorText}`);
+        }
+
+        const claudeData = await claudeRes.json();
+        const rawText: string = claudeData.content?.[0]?.text || "";
+        const stopReason = claudeData.stop_reason;
+
+        if (stopReason === "max_tokens") {
+          throw new Error(
+            "Strategy generation hit the output token limit before Claude finished. " +
+              "This usually means the keyword pool is too large — try generating with fewer research sessions."
+          );
+        }
+
+        // Extract JSON from response. Claude is told to return ONLY JSON but
+        // sometimes wraps it in prose, markdown fences, or both. Try in order:
+        //   1. Fenced ```json block
+        //   2. Fenced ``` block
+        //   3. First `{` through last `}` in the text (handles prose wrapping)
+        //   4. Raw text
+        let mapData;
+        let jsonStr = rawText;
+        const fenced =
+          rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
+          rawText.match(/```\s*([\s\S]*?)\s*```/);
+        if (fenced) {
+          jsonStr = fenced[1];
+        } else {
+          const firstBrace = rawText.indexOf("{");
+          const lastBrace = rawText.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            jsonStr = rawText.slice(firstBrace, lastBrace + 1);
           }
         }
-      }
-    }
-    if (Array.isArray(mapData?.quickWins)) {
-      for (const q of mapData.quickWins) {
-        q.id = ensureId(q.id);
-        q.promoted = q.promoted === true;
-        q.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(q.funnelStage)
-          ? q.funnelStage
-          : "BOFU";
-        q.monthIndex = Number.isInteger(q.monthIndex)
-          ? Math.max(1, Math.min(6, q.monthIndex))
-          : 1;
-        q.pillarSlug = "quick-wins";
-      }
-    }
 
-    const pillarCount = Array.isArray(mapData?.pillars) ? mapData.pillars.length : 0;
-    const quickWinCount = Array.isArray(mapData?.quickWins) ? mapData.quickWins.length : 0;
-    if (pillarCount === 0 && quickWinCount === 0) {
-      throw new Error(
-        "Claude returned a strategy with no pillars or quick wins. " +
-          "The existing strategy is preserved — try regenerating again."
-      );
-    }
+        try {
+          mapData = JSON.parse(jsonStr.trim());
+        } catch (parseErr) {
+          console.warn("[CONTENT-MAP] JSON parse failed.", parseErr);
+          throw new Error(
+            "Claude returned malformed JSON for the content strategy. " +
+              "The existing strategy is preserved — try regenerating again."
+          );
+        }
 
-    // Generate AI summary
-    const summaryPrompt = `Based on this content strategy map, write a 2-3 sentence executive summary for the agency team explaining the core strategy and expected SEO outcomes:
+        // Normalize: ensure every piece has an id, promoted flag, and funnelStage.
+        // Claude usually obeys the schema but we don't trust it absolutely.
+        let nextSerial = 1;
+        const ensureId = (existing: unknown) =>
+          typeof existing === "string" && existing.length > 0
+            ? existing
+            : `mp_${Date.now().toString(36)}_${nextSerial++}`;
+
+        if (mapData?.pillars && Array.isArray(mapData.pillars)) {
+          for (const pillar of mapData.pillars) {
+            if (!pillar.slug && pillar.title) {
+              pillar.slug = String(pillar.title)
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/(^-|-$)/g, "");
+            }
+            if (Array.isArray(pillar.pieces)) {
+              for (const p of pillar.pieces) {
+                p.id = ensureId(p.id);
+                p.promoted = p.promoted === true;
+                p.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(p.funnelStage)
+                  ? p.funnelStage
+                  : "MOFU";
+                p.monthIndex = Number.isInteger(p.monthIndex)
+                  ? Math.max(1, Math.min(6, p.monthIndex))
+                  : 1;
+                p.pillarSlug = pillar.slug;
+              }
+            }
+          }
+        }
+        if (Array.isArray(mapData?.quickWins)) {
+          for (const q of mapData.quickWins) {
+            q.id = ensureId(q.id);
+            q.promoted = q.promoted === true;
+            q.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(q.funnelStage)
+              ? q.funnelStage
+              : "BOFU";
+            q.monthIndex = Number.isInteger(q.monthIndex)
+              ? Math.max(1, Math.min(6, q.monthIndex))
+              : 1;
+            q.pillarSlug = "quick-wins";
+          }
+        }
+
+        const pillarCount = Array.isArray(mapData?.pillars) ? mapData.pillars.length : 0;
+        const quickWinCount = Array.isArray(mapData?.quickWins) ? mapData.quickWins.length : 0;
+        if (pillarCount === 0 && quickWinCount === 0) {
+          throw new Error(
+            "Claude returned a strategy with no pillars or quick wins. " +
+              "The existing strategy is preserved — try regenerating again."
+          );
+        }
+
+        send({ type: "progress", stage: "summary" });
+
+        // Generate AI summary
+        const summaryPrompt = `Based on this content strategy map, write a 2-3 sentence executive summary for the agency team explaining the core strategy and expected SEO outcomes:
 
 ${JSON.stringify(mapData, null, 2)}
 
 Business: ${client.name} in ${locationStr}
 Keep it concise and actionable.`;
 
-    let aiSummary: string | null = null;
-    try {
-      const summaryRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": claudeKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-          max_tokens: 300,
-          messages: [{ role: "user", content: summaryPrompt }],
-        }),
-      });
-      if (summaryRes.ok) {
-        const summaryData = await summaryRes.json();
-        aiSummary = summaryData.content?.[0]?.text || null;
+        let aiSummary: string | null = null;
+        try {
+          const summaryRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": claudeKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+              max_tokens: 300,
+              messages: [{ role: "user", content: summaryPrompt }],
+            }),
+          });
+          if (summaryRes.ok) {
+            const summaryData = await summaryRes.json();
+            aiSummary = summaryData.content?.[0]?.text || null;
+          }
+        } catch {
+          // Summary is optional
+        }
+
+        // Save content map
+        const now = new Date();
+        const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+        const defaultTitle = body.title || `${quarter} ${now.getFullYear()} Content Strategy`;
+
+        // Regenerate semantics: any prior ContentMap for this client gets
+        // deactivated. Only one "active" map at a time — but old maps are
+        // preserved (isActive=false) so the agency can compare strategic
+        // evolution over months.
+        await prisma.contentMap.updateMany({
+          where: { clientId, isActive: true },
+          data: { isActive: false },
+        });
+
+        const contentMap = await prisma.contentMap.create({
+          data: {
+            clientId,
+            title: defaultTitle,
+            mapData: JSON.stringify(mapData),
+            aiSummary,
+            isActive: true,
+          },
+        });
+
+        send({
+          type: "done",
+          id: contentMap.id,
+          title: contentMap.title,
+          mapData,
+          aiSummary,
+          message: `Content strategy map generated with ${mapData.pillars?.length || 0} pillar topics`,
+        });
+      } catch (err) {
+        console.error("[CONTENT-MAP] Error:", err);
+        send({
+          type: "error",
+          message: err instanceof Error ? err.message : "Failed to generate content map",
+        });
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       }
-    } catch {
-      // Summary is optional
-    }
+    },
+  });
 
-    // Save content map
-    const now = new Date();
-    const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
-    const defaultTitle = body.title || `${quarter} ${now.getFullYear()} Content Strategy`;
-
-    // Regenerate semantics: any prior ContentMap for this client gets
-    // deactivated. Only one "active" map at a time — but old maps are
-    // preserved (isActive=false) so the agency can compare strategic
-    // evolution over months.
-    await prisma.contentMap.updateMany({
-      where: { clientId, isActive: true },
-      data: { isActive: false },
-    });
-
-    const contentMap = await prisma.contentMap.create({
-      data: {
-        clientId,
-        title: defaultTitle,
-        mapData: JSON.stringify(mapData),
-        aiSummary,
-        isActive: true,
-      },
-    });
-
-    return NextResponse.json({
-      id: contentMap.id,
-      title: contentMap.title,
-      mapData,
-      aiSummary,
-      message: `Content strategy map generated with ${mapData.pillars?.length || 0} pillar topics`,
-    });
-  } catch (err) {
-    console.error("[CONTENT-MAP] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to generate content map" },
-      { status: 500 }
-    );
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache, no-transform",
+      // Tells nginx/Cloudflare-ish proxies not to buffer the response.
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 /**

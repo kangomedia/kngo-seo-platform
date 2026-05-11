@@ -182,8 +182,34 @@ export default function ResearchPage() {
         body: JSON.stringify({ researchId }),
       });
 
-      if (res.ok) {
-        // Redirect to content hub after map generated
+      if (!res.ok || !res.body) {
+        return;
+      }
+
+      // Endpoint streams NDJSON to avoid Cloudflare's 524 timeout. Drain the
+      // stream and only redirect if the final event is {type:"done"}.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalEvent: { type: string } | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === "done" || msg.type === "error") finalEvent = msg;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (finalEvent?.type === "done") {
         window.location.href = `/agency/clients/${clientId}/content`;
       }
     } catch { /* silently fail */ } finally {
