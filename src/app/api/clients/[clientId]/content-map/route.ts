@@ -233,7 +233,10 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
       },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-        max_tokens: 4000,
+        // 30–60 detailed pieces × ~9 fields each easily exceeds 4K tokens.
+        // The old 4000 ceiling truncated the JSON mid-stream and silently
+        // produced empty strategies. 16K leaves comfortable headroom.
+        max_tokens: 16000,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -245,6 +248,14 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
 
     const claudeData = await claudeRes.json();
     const rawText = claudeData.content?.[0]?.text || "";
+    const stopReason = claudeData.stop_reason;
+
+    if (stopReason === "max_tokens") {
+      throw new Error(
+        "Strategy generation hit the output token limit before Claude finished. " +
+          "This usually means the keyword pool is too large — try generating with fewer research sessions."
+      );
+    }
 
     // Extract JSON from response. Claude is told to return ONLY JSON but
     // sometimes wraps it in prose, markdown fences, or both. Try in order:
@@ -270,8 +281,11 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
     try {
       mapData = JSON.parse(jsonStr.trim());
     } catch (parseErr) {
-      console.warn("[CONTENT-MAP] JSON parse failed; raw output stored.", parseErr);
-      mapData = { raw: rawText, error: "Could not parse structured map" };
+      console.warn("[CONTENT-MAP] JSON parse failed.", parseErr);
+      throw new Error(
+        "Claude returned malformed JSON for the content strategy. " +
+          "The existing strategy is preserved — try regenerating again."
+      );
     }
 
     // Normalize: ensure every piece has an id, promoted flag, and funnelStage.
@@ -317,6 +331,15 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
           : 1;
         q.pillarSlug = "quick-wins";
       }
+    }
+
+    const pillarCount = Array.isArray(mapData?.pillars) ? mapData.pillars.length : 0;
+    const quickWinCount = Array.isArray(mapData?.quickWins) ? mapData.quickWins.length : 0;
+    if (pillarCount === 0 && quickWinCount === 0) {
+      throw new Error(
+        "Claude returned a strategy with no pillars or quick wins. " +
+          "The existing strategy is preserved — try regenerating again."
+      );
     }
 
     // Generate AI summary

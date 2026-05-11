@@ -199,6 +199,7 @@ export default function StrategyTab({
   ];
   const totalCount = allPieces.length;
   const promotedCount = allPieces.filter((p) => p.promoted).length;
+  const isBroken = pillars.length === 0 && quickWins.length === 0;
 
   const filterPiece = (p: MapPiece) => {
     if (funnelFilter !== "ALL" && p.funnelStage !== funnelFilter) return false;
@@ -291,6 +292,21 @@ export default function StrategyTab({
           }}
         >
           {regenError}
+        </div>
+      )}
+
+      {isBroken && !regenerating && (
+        <div
+          className="rounded-xl p-3 mb-4 flex items-start gap-2 text-sm"
+          style={{
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.30)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            <strong>This strategy didn&apos;t generate any pillars or quick wins.</strong> The previous attempt likely hit a token limit mid-output. Click <strong>Regenerate Strategy</strong> above to try again.
+          </span>
         </div>
       )}
 
