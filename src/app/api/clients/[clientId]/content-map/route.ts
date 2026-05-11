@@ -165,6 +165,19 @@ export async function POST(
     gbpQAs: monthlyCapacity.gbpQAs * 6,
     pressReleases: monthlyCapacity.pressReleases * 6,
   };
+  // Locking pillars to 6 lets us spell out the per-pillar piece distribution
+  // as exact integers, which Claude follows much more reliably than vague
+  // "5-8 per pillar" guidance. Each pillar gets one month's quota worth
+  // (so 6 pillars × monthly quota = 6-month totals).
+  const PILLAR_COUNT = 6;
+  const perPillar = {
+    blogs: monthlyCapacity.blogs,
+    gbpPosts: monthlyCapacity.gbpPosts,
+    gbpQAs: monthlyCapacity.gbpQAs,
+    pressReleases: monthlyCapacity.pressReleases,
+  };
+  const perPillarTotal =
+    perPillar.blogs + perPillar.gbpPosts + perPillar.gbpQAs + perPillar.pressReleases;
 
   const prompt = `You are an expert SEO content strategist building a 6-month topical authority plan for this business. Your output drives the agency's content workflow — every piece you propose must be specific, scoped, and promotable to a writer without further refinement.
 
@@ -176,14 +189,22 @@ export async function POST(
 - **Service Tier:** ${client.tier}
 - **Monthly Content Capacity:** ${monthlyCapacity.blogs} blogs, ${monthlyCapacity.gbpPosts} GBP posts, ${monthlyCapacity.gbpQAs} GBP Q&As, ${monthlyCapacity.pressReleases} press releases
 
-## Output volume requirements (HARD MINIMUMS)
-You MUST generate at least the following totals across the entire 6-month strategy (pillars.pieces + quickWins combined). The operator fills the monthly quota every month from this strategy — under-generating means they can't fill their plan.
-- **BLOG_POST:** ${totalQuota.blogs} pieces minimum (${monthlyCapacity.blogs}/month × 6)
-- **GBP_POST:** ${totalQuota.gbpPosts} pieces minimum (${monthlyCapacity.gbpPosts}/month × 6)
-- **GBP_QA:** ${totalQuota.gbpQAs} pieces minimum (${monthlyCapacity.gbpQAs}/month × 6)
-- **PRESS_RELEASE:** ${totalQuota.pressReleases} pieces minimum (${monthlyCapacity.pressReleases}/month × 6)
+## Output volume requirements (HARD, NON-NEGOTIABLE)
 
-For each non-zero type, distribute pieces across \`monthIndex\` 1–6 so each month has roughly its monthly capacity available. If a type's quota is 0, generate none of that type.
+You MUST generate **exactly ${PILLAR_COUNT} pillars**. Each pillar contains **exactly ${perPillarTotal} pieces**, broken down by type as follows:
+
+| Type | Per pillar | × ${PILLAR_COUNT} pillars = | Monthly quota (for reference) |
+|---|---|---|---|
+| BLOG_POST | ${perPillar.blogs} | ${totalQuota.blogs} | ${monthlyCapacity.blogs} |
+| GBP_POST | ${perPillar.gbpPosts} | ${totalQuota.gbpPosts} | ${monthlyCapacity.gbpPosts} |
+| GBP_QA | ${perPillar.gbpQAs} | ${totalQuota.gbpQAs} | ${monthlyCapacity.gbpQAs} |
+| PRESS_RELEASE | ${perPillar.pressReleases} | ${totalQuota.pressReleases} | ${monthlyCapacity.pressReleases} |
+
+Why this exact distribution: the operator publishes the **monthly quota** every month for 6 months. The 6-pillar × per-month structure means each pillar contributes exactly one month's worth of content of every type, and the operator can promote a balanced batch each month. If you under-generate any type, the operator literally cannot fill their monthly plan — this is a publishing-pipeline failure, not a stylistic choice.
+
+If a type's per-pillar count is 0, omit it from that pillar.
+
+In addition, generate **5–10 quickWins** — opportunistic low-competition keywords that ship in Month 1. Quick wins are *extra*, not a substitute for pillar quota.
 
 ## Available Keywords (Top ${Math.min(keywords.length, 80)})
 ${keywords.slice(0, 80).map((kw, i) => {
@@ -200,7 +221,7 @@ ${keywords.slice(0, 80).map((kw, i) => {
 
 ## Strategy rules
 
-1. **Pillars are topical territories**, not single articles. 4–6 pillars covering the business's full surface area. **If the keyword pool spans multiple distinct themes** (look for [SERVICE] vs [PAIN] tags — they often represent different revenue lines), build pillars across both. A web-design agency that ALSO does CRM automations should get a "Web Design" pillar AND a "Service Business Automation" pillar — don't collapse them.
+1. **Pillars are topical territories**, not single articles. Use exactly **${PILLAR_COUNT} pillars** (per the volume requirements above) covering the business's full surface area. **If the keyword pool spans multiple distinct themes** (look for [SERVICE] vs [PAIN] tags — they often represent different revenue lines), build pillars across both. A web-design agency that ALSO does CRM automations should get a "Web Design" pillar AND a "Service Business Automation" pillar — don't collapse them.
 2. **Tag every piece with a funnel stage**:
    - **TOFU** = top-of-funnel — informational, "how does X work", broad awareness — most [PAIN] keywords land here
    - **MOFU** = middle-of-funnel — comparison, "X vs Y", "best X", buyer-research
@@ -258,7 +279,18 @@ ${keywords.slice(0, 80).map((kw, i) => {
 }
 \`\`\`
 
-Generate 4–6 pillars. **You MUST hit the per-type minimums above** — count pieces by \`type\` before responding. Place BLOG_POSTs primarily inside pillars (5–8 per pillar). GBP_POST, GBP_QA, and PRESS_RELEASE pieces can live inside pillars as supporting content OR in \`quickWins\` — whichever fits the strategic flow. Return ONLY the JSON, no surrounding text.`;
+## FINAL VERIFICATION (do this before responding)
+
+Count the pieces in your output by type. The counts MUST be:
+- BLOG_POST: ${totalQuota.blogs} (across pillars, ignoring quickWins) — ${perPillar.blogs} per pillar × ${PILLAR_COUNT} pillars
+- GBP_POST: ${totalQuota.gbpPosts} — ${perPillar.gbpPosts} per pillar × ${PILLAR_COUNT} pillars
+- GBP_QA: ${totalQuota.gbpQAs} — ${perPillar.gbpQAs} per pillar × ${PILLAR_COUNT} pillars
+- PRESS_RELEASE: ${totalQuota.pressReleases} — ${perPillar.pressReleases} per pillar × ${PILLAR_COUNT} pillars
+- quickWins: 5–10 (extra, not counted toward pillar totals)
+
+If your counts are short for any type, **add pieces until you hit the target before responding**. Do not stop early.
+
+Return ONLY the JSON, no surrounding text.`;
 
   // Stream NDJSON so Cloudflare (and any other proxy with an idle timeout)
   // sees bytes flowing within the first second. The full Claude call can take
@@ -291,11 +323,12 @@ Generate 4–6 pillars. **You MUST hit the per-type minimums above** — count p
           },
           body: JSON.stringify({
             model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-            // Output sizing: with a full quota strategy (e.g. 10 blogs × 6 +
-            // 4 GBP × 6 + 1 PR × 6 = ~96 pieces × ~150 tokens) we can push
-            // past 15K tokens of pure JSON. 24K leaves enough headroom for
-            // larger tier quotas without hitting `stop_reason: max_tokens`.
-            max_tokens: 24000,
+            // Output sizing: a PRO-tier strategy with the full per-pillar
+            // distribution (10 + 8 + 8 + 1 = 27 pieces × 6 pillars + 10
+            // quickWins = ~172 pieces × ~150 tokens) approaches 25K tokens
+            // of pure JSON. 40K leaves comfortable headroom and stays under
+            // Sonnet 4.6's 64K output cap.
+            max_tokens: 40000,
             messages: [{ role: "user", content: prompt }],
           }),
         });

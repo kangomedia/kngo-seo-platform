@@ -254,16 +254,19 @@ export default function StrategyTab({
   const promotedCount = allPieces.filter((p) => p.promoted).length;
   const isBroken = pillars.length === 0 && quickWins.length === 0;
 
-  // Per-type counts. The "quota" denominators come from the client's monthly
-  // capacity × 6 (the full strategy horizon). "Promoted" reflects what the
-  // operator has scheduled out of this map so far. Available = total in the
-  // strategy minus promoted — what's still left to schedule.
+  // Per-type counts. When a specific month is selected, the quota strip
+  // shows that month's slot count (e.g. "10 blogs/month"). When ALL is
+  // selected, it shows the 6-month total. Promoted/available are filtered
+  // by month accordingly — so "Blog 8/10 · 2 left" for M1 means 8 of the
+  // 10 monthly blog slots for month 1 have been promoted.
   const TYPES: ContentType[] = ["BLOG_POST", "GBP_POST", "GBP_QA", "PRESS_RELEASE"];
+  const isMonthSpecific = monthFilter !== "ALL";
+  const quotaMultiplier = isMonthSpecific ? 1 : 6;
   const quotaByType: Record<ContentType, number> = {
-    BLOG_POST: (clientLimits?.monthlyBlogs ?? 0) * 6,
-    GBP_POST: (clientLimits?.monthlyGbpPosts ?? 0) * 6,
-    GBP_QA: (clientLimits?.monthlyGbpQAs ?? 0) * 6,
-    PRESS_RELEASE: (clientLimits?.monthlyPressReleases ?? 0) * 6,
+    BLOG_POST: (clientLimits?.monthlyBlogs ?? 0) * quotaMultiplier,
+    GBP_POST: (clientLimits?.monthlyGbpPosts ?? 0) * quotaMultiplier,
+    GBP_QA: (clientLimits?.monthlyGbpQAs ?? 0) * quotaMultiplier,
+    PRESS_RELEASE: (clientLimits?.monthlyPressReleases ?? 0) * quotaMultiplier,
   };
   const countsByType: Record<ContentType, { total: number; promoted: number; available: number }> = {
     BLOG_POST: { total: 0, promoted: 0, available: 0 },
@@ -274,6 +277,9 @@ export default function StrategyTab({
   for (const p of allPieces) {
     const t = TYPES.includes(p.type as ContentType) ? (p.type as ContentType) : null;
     if (!t) continue;
+    // Apply month scoping to the counts so the strip reflects the same
+    // window as its denominator.
+    if (isMonthSpecific && p.monthIndex !== monthFilter) continue;
     countsByType[t].total += 1;
     if (p.promoted) countsByType[t].promoted += 1;
     else countsByType[t].available += 1;
@@ -313,43 +319,48 @@ export default function StrategyTab({
               {totalCount > 0 && ` (${Math.round((promotedCount / totalCount) * 100)}%)`}
             </p>
             {clientLimits && (
-              <div className="flex flex-wrap gap-2 mt-3">
-                {TYPES.map((t) => {
-                  const quota = quotaByType[t];
-                  const { promoted, available } = countsByType[t];
-                  // Hide rows with zero quota AND zero pieces — irrelevant to the user.
-                  if (quota === 0 && countsByType[t].total === 0) return null;
-                  const remaining = Math.max(quota - promoted, 0);
-                  const overQuota = quota > 0 && promoted > quota;
-                  const exhausted = quota > 0 && remaining === 0 && !overQuota;
-                  const fg = overQuota
-                    ? "#f87171"
-                    : exhausted
-                      ? "#fbbf24"
-                      : "var(--text-secondary)";
-                  return (
-                    <span
-                      key={t}
-                      className="text-[11px] px-2 py-1 rounded-md font-semibold"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid var(--border)",
-                        color: fg,
-                      }}
-                      title={`${available} still available to promote in the strategy`}
-                    >
-                      {TYPE_LABEL[t]} {promoted}/{quota}
-                      {quota > 0 && (
-                        <span style={{ opacity: 0.6, marginLeft: 6 }}>
-                          {overQuota
-                            ? `· ${promoted - quota} over quota`
-                            : `· ${remaining} left`}
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
+              <>
+                <p className="text-[10px] uppercase tracking-wide font-bold mt-3 mb-1" style={{ color: "var(--text-muted)" }}>
+                  Quota {isMonthSpecific ? `for M${monthFilter}` : "(6-month total — pick a month above for monthly view)"}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {TYPES.map((t) => {
+                    const quota = quotaByType[t];
+                    const { promoted, available } = countsByType[t];
+                    // Hide rows with zero quota AND zero pieces — irrelevant to the user.
+                    if (quota === 0 && countsByType[t].total === 0) return null;
+                    const remaining = Math.max(quota - promoted, 0);
+                    const overQuota = quota > 0 && promoted > quota;
+                    const exhausted = quota > 0 && remaining === 0 && !overQuota;
+                    const fg = overQuota
+                      ? "#f87171"
+                      : exhausted
+                        ? "#fbbf24"
+                        : "var(--text-secondary)";
+                    return (
+                      <span
+                        key={t}
+                        className="text-[11px] px-2 py-1 rounded-md font-semibold"
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid var(--border)",
+                          color: fg,
+                        }}
+                        title={`${available} still available to promote${isMonthSpecific ? ` in M${monthFilter}` : ""}`}
+                      >
+                        {TYPE_LABEL[t]} {promoted}/{quota}
+                        {quota > 0 && (
+                          <span style={{ opacity: 0.6, marginLeft: 6 }}>
+                            {overQuota
+                              ? `· ${promoted - quota} over quota`
+                              : `· ${remaining} left`}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
             )}
             {map.aiSummary && (
               <p className="text-sm mt-3 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
