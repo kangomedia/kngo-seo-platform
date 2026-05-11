@@ -58,11 +58,30 @@ const FUNNEL_COLORS: Record<string, { bg: string; fg: string; label: string }> =
   BOFU: { bg: "rgba(34,197,94,0.15)", fg: "#4ade80", label: "BOFU · Intent" },
 };
 
+type ContentType = "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE";
+type TypeFilter = "ALL" | ContentType;
+
+const TYPE_LABEL: Record<ContentType, string> = {
+  BLOG_POST: "Blog",
+  GBP_POST: "GBP Post",
+  GBP_QA: "GBP Q&A",
+  PRESS_RELEASE: "Press Release",
+};
+
+interface ClientLimits {
+  monthlyBlogs: number;
+  monthlyGbpPosts: number;
+  monthlyGbpQAs: number;
+  monthlyPressReleases: number;
+}
+
 export default function StrategyTab({
   clientId,
+  clientLimits,
   onPromoted,
 }: {
   clientId: string;
+  clientLimits?: ClientLimits;
   onPromoted?: () => void;
 }) {
   const [map, setMap] = useState<ActiveMap | null>(null);
@@ -72,6 +91,7 @@ export default function StrategyTab({
   const [expandedPillar, setExpandedPillar] = useState<string | null>(null);
   const [funnelFilter, setFunnelFilter] = useState<"ALL" | "TOFU" | "MOFU" | "BOFU">("ALL");
   const [monthFilter, setMonthFilter] = useState<number | "ALL">("ALL");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState("");
   const [hasNewerResearch, setHasNewerResearch] = useState(false);
@@ -234,9 +254,35 @@ export default function StrategyTab({
   const promotedCount = allPieces.filter((p) => p.promoted).length;
   const isBroken = pillars.length === 0 && quickWins.length === 0;
 
+  // Per-type counts. The "quota" denominators come from the client's monthly
+  // capacity × 6 (the full strategy horizon). "Promoted" reflects what the
+  // operator has scheduled out of this map so far. Available = total in the
+  // strategy minus promoted — what's still left to schedule.
+  const TYPES: ContentType[] = ["BLOG_POST", "GBP_POST", "GBP_QA", "PRESS_RELEASE"];
+  const quotaByType: Record<ContentType, number> = {
+    BLOG_POST: (clientLimits?.monthlyBlogs ?? 0) * 6,
+    GBP_POST: (clientLimits?.monthlyGbpPosts ?? 0) * 6,
+    GBP_QA: (clientLimits?.monthlyGbpQAs ?? 0) * 6,
+    PRESS_RELEASE: (clientLimits?.monthlyPressReleases ?? 0) * 6,
+  };
+  const countsByType: Record<ContentType, { total: number; promoted: number; available: number }> = {
+    BLOG_POST: { total: 0, promoted: 0, available: 0 },
+    GBP_POST: { total: 0, promoted: 0, available: 0 },
+    GBP_QA: { total: 0, promoted: 0, available: 0 },
+    PRESS_RELEASE: { total: 0, promoted: 0, available: 0 },
+  };
+  for (const p of allPieces) {
+    const t = TYPES.includes(p.type as ContentType) ? (p.type as ContentType) : null;
+    if (!t) continue;
+    countsByType[t].total += 1;
+    if (p.promoted) countsByType[t].promoted += 1;
+    else countsByType[t].available += 1;
+  }
+
   const filterPiece = (p: MapPiece) => {
     if (funnelFilter !== "ALL" && p.funnelStage !== funnelFilter) return false;
     if (monthFilter !== "ALL" && p.monthIndex !== monthFilter) return false;
+    if (typeFilter !== "ALL" && p.type !== typeFilter) return false;
     return true;
   };
 
@@ -266,6 +312,45 @@ export default function StrategyTab({
               {pillars.length} pillars · {totalCount} pieces · {promotedCount} promoted
               {totalCount > 0 && ` (${Math.round((promotedCount / totalCount) * 100)}%)`}
             </p>
+            {clientLimits && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {TYPES.map((t) => {
+                  const quota = quotaByType[t];
+                  const { promoted, available } = countsByType[t];
+                  // Hide rows with zero quota AND zero pieces — irrelevant to the user.
+                  if (quota === 0 && countsByType[t].total === 0) return null;
+                  const remaining = Math.max(quota - promoted, 0);
+                  const overQuota = quota > 0 && promoted > quota;
+                  const exhausted = quota > 0 && remaining === 0 && !overQuota;
+                  const fg = overQuota
+                    ? "#f87171"
+                    : exhausted
+                      ? "#fbbf24"
+                      : "var(--text-secondary)";
+                  return (
+                    <span
+                      key={t}
+                      className="text-[11px] px-2 py-1 rounded-md font-semibold"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid var(--border)",
+                        color: fg,
+                      }}
+                      title={`${available} still available to promote in the strategy`}
+                    >
+                      {TYPE_LABEL[t]} {promoted}/{quota}
+                      {quota > 0 && (
+                        <span style={{ opacity: 0.6, marginLeft: 6 }}>
+                          {overQuota
+                            ? `· ${promoted - quota} over quota`
+                            : `· ${remaining} left`}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             {map.aiSummary && (
               <p className="text-sm mt-3 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                 {map.aiSummary}
@@ -401,6 +486,28 @@ export default function StrategyTab({
             M{m}
           </button>
         ))}
+        <span className="text-xs font-bold uppercase tracking-wide self-center mx-2" style={{ color: "var(--text-muted)" }}>
+          Type:
+        </span>
+        {(["ALL", ...TYPES] as const).map((t) => {
+          const active = typeFilter === t;
+          const label = t === "ALL" ? "All" : TYPE_LABEL[t];
+          const count = t === "ALL" ? totalCount : countsByType[t].total;
+          return (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className="px-3 py-1 rounded-full text-xs font-bold transition-all"
+              style={{
+                background: active ? "var(--accent-muted)" : "transparent",
+                color: active ? "var(--accent)" : "var(--text-muted)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              {label} <span style={{ opacity: 0.6 }}>({count})</span>
+            </button>
+          );
+        })}
       </div>
 
       {error && (

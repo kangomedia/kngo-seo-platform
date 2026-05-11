@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { TIER_DEFAULTS } from "@/lib/tier-config";
 
 /**
  * POST /api/clients/[clientId]/content-map
@@ -137,11 +138,32 @@ export async function POST(
     ? `${client.city}, ${client.state}`
     : "United States";
 
+  // Capacity comes from the purchased package (tier), not the stored
+  // per-client fields. Those fields were auto-copied at client creation but
+  // can go stale if the tier changes without a manual resave. Driving from
+  // TIER_DEFAULTS guarantees the strategy always matches the package the
+  // client is actually on.
+  const tierDefaults = TIER_DEFAULTS[client.tier] ?? {
+    monthlyBlogs: client.monthlyBlogs,
+    monthlyGbpPosts: client.monthlyGbpPosts,
+    monthlyGbpQAs: client.monthlyGbpQAs,
+    monthlyPressReleases: client.monthlyPressReleases,
+  };
   const monthlyCapacity = {
-    blogs: client.monthlyBlogs,
-    gbpPosts: client.monthlyGbpPosts,
-    gbpQAs: client.monthlyGbpQAs,
-    pressReleases: client.monthlyPressReleases,
+    blogs: tierDefaults.monthlyBlogs,
+    gbpPosts: tierDefaults.monthlyGbpPosts,
+    gbpQAs: tierDefaults.monthlyGbpQAs,
+    pressReleases: tierDefaults.monthlyPressReleases,
+  };
+  // 6-month totals — the strategy must contain enough pieces of each type
+  // so the operator can fill the monthly quota every month. Without this
+  // explicit math the model just sprinkles a few GBP posts and skips press
+  // releases entirely.
+  const totalQuota = {
+    blogs: monthlyCapacity.blogs * 6,
+    gbpPosts: monthlyCapacity.gbpPosts * 6,
+    gbpQAs: monthlyCapacity.gbpQAs * 6,
+    pressReleases: monthlyCapacity.pressReleases * 6,
   };
 
   const prompt = `You are an expert SEO content strategist building a 6-month topical authority plan for this business. Your output drives the agency's content workflow — every piece you propose must be specific, scoped, and promotable to a writer without further refinement.
@@ -154,12 +176,27 @@ export async function POST(
 - **Service Tier:** ${client.tier}
 - **Monthly Content Capacity:** ${monthlyCapacity.blogs} blogs, ${monthlyCapacity.gbpPosts} GBP posts, ${monthlyCapacity.gbpQAs} GBP Q&As, ${monthlyCapacity.pressReleases} press releases
 
+## Output volume requirements (HARD MINIMUMS)
+You MUST generate at least the following totals across the entire 6-month strategy (pillars.pieces + quickWins combined). The operator fills the monthly quota every month from this strategy — under-generating means they can't fill their plan.
+- **BLOG_POST:** ${totalQuota.blogs} pieces minimum (${monthlyCapacity.blogs}/month × 6)
+- **GBP_POST:** ${totalQuota.gbpPosts} pieces minimum (${monthlyCapacity.gbpPosts}/month × 6)
+- **GBP_QA:** ${totalQuota.gbpQAs} pieces minimum (${monthlyCapacity.gbpQAs}/month × 6)
+- **PRESS_RELEASE:** ${totalQuota.pressReleases} pieces minimum (${monthlyCapacity.pressReleases}/month × 6)
+
+For each non-zero type, distribute pieces across \`monthIndex\` 1–6 so each month has roughly its monthly capacity available. If a type's quota is 0, generate none of that type.
+
 ## Available Keywords (Top ${Math.min(keywords.length, 80)})
 ${keywords.slice(0, 80).map((kw, i) => {
   const mode = keywordModes.get(kw.keyword.toLowerCase());
   const modeTag = mode === "PAIN_POINT" ? " [PAIN]" : mode === "SERVICE" ? " [SERVICE]" : "";
   return `${i + 1}.${modeTag} "${kw.keyword}" — Vol: ${kw.searchVolume}, Comp: ${kw.competition}%, CPC: $${(kw.cpc || 0).toFixed(2)}`;
 }).join("\n")}
+
+## Content type guidance
+- **BLOG_POST** — the backbone. Long-form articles targeting specific keywords. Lives inside pillars.
+- **GBP_POST** — short Google Business Profile updates (200–400 chars). Promotional, hyperlocal, event/offer/news flavored. Tie to current pillar themes and seasonal hooks. Distribute these mostly into Quick Wins or as supporting pieces inside pillars.
+- **GBP_QA** — Q&A entries for the GBP profile. Short, FAQ-style. Each one should answer a real customer question the business gets.
+- **PRESS_RELEASE** — newsworthy announcements (new service, milestone, award, partnership, expansion). One per month if the quota allows; tie to the monthlyFocus theme. PR earns links and topical authority — don't skip these when quota > 0.
 
 ## Strategy rules
 
@@ -168,8 +205,8 @@ ${keywords.slice(0, 80).map((kw, i) => {
    - **TOFU** = top-of-funnel — informational, "how does X work", broad awareness — most [PAIN] keywords land here
    - **MOFU** = middle-of-funnel — comparison, "X vs Y", "best X", buyer-research
    - **BOFU** = bottom-of-funnel — commercial, "hire X near me", "X cost", ready-to-buy — most [SERVICE] keywords land here
-3. **Pace difficulty across 6 months.** Month 1 = quick wins (BOFU, low competition). Month 2-3 = MOFU buildouts. Month 4-5 = TOFU pillar pages + thought leadership. Month 6 = quarterly recap + refresh. Respect the monthly capacity limit.
-4. **Quick wins** = low-competition, high-intent keywords that should be published this month regardless of pillar architecture. Aim for 5–10.
+3. **Pace difficulty across 6 months.** Month 1 = quick wins (BOFU, low competition). Month 2-3 = MOFU buildouts. Month 4-5 = TOFU pillar pages + thought leadership. Month 6 = quarterly recap + refresh.
+4. **Quick wins** = low-competition, high-intent keywords that should be published in month 1 regardless of pillar architecture. Aim for 5–10. Quick wins can be any content type — a hyperlocal GBP_POST or a launch PRESS_RELEASE both qualify.
 5. **Be concrete** — every piece needs a unique \`id\`, a publishable \`title\`, a \`keyword\` target, a \`description\` (one sentence outline), \`funnelStage\`, \`monthIndex\` (1–6), and \`pillarSlug\`.
 
 ## Output JSON exactly in this structure:
@@ -221,7 +258,7 @@ ${keywords.slice(0, 80).map((kw, i) => {
 }
 \`\`\`
 
-Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pieces should be 30–60. Use mostly BLOG_POST; sprinkle GBP_POST for very-local pieces and GBP_QA for FAQ-style content. Return ONLY the JSON, no surrounding text.`;
+Generate 4–6 pillars. **You MUST hit the per-type minimums above** — count pieces by \`type\` before responding. Place BLOG_POSTs primarily inside pillars (5–8 per pillar). GBP_POST, GBP_QA, and PRESS_RELEASE pieces can live inside pillars as supporting content OR in \`quickWins\` — whichever fits the strategic flow. Return ONLY the JSON, no surrounding text.`;
 
   // Stream NDJSON so Cloudflare (and any other proxy with an idle timeout)
   // sees bytes flowing within the first second. The full Claude call can take
@@ -254,10 +291,11 @@ Generate 4–6 pillars with 5–8 pieces each, plus 5–10 quick wins. Total pie
           },
           body: JSON.stringify({
             model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-            // 30–60 detailed pieces × ~9 fields each easily exceeds 4K tokens.
-            // The old 4000 ceiling truncated the JSON mid-stream and silently
-            // produced empty strategies. 16K leaves comfortable headroom.
-            max_tokens: 16000,
+            // Output sizing: with a full quota strategy (e.g. 10 blogs × 6 +
+            // 4 GBP × 6 + 1 PR × 6 = ~96 pieces × ~150 tokens) we can push
+            // past 15K tokens of pure JSON. 24K leaves enough headroom for
+            // larger tier quotas without hitting `stop_reason: max_tokens`.
+            max_tokens: 24000,
             messages: [{ role: "user", content: prompt }],
           }),
         });

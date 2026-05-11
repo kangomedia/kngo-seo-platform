@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { countPiecesPendingReview } from "@/lib/content-plan-utils";
+import { TIER_DEFAULTS } from "@/lib/tier-config";
 import StrategyTab from "./StrategyTab";
 import {
   Sparkles,
@@ -174,18 +175,25 @@ export default function ContentHubPage() {
       .then((data) => {
         setPlans(data.contentPlans || []);
         // Initialize generate form counts from client's tier capacity
-        if (data.monthlyBlogs !== undefined) setBlogCount(data.monthlyBlogs);
-        if (data.monthlyGbpPosts !== undefined) setGbpCount(data.monthlyGbpPosts);
-        if (data.monthlyGbpQAs !== undefined) setGbpQACount(data.monthlyGbpQAs);
-        if (data.monthlyPressReleases !== undefined) setPrCount(data.monthlyPressReleases);
+        // Quota is determined by the purchased package (tier), not the
+        // per-client stored fields — those can go stale if the tier was
+        // changed without re-saving the Edit form. Fall back to stored
+        // fields only when the tier isn't recognized.
+        const packageQuota = (data.tier && TIER_DEFAULTS[data.tier]) || null;
+        const effectiveLimits = {
+          monthlyBlogs: packageQuota?.monthlyBlogs ?? (data.monthlyBlogs || 0),
+          monthlyGbpPosts: packageQuota?.monthlyGbpPosts ?? (data.monthlyGbpPosts || 0),
+          monthlyGbpQAs: packageQuota?.monthlyGbpQAs ?? (data.monthlyGbpQAs || 0),
+          monthlyPressReleases:
+            packageQuota?.monthlyPressReleases ?? (data.monthlyPressReleases || 0),
+        };
+        if (data.monthlyBlogs !== undefined) setBlogCount(effectiveLimits.monthlyBlogs);
+        if (data.monthlyGbpPosts !== undefined) setGbpCount(effectiveLimits.monthlyGbpPosts);
+        if (data.monthlyGbpQAs !== undefined) setGbpQACount(effectiveLimits.monthlyGbpQAs);
+        if (data.monthlyPressReleases !== undefined) setPrCount(effectiveLimits.monthlyPressReleases);
         if (data.tier) setClientTier(data.tier);
-        
-        setClientLimits({
-          monthlyBlogs: data.monthlyBlogs || 0,
-          monthlyGbpPosts: data.monthlyGbpPosts || 0,
-          monthlyGbpQAs: data.monthlyGbpQAs || 0,
-          monthlyPressReleases: data.monthlyPressReleases || 0,
-        });
+
+        setClientLimits(effectiveLimits);
         // Store client metadata for persistent review links
         if (data.accessToken) setClientAccessToken(data.accessToken);
         if (data.contactEmail) setClientContactEmail(data.contactEmail);
@@ -742,11 +750,12 @@ export default function ContentHubPage() {
       {activeTab === "strategy" && (
         <StrategyTab
           clientId={clientId}
+          clientLimits={clientLimits}
           onPromoted={() => {
-            // After a promote, refresh plans + jump to Plan tab so the user
-            // sees the piece they just scheduled.
+            // Refresh plans so the Content Plan tab is up to date when the
+            // user navigates there. Stay on Strategy so they can keep
+            // promoting — auto-switching tabs interrupted the workflow.
             loadData();
-            setActiveTab("plan");
           }}
         />
       )}
