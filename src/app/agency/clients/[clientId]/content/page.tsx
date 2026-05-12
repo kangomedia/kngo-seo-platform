@@ -4,6 +4,8 @@ import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { countPiecesPendingReview } from "@/lib/content-plan-utils";
 import { TIER_DEFAULTS } from "@/lib/tier-config";
+import { suggestDistributionAssets } from "@/lib/actions-ai";
+import { generateSlug } from "@/lib/slug";
 import StrategyTab from "./StrategyTab";
 import {
   Sparkles,
@@ -148,6 +150,7 @@ export default function ContentHubPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [suggestingDistribution, setSuggestingDistribution] = useState(false);
 
   // Per-piece publish state tracker, so we can show a spinner on the
   // specific button being clicked when there are several APPROVED pieces.
@@ -510,7 +513,10 @@ export default function ContentHubPage() {
     setEditingPiece(piece);
     setEditTitle(piece.title);
     setEditDraft(piece.body || "");
-    setEditSlug(piece.slug || "");
+    // Suggest a slug from the title when the piece doesn't have one yet
+    // (almost everything drafted before Phase 10 lands in this branch).
+    // Operator can edit before saving.
+    setEditSlug(piece.slug || generateSlug(piece.title, piece.keyword));
     setEditMetaDescription(piece.metaDescription || "");
     setEditSocialPosts(parseSocialPosts(piece.socialPosts));
     setEditTab("body");
@@ -537,6 +543,36 @@ export default function ContentHubPage() {
       setTimeout(() => setCopiedField((curr) => (curr === key ? null : curr)), 1500);
     } catch {
       /* fail silently */
+    }
+  };
+
+  // Calls the new server action to run Claude against the current draft
+  // body and fill in meta description + per-platform social posts. Used
+  // for pieces that were drafted BEFORE Phase 10 shipped (which don't
+  // have these fields populated yet) or whenever the operator wants to
+  // regenerate the distribution copy.
+  const handleSuggestDistribution = async () => {
+    if (!editingPiece) return;
+    setSuggestingDistribution(true);
+    setEditError("");
+    try {
+      const suggestions = await suggestDistributionAssets(editingPiece.id);
+      if (suggestions.metaDescription) {
+        setEditMetaDescription(suggestions.metaDescription);
+      }
+      if (suggestions.socialPosts) {
+        setEditSocialPosts((prev) => ({
+          ...prev,
+          ...suggestions.socialPosts,
+        }));
+      }
+      if (!suggestions.metaDescription && !suggestions.socialPosts) {
+        setEditError("Claude didn't return any suggestions — try again, or fill these in manually.");
+      }
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Couldn't generate suggestions.");
+    } finally {
+      setSuggestingDistribution(false);
     }
   };
 
@@ -2583,8 +2619,10 @@ export default function ContentHubPage() {
             </div>
 
             <div className="flex flex-col md:flex-row min-h-0 flex-1">
-              {/* Editor side */}
-              <div className="flex flex-col p-5 gap-3 flex-1 min-w-0">
+              {/* Editor side — must be flex + min-h-0 + overflow-y-auto so
+                  the Distribution tab's tall content (4 platform textareas)
+                  can scroll independently and the footer stays put. */}
+              <div className="flex flex-col p-5 gap-3 flex-1 min-w-0 min-h-0 overflow-y-auto">
                 {editTab === "body" && (
                   <>
                     <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
@@ -2613,6 +2651,26 @@ export default function ContentHubPage() {
 
                 {editTab === "distribution" && (
                   <>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        Empty? Click <strong>Suggest from this draft</strong> to have Claude write the meta description and the four social variants based on the current body.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleSuggestDistribution}
+                        disabled={suggestingDistribution || !editDraft.trim()}
+                        className="btn-secondary text-xs flex-shrink-0"
+                        style={{ padding: "6px 12px" }}
+                        title={editDraft.trim() ? "Generate meta description + social posts from the current body" : "Fill in the body first — distribution copy is generated from it."}
+                      >
+                        {suggestingDistribution ? (
+                          <><Loader2 size={12} className="animate-spin" /> Generating…</>
+                        ) : (
+                          <><Sparkles size={12} /> Suggest from this draft</>
+                        )}
+                      </button>
+                    </div>
+
                     <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                       URL Slug
                     </label>

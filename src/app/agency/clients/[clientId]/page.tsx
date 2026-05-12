@@ -142,6 +142,88 @@ function commaStringToJsonArray(value: string): string {
   return JSON.stringify(items);
 }
 
+// Industry vertical select with a custom-typing escape hatch. The control
+// keeps its own `mode` state so that picking "Other" doesn't immediately
+// clear the saved value and snap back to the default — the original bug
+// was that we cleared `industryVertical` to "" when the operator picked
+// Other, which then made the `isCustom` detection fail on the next render
+// and the typing input disappeared.
+const INDUSTRY_OPTIONS = [
+  "Construction", "General Contractor", "HVAC", "Plumbing", "Electrical",
+  "Roofing", "Landscaping", "Pest Control", "Home Services", "Cleaning Services",
+  "Auto Repair", "Automotive",
+  "Medical", "Dental", "Legal",
+  "Real Estate", "Insurance", "Financial Services", "Accounting",
+  "Restaurant", "Fitness",
+  "Web Development", "Marketing / Advertising", "Technology / SaaS",
+  "CAD / Engineering", "Architecture",
+  "E-commerce", "Professional Services", "Education / Training",
+] as const;
+
+function IndustryVerticalSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  // The dropdown shows one of:
+  //   - "" (placeholder)
+  //   - a preset value
+  //   - "__other__" (typing mode)
+  // We derive the initial mode from the saved value: anything not in the
+  // preset list AND non-empty means the operator typed a custom value
+  // previously, so we start in typing mode.
+  const isPreset = INDUSTRY_OPTIONS.includes(value as typeof INDUSTRY_OPTIONS[number]);
+  const startInOther = !!value && !isPreset;
+  const [mode, setMode] = useState<"preset" | "other">(startInOther ? "other" : "preset");
+
+  // Sync mode if the parent value changes externally (e.g. cancel + reopen).
+  useEffect(() => {
+    const next = !!value && !INDUSTRY_OPTIONS.includes(value as typeof INDUSTRY_OPTIONS[number]);
+    setMode(next ? "other" : "preset");
+  }, [value]);
+
+  const selectValue = mode === "other" ? "__other__" : value;
+
+  return (
+    <>
+      <select
+        className="input-field"
+        value={selectValue}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === "__other__") {
+            // Switch to typing mode but PRESERVE whatever the operator
+            // had typed before (if they previously had a custom value).
+            // If they picked Other for the first time, value is "" and
+            // the input renders empty + autofocused.
+            setMode("other");
+          } else {
+            setMode("preset");
+            onChange(next);
+          }
+        }}
+      >
+        <option value="">Select industry...</option>
+        {INDUSTRY_OPTIONS.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+        <option value="__other__">Other (type below)</option>
+      </select>
+      {mode === "other" && (
+        <input
+          className="input-field mt-2"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Type your industry..."
+          autoFocus
+        />
+      )}
+    </>
+  );
+}
+
 function MiniStat({
   label,
   value,
@@ -1136,52 +1218,10 @@ export default function ClientOverview() {
                 >
                   Industry Vertical
                 </label>
-                {(() => {
-                  const INDUSTRY_OPTIONS = [
-                    "Construction", "General Contractor", "HVAC", "Plumbing", "Electrical",
-                    "Roofing", "Landscaping", "Pest Control", "Home Services", "Cleaning Services",
-                    "Auto Repair", "Automotive",
-                    "Medical", "Dental", "Legal",
-                    "Real Estate", "Insurance", "Financial Services", "Accounting",
-                    "Restaurant", "Fitness",
-                    "Web Development", "Marketing / Advertising", "Technology / SaaS",
-                    "CAD / Engineering", "Architecture",
-                    "E-commerce", "Professional Services", "Education / Training",
-                  ];
-                  const isCustom = editForm.industryVertical && !INDUSTRY_OPTIONS.includes(editForm.industryVertical) && editForm.industryVertical !== "";
-                  const selectValue = isCustom ? "__other__" : editForm.industryVertical;
-
-                  return (
-                    <>
-                      <select
-                        className="input-field"
-                        value={selectValue}
-                        onChange={(e) => {
-                          if (e.target.value === "__other__") {
-                            updateField("industryVertical", "");
-                          } else {
-                            updateField("industryVertical", e.target.value);
-                          }
-                        }}
-                      >
-                        <option value="">Select industry...</option>
-                        {INDUSTRY_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                        <option value="__other__">Other (type below)</option>
-                      </select>
-                      {(selectValue === "__other__" || isCustom) && (
-                        <input
-                          className="input-field mt-2"
-                          value={editForm.industryVertical}
-                          onChange={(e) => updateField("industryVertical", e.target.value)}
-                          placeholder="Type your industry..."
-                          autoFocus
-                        />
-                      )}
-                    </>
-                  );
-                })()}
+                <IndustryVerticalSelect
+                  value={editForm.industryVertical}
+                  onChange={(v) => updateField("industryVertical", v)}
+                />
               </div>
               <div>
                 <label

@@ -42,6 +42,39 @@ async function getPublishedLibrary(clientId: string) {
  * body-generation prompt — and so we can backfill meta+social for already-
  * drafted pieces later via a "regenerate distribution" action.
  */
+/**
+ * Public wrapper for `generateDistributionAssets` used by the agency edit
+ * modal's "Suggest from this draft" button. Looks up the piece, validates
+ * agency auth, runs the same second Claude call we run at draft time, and
+ * returns the suggestions WITHOUT saving — the operator confirms before
+ * the values land in the DB. Saves are still routed through PATCH.
+ */
+export async function suggestDistributionAssets(contentPieceId: string): Promise<{
+  metaDescription: string | null;
+  socialPosts: { twitter: string; linkedin: string; facebook: string; instagram: string } | null;
+}> {
+  const session = await auth();
+  if (!session?.user || session.user.role === "CLIENT") {
+    throw new Error("Unauthorized");
+  }
+  const piece = await prisma.contentPiece.findUnique({
+    where: { id: contentPieceId },
+    include: { contentPlan: { include: { client: true } } },
+  });
+  if (!piece) throw new Error("Content piece not found");
+  if (!piece.body) {
+    throw new Error("Generate or paste a draft body first — distribution assets are written from the finished post.");
+  }
+  return generateDistributionAssets({
+    title: piece.title,
+    keyword: piece.keyword,
+    body: piece.body,
+    type: piece.type,
+    businessName: piece.contentPlan.client.name,
+    domain: piece.contentPlan.client.domain,
+  });
+}
+
 async function generateDistributionAssets(args: {
   title: string;
   keyword: string | null;
