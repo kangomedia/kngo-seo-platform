@@ -77,19 +77,27 @@ export async function PUT(
     );
   }
 
-  const enc = encrypt(wpAppPassword);
-  await prisma.client.update({
-    where: { id: clientId },
-    data: {
-      wpUrl: cleanedUrl,
-      wpUsername,
-      wpAppPasswordEnc: enc,
-    },
-  });
+  try {
+    const enc = encrypt(wpAppPassword);
+    await prisma.client.update({
+      where: { id: clientId },
+      data: {
+        wpUrl: cleanedUrl,
+        wpUsername,
+        wpAppPasswordEnc: enc,
+      },
+    });
 
-  return NextResponse.json({
-    ok: true,
-    configured: true,
-    verifiedAs: verify.userName,
-  });
+    return NextResponse.json({
+      ok: true,
+      configured: true,
+      verifiedAs: verify.userName,
+    });
+  } catch (err) {
+    console.error("[wordpress/route] Failed to save credentials:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to save credentials" },
+      { status: 500 }
+    );
+  }
 }

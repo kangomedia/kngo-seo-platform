@@ -88,6 +88,8 @@ export default function WordPressPage() {
         setWpAppPassword("");
         setMessage({ kind: "ok", text: data.verifiedAs ? `Verified as ${data.verifiedAs}` : "Saved" });
       }
+    } catch (err) {
+      setMessage({ kind: "err", text: err instanceof Error ? err.message : "Save failed — check console for details" });
     } finally {
       setBusy(false);
     }
