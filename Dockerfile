@@ -24,7 +24,13 @@ COPY . .
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS="--max-old-space-size=2048"
+# Next.js 16 + Turbopack builds for this app exceed 2GB heap (saw "Ineffective
+# mark-compacts near heap limit" crash at ~622s into the build). 4GB gives
+# headroom without overcommitting on a Vultr/Coolify host. If the build host
+# has less than 4GB free during build, lower this — but the docker container
+# can use more than the host's *current* free RAM as long as the host's total
+# RAM + swap > this value.
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 RUN npm run build
 
