@@ -683,7 +683,7 @@ export async function generateStrategicAnalysis(
     .map(([g, c]) => `${g}: ${c} keywords`)
     .join(", ");
 
-  const prompt = `You are an SEO strategist preparing a keyword research summary for a client.
+  const prompt = `You are an SEO strategist preparing a keyword research summary for a client. This is shown on the client's own dashboard — write to the business owner directly.
 
 BUSINESS PROFILE:
 ${businessContext}
@@ -693,14 +693,31 @@ KEYWORD GROUPS FOUND: ${groupSummary}
 TOP KEYWORDS (sorted by relevance × search volume):
 ${kwSummary}
 
-Write a strategic analysis (3-5 paragraphs) covering:
-1. **Top Priority Keywords** — The 5-8 keywords they should track immediately and why
-2. **Quick Wins** — Keywords where they likely have some presence already
-3. **Content Strategy** — Blog topics and landing pages they should create based on these keywords
-4. **Local SEO** — Location-specific opportunities they should capitalize on
-5. **Next Steps** — Concrete actions for month 1 of their SEO campaign
+Write a strategic analysis with these sections, in this order, using markdown headings:
 
-Be specific, mention actual keywords by name, and explain WHY each recommendation matters for their specific business type. Write for a business owner, not an SEO expert.`;
+## Top Priority Keywords
+Which 5–8 keywords matter most and why.
+
+## Quick Wins
+Keywords they can likely rank for fast.
+
+## Content Strategy
+Blog topics and landing pages they should create.
+
+## Local SEO
+Location-specific opportunities, if any.
+
+## Next Steps
+Concrete actions for the first 30 days.
+
+FORMAT RULES (important — the renderer is simple):
+- Use level-2 markdown headings (## Section Name) for each section above. Do NOT use a level-1 (# ) heading for the document title.
+- Keep paragraphs SHORT — 2–4 sentences max. If a thought runs longer, break it into two paragraphs.
+- Prefer bullet lists when listing keywords, opportunities, or action items. Use "- " for bullets.
+- Use **bold** sparingly to highlight the most important phrase per paragraph.
+- Do not use any of these terms: TOFU, MOFU, BOFU, "topical authority", "keyword clusters" (use "groups of related keywords" instead), SERP, "search intent" (use "what the searcher is trying to do" instead), GBP (spell out "Google Business Profile").
+- Mention actual keywords in quotes ("like this").
+- Write like a confident strategist talking to a business owner over coffee — no buzzwords, no fluff.`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {

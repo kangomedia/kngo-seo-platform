@@ -306,10 +306,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { reportId, isArchived } = body;
-  if (!reportId || typeof isArchived !== "boolean") {
+  const { reportId, isArchived, isPublished } = body;
+  if (!reportId || (typeof isArchived !== "boolean" && typeof isPublished !== "boolean")) {
     return NextResponse.json(
-      { error: "reportId and isArchived (boolean) are required" },
+      { error: "reportId and at least one of isArchived/isPublished (boolean) are required" },
       { status: 400 }
     );
   }
@@ -322,9 +322,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
   }
 
+  const updates: { isArchived?: boolean; isPublished?: boolean } = {};
+  if (typeof isArchived === "boolean") updates.isArchived = isArchived;
+  if (typeof isPublished === "boolean") updates.isPublished = isPublished;
+
   const updated = await prisma.report.update({
     where: { id: reportId },
-    data: { isArchived },
+    data: updates,
   });
 
   return NextResponse.json(updated);

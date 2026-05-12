@@ -174,6 +174,19 @@ export default function ReportsPage() {
     }
   };
 
+  const handleTogglePublish = async (reportId: string, publish: boolean) => {
+    const res = await fetch(`/api/clients/${clientId}/reports`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reportId, isPublished: publish }),
+    });
+    if (res.ok) {
+      setReports((prev) =>
+        prev.map((r) => (r.id === reportId ? { ...r, isPublished: publish } : r))
+      );
+    }
+  };
+
   const handleDelete = async (reportId: string) => {
     const res = await fetch(`/api/clients/${clientId}/reports?reportId=${reportId}`, {
       method: "DELETE",
@@ -571,11 +584,23 @@ export default function ReportsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {report.isPublished && (
-                    <span className="status-badge status-published">
-                      Published
-                    </span>
-                  )}
+                  <button
+                    onClick={() => handleTogglePublish(report.id, !report.isPublished)}
+                    className="status-badge"
+                    style={{
+                      background: report.isPublished ? "rgba(34,197,94,0.15)" : "rgba(245,158,11,0.15)",
+                      color: report.isPublished ? "#22c55e" : "#f59e0b",
+                      cursor: "pointer",
+                      border: "none",
+                    }}
+                    title={
+                      report.isPublished
+                        ? "Published — visible at the public link. Click to unpublish."
+                        : "Draft — the public link will return 404. Click to publish so the client can view it."
+                    }
+                  >
+                    {report.isPublished ? "Published" : "Draft — click to publish"}
+                  </button>
                   <button
                     onClick={() => handleCopyLink(report.uuid)}
                     className="btn-secondary text-xs"

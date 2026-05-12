@@ -507,13 +507,24 @@ Return ONLY the JSON, no surrounding text.`;
 
         send({ type: "progress", stage: "summary" });
 
-        // Generate AI summary
-        const summaryPrompt = `Based on this content strategy map, write a 2-3 sentence executive summary for the agency team explaining the core strategy and expected SEO outcomes:
+        // Generate AI summary — this surface is shown to CLIENTS on the public
+        // portal, not just the agency team. Plain language only. No markdown
+        // headings, no industry acronyms (TOFU/MOFU/BOFU, GBP, CTA, SERP,
+        // SEO industry slang). Output should read like a confident project
+        // manager briefing a small-business owner over coffee.
+        const summaryPrompt = `Write a short, client-friendly summary of the next six months of marketing work for ${client.name} in ${locationStr}.
 
+The strategy data (for your reference only):
 ${JSON.stringify(mapData, null, 2)}
 
-Business: ${client.name} in ${locationStr}
-Keep it concise and actionable.`;
+Rules:
+- 3–4 sentences total. Plain prose paragraph, NO markdown headings, NO bullet lists, NO bold/italic markers.
+- DO NOT use industry jargon. Avoid these terms entirely: TOFU, MOFU, BOFU, awareness/comparison/intent stages, GBP, GBP posts, GBP Q&As, CTA, SERP, funnel stage, search intent, topical authority, "keyword clusters."
+- Translate concepts to plain language: instead of "GBP posts" say "Google Business Profile updates"; instead of "BOFU/MOFU/TOFU" describe by purpose ("guides for people ready to hire", "comparison pieces for shoppers", "introductory articles for people just researching"); instead of "topical authority" say "trusted expertise" or "credibility".
+- Lead with what the business will SEE: more local search visibility, more inbound calls, more booked consultations — not what we'll DO internally.
+- Avoid prescribing specific months. Say "over the next six months" or "in the early months" rather than "Month 1" / "Month 3 / Month 6".
+- End on the outcome the client can expect, in concrete terms.
+- No quotation marks around terms. No emoji.`;
 
         let aiSummary: string | null = null;
         try {

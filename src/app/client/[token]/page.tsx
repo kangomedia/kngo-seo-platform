@@ -105,6 +105,21 @@ interface StrategyData {
   };
 }
 
+// Strip common markdown syntax so it never reaches the client portal as
+// literal characters. Targets headings (##, #), bold/italic markers (**, __,
+// *, _), code fences, and trailing whitespace from the conversion.
+function stripMarkdown(s: string): string {
+  return s
+    .replace(/^#{1,6}\s+/gm, "")               // # heading → heading
+    .replace(/\*\*([^*]+)\*\*/g, "$1")           // **bold** → bold
+    .replace(/__([^_]+)__/g, "$1")               // __bold__ → bold
+    .replace(/(^|\s)\*([^*\s][^*]*[^*\s])\*(?=\s|$)/g, "$1$2") // *em* → em
+    .replace(/(^|\s)_([^_\s][^_]*[^_\s])_(?=\s|$)/g, "$1$2")   // _em_ → em
+    .replace(/`([^`]+)`/g, "$1")                  // `code` → code
+    .replace(/^\s*[-*+]\s+/gm, "")               // - list → list
+    .trim();
+}
+
 export default function ClientDashboard() {
   const params = useParams();
   const token = params.token as string;
@@ -424,11 +439,18 @@ export default function ClientDashboard() {
 
             {strategy.aiSummary && (
               <p className="text-sm leading-relaxed mb-5" style={{ color: "#444" }}>
-                {strategy.aiSummary}
+                {/* Defensively strip leftover markdown from older strategies
+                    (## headings, **bold** markers) so the client never sees
+                    raw markdown syntax in their summary. New strategies use a
+                    plain-language prompt that doesn't produce these. */}
+                {stripMarkdown(strategy.aiSummary)}
               </p>
             )}
 
-            {/* Pillars */}
+            {/* Pillars — shown as theme areas, no monthly commitments */}
+            <p className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "#888" }}>
+              Focus Areas
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
               {strategy.mapData.pillars.map((pillar) => {
                 const pp = (pillar.pieces || []).filter((p) => p.promoted).length;
@@ -456,7 +478,7 @@ export default function ClientDashboard() {
                     <div className="mt-2">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-bold uppercase" style={{ color: "#888" }}>
-                          {pp} / {pt} scheduled
+                          {pp} of {pt} scheduled
                         </span>
                         <span className="text-[10px] font-bold" style={{ color: "#7C3AED" }}>
                           {pct}%
@@ -477,36 +499,11 @@ export default function ClientDashboard() {
                 );
               })}
             </div>
-
-            {/* Monthly themes */}
-            {Object.keys(monthlyFocus).length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-                {Object.entries(monthlyFocus)
-                  .sort(([a], [b]) => Number(a) - Number(b))
-                  .map(([m, focus]) => {
-                    const isCurrent = Number(m) === Math.min(monthsElapsed, 6);
-                    return (
-                      <div
-                        key={m}
-                        className="p-2 rounded-lg"
-                        style={{
-                          background: isCurrent ? "#7C3AED" : "#FFFFFF",
-                          border: `1px solid ${isCurrent ? "#7C3AED" : "#E4E4E4"}`,
-                          color: isCurrent ? "#fff" : "#444",
-                        }}
-                      >
-                        <p
-                          className="text-[10px] font-bold uppercase"
-                          style={{ color: isCurrent ? "rgba(255,255,255,0.85)" : "#888" }}
-                        >
-                          Month {m}
-                        </p>
-                        <p className="text-xs font-semibold leading-tight">{focus}</p>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+            {/* Monthly themes intentionally not shown to the client — the
+                six-month framing is communicated by the heading + summary, but
+                we don't commit to a specific theme per month since the agency
+                may pivot based on results. The agency still sees these on the
+                internal Strategy tab. */}
           </div>
         );
       })()}

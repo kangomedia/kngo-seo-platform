@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import {
   Shield,
   Search,
@@ -84,6 +85,45 @@ interface BaselineReportData {
     pageViews: number;
     trafficSources: TrafficSource[];
   } | null;
+}
+
+// Render simple inline markdown — `**bold**` and `` `code` `` — as React
+// nodes. Doesn't handle nested formatting, but covers the patterns Claude
+// uses in the Strategic Analysis section.
+function renderInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const m = match[0];
+    if (m.startsWith("**")) {
+      parts.push(
+        <strong key={key++} style={{ color: "#222" }}>
+          {m.slice(2, -2)}
+        </strong>
+      );
+    } else {
+      parts.push(
+        <code
+          key={key++}
+          style={{
+            background: "#F1F5F9",
+            padding: "1px 4px",
+            borderRadius: 3,
+            fontSize: "0.92em",
+          }}
+        >
+          {m.slice(1, -1)}
+        </code>
+      );
+    }
+    last = match.index + m.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length > 0 ? parts : text;
 }
 
 function getScoreColor(score: number): string {
@@ -519,35 +559,88 @@ export default function BaselineReport({ data }: { data: BaselineReportData }) {
               className="text-sm leading-relaxed prose prose-sm max-w-none"
               style={{ color: "#444" }}
             >
-              {data.aiAnalysis.split("\n").map((line, i) => {
-                if (!line.trim()) return <br key={i} />;
-                if (line.startsWith("**") && line.endsWith("**")) {
+              {(() => {
+                // Drop the top-level "# Strategic Analysis" heading if Claude
+                // included it — the section already has a real <h2> above.
+                // Also collapse markdown horizontal rules (---) into spacers
+                // so they don't render as literal dashes.
+                const lines = data.aiAnalysis
+                  .split("\n")
+                  .filter((l: string, idx: number) => {
+                    if (idx === 0 && /^#\s+/.test(l.trim())) return false;
+                    return true;
+                  });
+                return lines.map((line: string, i: number) => {
+                  const trimmed = line.trim();
+                  if (!trimmed) return <div key={i} style={{ height: 8 }} />;
+                  if (trimmed === "---" || trimmed === "***") {
+                    return (
+                      <hr
+                        key={i}
+                        className="my-4"
+                        style={{ borderColor: "#E4E4E4" }}
+                      />
+                    );
+                  }
+                  // ## Heading 2
+                  if (/^##\s+/.test(trimmed)) {
+                    return (
+                      <h3
+                        key={i}
+                        className="text-base font-extrabold mt-5 mb-2"
+                        style={{ color: "#222" }}
+                      >
+                        {trimmed.replace(/^##\s+/, "")}
+                      </h3>
+                    );
+                  }
+                  // # Heading 1 (treat like h3 too since the section already has h2)
+                  if (/^#\s+/.test(trimmed)) {
+                    return (
+                      <h3
+                        key={i}
+                        className="text-base font-extrabold mt-5 mb-2"
+                        style={{ color: "#222" }}
+                      >
+                        {trimmed.replace(/^#\s+/, "")}
+                      </h3>
+                    );
+                  }
+                  // **Bold heading** on its own line
+                  if (/^\*\*[^*]+\*\*$/.test(trimmed)) {
+                    return (
+                      <h4
+                        key={i}
+                        className="text-sm font-bold mt-4 mb-2"
+                        style={{ color: "#222" }}
+                      >
+                        {trimmed.replace(/\*\*/g, "")}
+                      </h4>
+                    );
+                  }
+                  // - bullet
+                  if (/^[-*]\s+/.test(trimmed)) {
+                    return (
+                      <p key={i} className="ml-4 mb-1" style={{ color: "#444" }}>
+                        • {renderInline(trimmed.replace(/^[-*]\s+/, ""))}
+                      </p>
+                    );
+                  }
+                  // 1. numbered
+                  if (/^\d+\.\s/.test(trimmed)) {
+                    return (
+                      <p key={i} className="ml-4 mb-1" style={{ color: "#444" }}>
+                        {renderInline(trimmed)}
+                      </p>
+                    );
+                  }
                   return (
-                    <h3 key={i} className="text-sm font-bold mt-4 mb-2" style={{ color: "#222" }}>
-                      {line.replace(/\*\*/g, "")}
-                    </h3>
-                  );
-                }
-                if (line.startsWith("- ") || line.startsWith("* ")) {
-                  return (
-                    <p key={i} className="ml-4 mb-1" style={{ color: "#444" }}>
-                      • {line.slice(2)}
+                    <p key={i} className="mb-2" style={{ color: "#444" }}>
+                      {renderInline(trimmed)}
                     </p>
                   );
-                }
-                if (line.match(/^\d+\.\s/)) {
-                  return (
-                    <p key={i} className="ml-4 mb-1" style={{ color: "#444" }}>
-                      {line}
-                    </p>
-                  );
-                }
-                return (
-                  <p key={i} className="mb-2" style={{ color: "#444" }}>
-                    {line}
-                  </p>
-                );
-              })}
+                });
+              })()}
             </div>
           </div>
         )}
