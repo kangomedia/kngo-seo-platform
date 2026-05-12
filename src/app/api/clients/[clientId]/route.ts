@@ -82,7 +82,7 @@ export async function PUT(
     "gscProperty", "ga4PropertyId", "sitemapUrl",
     // Business Profile (AI keyword targeting)
     "businessDescription", "primaryServices", "idealClientProfile",
-    "priceRange", "industryVertical",
+    "priceRange", "industryVertical", "industrySector",
     // Strategy / ROI fields
     "serviceAreas", "targetCities", "icpPains", "competitors",
     "avgCpcUsd", "brandTerms",

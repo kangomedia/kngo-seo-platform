@@ -144,6 +144,7 @@ export async function POST(request: Request) {
       idealClientProfile: body.idealClientProfile || null,
       icpPains: body.icpPains ? JSON.stringify(body.icpPains) : null,
       industryVertical: body.industryVertical || body.category || null,
+      industrySector: body.industrySector || null,
       priceRange: body.priceRange || null,
       onboardingStatus: body.domain ? "PENDING" : null,
       monthlyBlogs: defaults.monthlyBlogs,

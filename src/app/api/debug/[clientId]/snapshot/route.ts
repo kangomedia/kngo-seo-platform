@@ -112,6 +112,7 @@ export async function GET(
     idealClientProfile: client.idealClientProfile,
     priceRange: client.priceRange,
     industryVertical: client.industryVertical,
+    industrySector: client.industrySector,
     icpPains: safeParseJson<string[]>(client.icpPains, []),
   };
 

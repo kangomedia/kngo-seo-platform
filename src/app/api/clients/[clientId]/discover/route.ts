@@ -58,6 +58,7 @@ export async function POST(
       idealClientProfile: true,
       priceRange: true,
       industryVertical: true,
+      industrySector: true,
     },
   });
 
@@ -106,6 +107,7 @@ export async function POST(
     idealClientProfile: client.idealClientProfile || null,
     priceRange: client.priceRange || null,
     industryVertical: client.industryVertical || null,
+    industrySector: client.industrySector || null,
     serviceAreas,
     targetCities,
   };

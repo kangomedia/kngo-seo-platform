@@ -28,29 +28,7 @@ import {
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
-// ─── Common Industry Categories ────────────────────────────
-const INDUSTRY_CATEGORIES = [
-  "Plumbing",
-  "HVAC",
-  "Electrical",
-  "Roofing",
-  "General Contractor",
-  "Landscaping",
-  "Pest Control",
-  "Auto Repair",
-  "Dental",
-  "Medical",
-  "Legal",
-  "Real Estate",
-  "Restaurant",
-  "Fitness",
-  "Salon / Barber",
-  "Cleaning Services",
-  "Moving Company",
-  "Insurance",
-  "Accounting / CPA",
-  "Other",
-];
+import { SECTORS } from "@/lib/industry-taxonomy";
 
 // ─── Onboarding Wizard ────────────────────────────────────
 
@@ -69,7 +47,9 @@ function ClientOnboardingWizard({
   const [contactEmail, setContactEmail] = useState("");
   const [domain, setDomain] = useState("");
   const [tier, setTier] = useState("STARTER");
-  const [category, setCategory] = useState("");
+  const [industrySector, setIndustrySector] = useState("");
+  const [industryVertical, setIndustryVertical] = useState("");
+  const [verticalSearch, setVerticalSearch] = useState("");
   const [primaryCity, setPrimaryCity] = useState("");
   const [primaryState, setPrimaryState] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
@@ -138,7 +118,8 @@ function ClientOnboardingWizard({
         body: JSON.stringify({
           businessDescription: businessDescription.trim() || undefined,
           idealClientProfile: idealClientProfile.trim() || undefined,
-          industryVertical: category || undefined,
+          industryVertical: industryVertical || undefined,
+          industrySector: industrySector || undefined,
           primaryServices: services,
         }),
       });
@@ -185,7 +166,7 @@ function ClientOnboardingWizard({
           contactEmail,
           domain: domain.replace(/^https?:\/\//, "").replace(/\/$/, ""),
           tier,
-          category,
+          category: industryVertical || industrySector || undefined,
           city: primaryCity,
           state: primaryState,
           // serviceAreas (geographic) left empty unless explicitly captured.
@@ -197,7 +178,8 @@ function ClientOnboardingWizard({
           idealClientProfile: idealClientProfile.trim() || null,
           icpPains,
           priceRange: priceRange || null,
-          industryVertical: category || null,
+          industryVertical: industryVertical || null,
+          industrySector: industrySector || null,
         }),
       });
 
@@ -337,14 +319,49 @@ function ClientOnboardingWizard({
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
-                  Industry Category
+                  Industry Sector
                 </label>
-                <select className="input-field" value={category} onChange={(e) => setCategory(e.target.value)}>
-                  <option value="">Select category...</option>
-                  {INDUSTRY_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
+                <select className="input-field" value={industrySector} onChange={(e) => { setIndustrySector(e.target.value); setIndustryVertical(""); setVerticalSearch(""); }}>
+                  <option value="">Select sector...</option>
+                  {SECTORS.map((s) => (
+                    <option key={s.id} value={s.label}>{s.label}</option>
                   ))}
                 </select>
+                {industrySector && industrySector !== "Other" && (() => {
+                  const sectorObj = SECTORS.find((s) => s.label === industrySector);
+                  const verts = sectorObj?.verticals ?? [];
+                  const filtered = verticalSearch
+                    ? verts.filter((v) => v.toLowerCase().includes(verticalSearch.toLowerCase()))
+                    : verts;
+                  return verts.length > 0 ? (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {verts.length > 15 && (
+                        <input
+                          className="input-field"
+                          value={verticalSearch}
+                          onChange={(e) => setVerticalSearch(e.target.value)}
+                          placeholder="Search verticals..."
+                          style={{ fontSize: 12 }}
+                        />
+                      )}
+                      <select className="input-field" value={industryVertical} onChange={(e) => setIndustryVertical(e.target.value)}>
+                        <option value="">Select vertical...</option>
+                        {filtered.map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null;
+                })()}
+                {industrySector === "Other" && (
+                  <input
+                    className="input-field mt-2"
+                    value={industryVertical}
+                    onChange={(e) => setIndustryVertical(e.target.value)}
+                    placeholder="Type your industry..."
+                    autoFocus
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -453,7 +470,7 @@ function ClientOnboardingWizard({
                     onClick={suggestPains}
                     disabled={
                       suggestingPains ||
-                      (!businessDescription.trim() && !idealClientProfile.trim() && !category && services.length === 0)
+                      (!businessDescription.trim() && !idealClientProfile.trim() && !industrySector && services.length === 0)
                     }
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
                     style={{
@@ -461,7 +478,7 @@ function ClientOnboardingWizard({
                       color: "#7C3AED",
                       opacity:
                         suggestingPains ||
-                        (!businessDescription.trim() && !idealClientProfile.trim() && !category && services.length === 0)
+                        (!businessDescription.trim() && !idealClientProfile.trim() && !industrySector && services.length === 0)
                           ? 0.5
                           : 1,
                       cursor: suggestingPains ? "wait" : "pointer",
@@ -743,10 +760,10 @@ function ClientOnboardingWizard({
                     <span style={{ color: "var(--text-muted)" }}>Tier:</span>{" "}
                     <strong>{tier === "STARTER" ? "Local Visibility" : tier === "GROWTH" ? "Growth SEO" : "Authority SEO"}</strong>
                   </div>
-                  {category && (
+                  {(industrySector || industryVertical) && (
                     <div>
                       <span style={{ color: "var(--text-muted)" }}>Industry:</span>{" "}
-                      <strong>{category}</strong>
+                      <strong>{industryVertical || industrySector}</strong>
                     </div>
                   )}
                   {primaryCity && (

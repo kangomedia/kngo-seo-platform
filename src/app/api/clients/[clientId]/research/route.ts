@@ -56,6 +56,7 @@ export async function POST(
       state: true,
       gbpCategory: true,
       industryVertical: true,
+      industrySector: true,
       businessDescription: true,
       idealClientProfile: true,
       priceRange: true,
@@ -86,6 +87,7 @@ export async function POST(
     idealClientProfile: client.idealClientProfile,
     priceRange: client.priceRange,
     industryVertical: client.industryVertical || client.gbpCategory,
+    industrySector: client.industrySector || null,
     serviceAreas: parseList(client.serviceAreas),
     targetCities: parseList(client.targetCities),
   };

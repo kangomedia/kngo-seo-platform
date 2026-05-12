@@ -73,6 +73,7 @@ interface ClientDetail {
   idealClientProfile: string | null;
   priceRange: string | null;
   industryVertical: string | null;
+  industrySector: string | null;
   serviceAreas: string | null;
   targetCities: string | null;
   icpPains: string | null;
@@ -142,85 +143,82 @@ function commaStringToJsonArray(value: string): string {
   return JSON.stringify(items);
 }
 
-// Industry vertical select with a custom-typing escape hatch. The control
-// keeps its own `mode` state so that picking "Other" doesn't immediately
-// clear the saved value and snap back to the default — the original bug
-// was that we cleared `industryVertical` to "" when the operator picked
-// Other, which then made the `isCustom` detection fail on the next render
-// and the typing input disappeared.
-const INDUSTRY_OPTIONS = [
-  "Construction", "General Contractor", "HVAC", "Plumbing", "Electrical",
-  "Roofing", "Landscaping", "Pest Control", "Home Services", "Cleaning Services",
-  "Auto Repair", "Automotive",
-  "Medical", "Dental", "Legal",
-  "Real Estate", "Insurance", "Financial Services", "Accounting",
-  "Restaurant", "Fitness",
-  "Web Development", "Marketing / Advertising", "Technology / SaaS",
-  "CAD / Engineering", "Architecture",
-  "E-commerce", "Professional Services", "Education / Training",
-] as const;
+import { SECTORS, getSectorForVertical, resolveLegacyIndustry } from "@/lib/industry-taxonomy";
 
-function IndustryVerticalSelect({
-  value,
-  onChange,
+// ─── Two-Tier Industry Picker ──────────────────────────────
+// Sector dropdown → filtered Vertical dropdown (with search).
+// "Other" sector shows a free-text input.
+function SectorVerticalPicker({
+  sector,
+  vertical,
+  onSectorChange,
+  onVerticalChange,
 }: {
-  value: string;
-  onChange: (next: string) => void;
+  sector: string;
+  vertical: string;
+  onSectorChange: (s: string) => void;
+  onVerticalChange: (v: string) => void;
 }) {
-  // The dropdown shows one of:
-  //   - "" (placeholder)
-  //   - a preset value
-  //   - "__other__" (typing mode)
-  // We derive the initial mode from the saved value: anything not in the
-  // preset list AND non-empty means the operator typed a custom value
-  // previously, so we start in typing mode.
-  const isPreset = INDUSTRY_OPTIONS.includes(value as typeof INDUSTRY_OPTIONS[number]);
-  const startInOther = !!value && !isPreset;
-  const [mode, setMode] = useState<"preset" | "other">(startInOther ? "other" : "preset");
+  const [verticalSearch, setVerticalSearch] = useState("");
 
-  // Sync mode if the parent value changes externally (e.g. cancel + reopen).
-  useEffect(() => {
-    const next = !!value && !INDUSTRY_OPTIONS.includes(value as typeof INDUSTRY_OPTIONS[number]);
-    setMode(next ? "other" : "preset");
-  }, [value]);
+  const selectedSector = SECTORS.find((s) => s.label === sector);
+  const verticals = selectedSector?.verticals ?? [];
+  const isOther = sector === "Other" || (sector && !selectedSector);
 
-  const selectValue = mode === "other" ? "__other__" : value;
+  const filteredVerticals = verticalSearch
+    ? verticals.filter((v) => v.toLowerCase().includes(verticalSearch.toLowerCase()))
+    : verticals;
 
   return (
-    <>
+    <div className="flex flex-col gap-2">
       <select
         className="input-field"
-        value={selectValue}
+        value={sector}
         onChange={(e) => {
           const next = e.target.value;
-          if (next === "__other__") {
-            // Switch to typing mode but PRESERVE whatever the operator
-            // had typed before (if they previously had a custom value).
-            // If they picked Other for the first time, value is "" and
-            // the input renders empty + autofocused.
-            setMode("other");
-          } else {
-            setMode("preset");
-            onChange(next);
-          }
+          onSectorChange(next);
+          // Clear vertical when sector changes (unless Other)
+          if (next !== "Other") onVerticalChange("");
         }}
       >
-        <option value="">Select industry...</option>
-        {INDUSTRY_OPTIONS.map((opt) => (
-          <option key={opt} value={opt}>{opt}</option>
+        <option value="">Select sector...</option>
+        {SECTORS.map((s) => (
+          <option key={s.id} value={s.label}>{s.label}</option>
         ))}
-        <option value="__other__">Other (type below)</option>
       </select>
-      {mode === "other" && (
+      {sector && !isOther && verticals.length > 0 && (
+        <>
+          {verticals.length > 15 && (
+            <input
+              className="input-field"
+              value={verticalSearch}
+              onChange={(e) => setVerticalSearch(e.target.value)}
+              placeholder="Search verticals..."
+              style={{ fontSize: 12 }}
+            />
+          )}
+          <select
+            className="input-field"
+            value={vertical}
+            onChange={(e) => onVerticalChange(e.target.value)}
+          >
+            <option value="">Select vertical...</option>
+            {filteredVerticals.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        </>
+      )}
+      {isOther && (
         <input
-          className="input-field mt-2"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          className="input-field"
+          value={vertical}
+          onChange={(e) => onVerticalChange(e.target.value)}
           placeholder="Type your industry..."
           autoFocus
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -749,6 +747,7 @@ export default function ClientOverview() {
     idealClientProfile: "",
     priceRange: "",
     industryVertical: "",
+    industrySector: "",
     // icpPains stays as a JSON string in editForm because the tag-list UI
     // mutates it as a structured value, not a free-typed string.
     icpPains: "",
@@ -805,6 +804,14 @@ export default function ClientOverview() {
       idealClientProfile: data.idealClientProfile || "",
       priceRange: data.priceRange || "",
       industryVertical: data.industryVertical || "",
+      industrySector: data.industrySector || (() => {
+        // Auto-resolve sector for legacy clients that only have a vertical
+        if (data.industryVertical) {
+          const resolved = resolveLegacyIndustry(data.industryVertical);
+          return resolved.sector;
+        }
+        return "";
+      })(),
       // icpPains stays JSON-stringified (tag-list reads/writes the JSON form)
       icpPains: data.icpPains || "",
       avgCpcUsd: data.avgCpcUsd ?? 3.5,
@@ -1218,9 +1225,11 @@ export default function ClientOverview() {
                 >
                   Industry Vertical
                 </label>
-                <IndustryVerticalSelect
-                  value={editForm.industryVertical}
-                  onChange={(v) => updateField("industryVertical", v)}
+                <SectorVerticalPicker
+                  sector={editForm.industrySector}
+                  vertical={editForm.industryVertical}
+                  onSectorChange={(s) => updateField("industrySector", s)}
+                  onVerticalChange={(v) => updateField("industryVertical", v)}
                 />
               </div>
               <div>

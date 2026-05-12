@@ -18,6 +18,7 @@ export interface BusinessProfile {
   idealClientProfile: string | null;
   priceRange: string | null;
   industryVertical: string | null;
+  industrySector: string | null;
   serviceAreas: string[];
   targetCities: string[];
   clientName: string;
@@ -272,6 +273,7 @@ export async function generateAISeeds(
     profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
     profile.primaryServices.length > 0 ? `Services: ${profile.primaryServices.join(", ")}` : null,
     profile.idealClientProfile ? `Ideal customer: ${profile.idealClientProfile}` : null,
+    profile.industrySector ? `Industry sector: ${profile.industrySector}` : null,
     profile.industryVertical ? `Industry vertical: ${profile.industryVertical}` : null,
     profile.serviceAreas.length > 0 ? `Service areas: ${profile.serviceAreas.join(", ")}` : null,
     `Primary city: ${cityLine}`,
@@ -350,12 +352,14 @@ export async function generatePainPointSeeds(
     profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
     profile.primaryServices.length > 0 ? `Services: ${profile.primaryServices.join(", ")}` : null,
     profile.idealClientProfile ? `Ideal customer: ${profile.idealClientProfile}` : null,
+    profile.industrySector ? `Industry sector: ${profile.industrySector}` : null,
     profile.industryVertical ? `Industry vertical: ${profile.industryVertical}` : null,
     painLines.length > 0 ? `ICP pain points (verbatim from the agency):\n  - ${painLines.join("\n  - ")}` : null,
   ].filter(Boolean).join("\n");
 
-  const verticalNudge = profile.industryVertical
-    ? `\nIMPORTANT: This business operates in **${profile.industryVertical}**. Generate seeds in the language THIS vertical's customers use — not generic SaaS or service-business automation phrases. A customer's vocabulary in this industry is specific (e.g. an HVAC homeowner doesn't search the same terms as a personal-injury claimant).`
+  const sectorLabel = profile.industrySector || profile.industryVertical || null;
+  const verticalNudge = sectorLabel
+    ? `\nIMPORTANT: This business operates in **${profile.industryVertical || sectorLabel}**${profile.industrySector ? ` (sector: ${profile.industrySector})` : ""}. Generate seeds in the language THIS vertical's customers use — not generic SaaS or service-business automation phrases. A customer's vocabulary in this industry is specific (e.g. an HVAC homeowner doesn't search the same terms as a personal-injury claimant).`
     : "";
 
   const prompt = `You are an SEO strategist generating DEMAND-CREATION SEED keywords for top-of-funnel and middle-of-funnel content. These will be EXPANDED by a keyword research tool (DataForSEO) into related queries — so the seeds themselves need to be **short, head-term phrases** that the tool can match against its index, NOT long descriptive sentences.
@@ -499,7 +503,8 @@ export async function scoreKeywordRelevance(
     profile.primaryServices.length > 0 ? `Core Services: ${profile.primaryServices.join(", ")}` : null,
     profile.idealClientProfile ? `Ideal Client: ${profile.idealClientProfile}` : null,
     profile.priceRange ? `Price Range: ${profile.priceRange}` : null,
-    profile.industryVertical ? `Industry: ${profile.industryVertical}` : null,
+    profile.industrySector ? `Industry Sector: ${profile.industrySector}` : null,
+    profile.industryVertical ? `Industry Vertical: ${profile.industryVertical}` : null,
     profile.serviceAreas.length > 0 ? `Service Areas: ${profile.serviceAreas.join(", ")}` : null,
     profile.targetCities.length > 0 ? `Target Cities: ${profile.targetCities.join(", ")}` : null,
   ].filter(Boolean).join("\n");
@@ -666,7 +671,8 @@ export async function generateStrategicAnalysis(
     profile.businessDescription || null,
     profile.idealClientProfile ? `Ideal Client: ${profile.idealClientProfile}` : null,
     profile.priceRange ? `Price Range: ${profile.priceRange}` : null,
-    profile.industryVertical ? `Industry: ${profile.industryVertical}` : null,
+    profile.industrySector ? `Industry Sector: ${profile.industrySector}` : null,
+    profile.industryVertical ? `Industry Vertical: ${profile.industryVertical}` : null,
   ].filter(Boolean).join("\n");
 
   const kwSummary = keywords.slice(0, 40).map((kw, i) =>

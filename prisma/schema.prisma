@@ -121,7 +121,8 @@ model Client {
   primaryServices      String?  @db.Text  // JSON array: ["custom websites", "web apps", "SEO"]
   idealClientProfile   String?  @db.Text  // "Large contractor companies, $5M+ revenue"
   priceRange           String?            // "budget", "mid-range", "premium", "enterprise"
-  industryVertical     String?            // "Construction", "Medical", "Legal" etc.
+  industryVertical     String?            // Tier 2: specific vertical, e.g. "Plumber", "Med Spa", "Personal Injury Attorney"
+  industrySector       String?            // Tier 1: broad bucket, e.g. "Home Services & Trades", "Health & Medical"
 
   // WordPress Publishing
   wpUrl              String?  // e.g. "https://example.com" (no trailing slash)
