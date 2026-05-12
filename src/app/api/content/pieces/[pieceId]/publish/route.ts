@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { loadCredentials, createPost } from "@/lib/wordpress";
-import { generateSlug } from "@/lib/actions-ai";
+import { generateSlug } from "@/lib/slug";
 
 /**
  * Replace every `[anchor](slug)` placeholder in a draft body with either:

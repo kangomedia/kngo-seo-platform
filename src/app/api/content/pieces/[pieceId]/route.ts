@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { syncInternalLinks, generateSlug } from "@/lib/actions-ai";
+import { syncInternalLinks } from "@/lib/actions-ai";
+import { generateSlug } from "@/lib/slug";
 
 export async function DELETE(
   _req: Request,
