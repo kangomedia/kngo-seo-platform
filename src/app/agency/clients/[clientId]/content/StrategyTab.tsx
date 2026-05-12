@@ -75,13 +75,36 @@ interface ClientLimits {
   monthlyPressReleases: number;
 }
 
+interface PlanPiece {
+  id: string;
+  type: string;
+}
+
+interface PlanSummary {
+  id: string;
+  month: number;
+  year: number;
+  pieces: PlanPiece[];
+}
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+const MONTH_NAMES_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 export default function StrategyTab({
   clientId,
   clientLimits,
+  plans = [],
   onPromoted,
 }: {
   clientId: string;
   clientLimits?: ClientLimits;
+  plans?: PlanSummary[];
   onPromoted?: () => void;
 }) {
   const [map, setMap] = useState<ActiveMap | null>(null);
@@ -90,8 +113,13 @@ export default function StrategyTab({
   const [error, setError] = useState<string>("");
   const [expandedPillar, setExpandedPillar] = useState<string | null>(null);
   const [funnelFilter, setFunnelFilter] = useState<"ALL" | "TOFU" | "MOFU" | "BOFU">("ALL");
-  const [monthFilter, setMonthFilter] = useState<number | "ALL">("ALL");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
+  // Target month/year is where Promote actions send the piece. Defaults to
+  // the current calendar month so the most common case ("fill this month")
+  // works without any picker interaction.
+  const today = new Date();
+  const [targetMonth, setTargetMonth] = useState<number>(today.getMonth() + 1);
+  const [targetYear, setTargetYear] = useState<number>(today.getFullYear());
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState("");
   const [hasNewerResearch, setHasNewerResearch] = useState(false);
@@ -199,7 +227,12 @@ export default function StrategyTab({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mapId: map.id, pieceId }),
+          body: JSON.stringify({
+            mapId: map.id,
+            pieceId,
+            month: targetMonth,
+            year: targetYear,
+          }),
         }
       );
       if (!res.ok) {
@@ -254,40 +287,51 @@ export default function StrategyTab({
   const promotedCount = allPieces.filter((p) => p.promoted).length;
   const isBroken = pillars.length === 0 && quickWins.length === 0;
 
-  // Per-type counts. When a specific month is selected, the quota strip
-  // shows that month's slot count (e.g. "10 blogs/month"). When ALL is
-  // selected, it shows the 6-month total. Promoted/available are filtered
-  // by month accordingly — so "Blog 8/10 · 2 left" for M1 means 8 of the
-  // 10 monthly blog slots for month 1 have been promoted.
+  // Quota counts come from the TARGET MONTH's ContentPlan reality — i.e.
+  // pieces that actually have a ContentPiece row in that month. This is the
+  // honest number to track: phantom promoted flags in the map JSON don't
+  // count, and pieces promoted to OTHER months don't count toward this
+  // month's quota. The denominator is the client's monthly quota.
   const TYPES: ContentType[] = ["BLOG_POST", "GBP_POST", "GBP_QA", "PRESS_RELEASE"];
-  const isMonthSpecific = monthFilter !== "ALL";
-  const quotaMultiplier = isMonthSpecific ? 1 : 6;
   const quotaByType: Record<ContentType, number> = {
-    BLOG_POST: (clientLimits?.monthlyBlogs ?? 0) * quotaMultiplier,
-    GBP_POST: (clientLimits?.monthlyGbpPosts ?? 0) * quotaMultiplier,
-    GBP_QA: (clientLimits?.monthlyGbpQAs ?? 0) * quotaMultiplier,
-    PRESS_RELEASE: (clientLimits?.monthlyPressReleases ?? 0) * quotaMultiplier,
+    BLOG_POST: clientLimits?.monthlyBlogs ?? 0,
+    GBP_POST: clientLimits?.monthlyGbpPosts ?? 0,
+    GBP_QA: clientLimits?.monthlyGbpQAs ?? 0,
+    PRESS_RELEASE: clientLimits?.monthlyPressReleases ?? 0,
   };
-  const countsByType: Record<ContentType, { total: number; promoted: number; available: number }> = {
-    BLOG_POST: { total: 0, promoted: 0, available: 0 },
-    GBP_POST: { total: 0, promoted: 0, available: 0 },
-    GBP_QA: { total: 0, promoted: 0, available: 0 },
-    PRESS_RELEASE: { total: 0, promoted: 0, available: 0 },
+  const targetPlan = plans.find(
+    (p) => p.month === targetMonth && p.year === targetYear
+  );
+  const scheduledByType: Record<ContentType, number> = {
+    BLOG_POST: 0,
+    GBP_POST: 0,
+    GBP_QA: 0,
+    PRESS_RELEASE: 0,
+  };
+  if (targetPlan) {
+    for (const piece of targetPlan.pieces) {
+      const t = TYPES.includes(piece.type as ContentType) ? (piece.type as ContentType) : null;
+      if (!t) continue;
+      scheduledByType[t] += 1;
+    }
+  }
+  // Strategy pool counts (for the Type filter labels). These reflect the
+  // strategy as a whole — not scoped to any month, since pieces are now a
+  // flat pool the user picks from.
+  const poolCountsByType: Record<ContentType, number> = {
+    BLOG_POST: 0,
+    GBP_POST: 0,
+    GBP_QA: 0,
+    PRESS_RELEASE: 0,
   };
   for (const p of allPieces) {
     const t = TYPES.includes(p.type as ContentType) ? (p.type as ContentType) : null;
     if (!t) continue;
-    // Apply month scoping to the counts so the strip reflects the same
-    // window as its denominator.
-    if (isMonthSpecific && p.monthIndex !== monthFilter) continue;
-    countsByType[t].total += 1;
-    if (p.promoted) countsByType[t].promoted += 1;
-    else countsByType[t].available += 1;
+    poolCountsByType[t] += 1;
   }
 
   const filterPiece = (p: MapPiece) => {
     if (funnelFilter !== "ALL" && p.funnelStage !== funnelFilter) return false;
-    if (monthFilter !== "ALL" && p.monthIndex !== monthFilter) return false;
     if (typeFilter !== "ALL" && p.type !== typeFilter) return false;
     return true;
   };
@@ -320,17 +364,62 @@ export default function StrategyTab({
             </p>
             {clientLimits && (
               <>
-                <p className="text-[10px] uppercase tracking-wide font-bold mt-3 mb-1" style={{ color: "var(--text-muted)" }}>
-                  Quota {isMonthSpecific ? `for M${monthFilter}` : "(6-month total — pick a month above for monthly view)"}
-                </p>
+                <div className="flex items-center gap-2 mt-3 mb-1 flex-wrap">
+                  <span className="text-[10px] uppercase tracking-wide font-bold" style={{ color: "var(--text-muted)" }}>
+                    Filling Content Plan for:
+                  </span>
+                  <select
+                    value={`${targetYear}-${targetMonth}`}
+                    onChange={(e) => {
+                      const [y, m] = e.target.value.split("-").map(Number);
+                      setTargetYear(y);
+                      setTargetMonth(m);
+                    }}
+                    className="text-xs font-bold px-2 py-1 rounded-md"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {(() => {
+                      // Build a list of month options: 1 month back, current,
+                      // and the next 11 months. Existing ContentPlan months
+                      // always included.
+                      const opts = new Map<string, { month: number; year: number }>();
+                      const now = new Date();
+                      for (let i = -1; i <= 11; i++) {
+                        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+                        opts.set(`${d.getFullYear()}-${d.getMonth() + 1}`, {
+                          month: d.getMonth() + 1,
+                          year: d.getFullYear(),
+                        });
+                      }
+                      for (const p of plans) {
+                        opts.set(`${p.year}-${p.month}`, { month: p.month, year: p.year });
+                      }
+                      const sorted = Array.from(opts.values()).sort(
+                        (a, b) => a.year * 12 + a.month - (b.year * 12 + b.month)
+                      );
+                      return sorted.map((o) => (
+                        <option key={`${o.year}-${o.month}`} value={`${o.year}-${o.month}`}>
+                          {MONTH_NAMES_LONG[o.month - 1]} {o.year}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    Promote sends pieces here.
+                  </span>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {TYPES.map((t) => {
                     const quota = quotaByType[t];
-                    const { promoted, available } = countsByType[t];
-                    // Hide rows with zero quota AND zero pieces — irrelevant to the user.
-                    if (quota === 0 && countsByType[t].total === 0) return null;
-                    const remaining = Math.max(quota - promoted, 0);
-                    const overQuota = quota > 0 && promoted > quota;
+                    const scheduled = scheduledByType[t];
+                    // Hide rows with zero quota — that content type isn't part of this package.
+                    if (quota === 0 && scheduled === 0) return null;
+                    const remaining = Math.max(quota - scheduled, 0);
+                    const overQuota = quota > 0 && scheduled > quota;
                     const exhausted = quota > 0 && remaining === 0 && !overQuota;
                     const fg = overQuota
                       ? "#f87171"
@@ -346,13 +435,13 @@ export default function StrategyTab({
                           border: "1px solid var(--border)",
                           color: fg,
                         }}
-                        title={`${available} still available to promote${isMonthSpecific ? ` in M${monthFilter}` : ""}`}
+                        title={`${scheduled} of ${quota} ${TYPE_LABEL[t]} slots filled for ${MONTH_NAMES_LONG[targetMonth - 1]} ${targetYear}`}
                       >
-                        {TYPE_LABEL[t]} {promoted}/{quota}
+                        {TYPE_LABEL[t]} {scheduled}/{quota}
                         {quota > 0 && (
                           <span style={{ opacity: 0.6, marginLeft: 6 }}>
                             {overQuota
-                              ? `· ${promoted - quota} over quota`
+                              ? `· ${scheduled - quota} over quota`
                               : `· ${remaining} left`}
                           </span>
                         )}
@@ -468,46 +557,13 @@ export default function StrategyTab({
             {f}
           </button>
         ))}
-        <span
-          className="text-xs font-bold uppercase tracking-wide self-center mx-2"
-          style={{ color: "var(--text-muted)" }}
-          title="Each piece comes pre-tagged with a suggested month, but this is just a recommendation — you decide when to actually schedule a piece by promoting it to a Content Plan month."
-        >
-          Suggested month:
-        </span>
-        <button
-          onClick={() => setMonthFilter("ALL")}
-          className="px-3 py-1 rounded-full text-xs font-bold transition-all"
-          style={{
-            background: monthFilter === "ALL" ? "var(--accent-muted)" : "transparent",
-            color: monthFilter === "ALL" ? "var(--accent)" : "var(--text-muted)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          All
-        </button>
-        {[1, 2, 3, 4, 5, 6].map((m) => (
-          <button
-            key={m}
-            onClick={() => setMonthFilter(m)}
-            className="px-3 py-1 rounded-full text-xs font-bold transition-all"
-            style={{
-              background: monthFilter === m ? "var(--accent-muted)" : "transparent",
-              color: monthFilter === m ? "var(--accent)" : "var(--text-muted)",
-              border: "1px solid var(--border)",
-            }}
-            title={monthlyFocus[String(m)] ? `Theme: ${monthlyFocus[String(m)]} (suggested only)` : "Suggested month only — you can promote any piece to any actual month"}
-          >
-            M{m}
-          </button>
-        ))}
         <span className="text-xs font-bold uppercase tracking-wide self-center mx-2" style={{ color: "var(--text-muted)" }}>
           Type:
         </span>
         {(["ALL", ...TYPES] as const).map((t) => {
           const active = typeFilter === t;
           const label = t === "ALL" ? "All" : TYPE_LABEL[t];
-          const count = t === "ALL" ? totalCount : countsByType[t].total;
+          const count = t === "ALL" ? totalCount : poolCountsByType[t];
           return (
             <button
               key={t}
@@ -558,6 +614,8 @@ export default function StrategyTab({
                 piece={q}
                 onPromote={() => promote(q.id)}
                 promoting={promoting === q.id}
+                targetMonth={targetMonth}
+                targetYear={targetYear}
               />
             ))}
           </div>
@@ -627,6 +685,8 @@ export default function StrategyTab({
                         piece={p}
                         onPromote={() => promote(p.id)}
                         promoting={promoting === p.id}
+                        targetMonth={targetMonth}
+                        targetYear={targetYear}
                       />
                     ))}
                   </div>
@@ -672,15 +732,19 @@ function PieceRow({
   piece,
   onPromote,
   promoting,
+  targetMonth,
+  targetYear,
 }: {
   piece: MapPiece;
   onPromote: () => void;
   promoting: boolean;
+  targetMonth: number;
+  targetYear: number;
 }) {
   const funnel = piece.funnelStage
     ? FUNNEL_COLORS[piece.funnelStage]
     : null;
-  const monthLabel = piece.monthIndex ? `M${piece.monthIndex}` : null;
+  const targetLabel = `${MONTH_NAMES[targetMonth - 1]} ${targetYear}`;
   return (
     <div
       className="p-3 rounded-xl flex items-start gap-3"
@@ -701,7 +765,7 @@ function PieceRow({
             {piece.description}
           </p>
         )}
-        <div className="flex flex-wrap gap-1 mt-2">
+        <div className="flex flex-wrap gap-1 mt-2 items-center">
           {funnel && (
             <span
               className="text-[10px] px-2 py-0.5 rounded font-bold"
@@ -710,20 +774,21 @@ function PieceRow({
               {funnel.label}
             </span>
           )}
-          {monthLabel && (
-            <span
-              className="text-[10px] px-2 py-0.5 rounded font-bold"
-              style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
-            >
-              {monthLabel}
-            </span>
-          )}
           <span
             className="text-[10px] px-2 py-0.5 rounded font-bold"
             style={{ background: "var(--surface-muted)", color: "var(--text-muted)" }}
           >
             {piece.type.replace("_", " ")}
           </span>
+          {piece.monthIndex && (
+            <span
+              className="text-[9px]"
+              style={{ color: "var(--text-muted)", opacity: 0.7 }}
+              title="Claude's suggested month — informational only. You decide the actual month via the picker above."
+            >
+              Claude suggests M{piece.monthIndex}
+            </span>
+          )}
         </div>
       </div>
       <div className="flex-shrink-0">
@@ -731,6 +796,7 @@ function PieceRow({
           <span
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold"
             style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
+            title="Promoted to a Content Plan — view it in the Content Plan tab to see exactly which month."
           >
             <CheckCircle2 size={12} />
             Scheduled
@@ -746,9 +812,10 @@ function PieceRow({
               opacity: promoting ? 0.6 : 1,
               cursor: promoting ? "wait" : "pointer",
             }}
+            title={`Promote this piece to the ${targetLabel} Content Plan`}
           >
             {promoting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            Promote
+            Promote to {targetLabel}
           </button>
         )}
       </div>

@@ -751,10 +751,16 @@ export default function ContentHubPage() {
         <StrategyTab
           clientId={clientId}
           clientLimits={clientLimits}
+          plans={plans.map((pl) => ({
+            id: pl.id,
+            month: pl.month,
+            year: pl.year,
+            pieces: pl.pieces.map((p) => ({ id: p.id, type: p.type })),
+          }))}
           onPromoted={() => {
-            // Refresh plans so the Content Plan tab is up to date when the
-            // user navigates there. Stay on Strategy so they can keep
-            // promoting — auto-switching tabs interrupted the workflow.
+            // Refresh plans so the quota strip + Content Plan tab are up to
+            // date. Stay on Strategy so they can keep promoting — auto-
+            // switching tabs interrupted the workflow.
             loadData();
           }}
         />
