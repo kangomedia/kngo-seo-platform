@@ -291,8 +291,9 @@ model ContentPiece {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  contentPlan ContentPlan      @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  contentPlan ContentPlan        @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
   approval    ContentApproval?
+  annotations PieceAnnotation[]
 }
 
 model ContentApproval {
@@ -304,6 +305,24 @@ model ContentApproval {
   decidedAt      DateTime @default(now())
 
   contentPiece ContentPiece @relation(fields: [contentPieceId], references: [id], onDelete: Cascade)
+}
+
+// Free-form inline comments a client leaves on a specific selection of a
+// draft body. Anchored only by the quoted text (we don't track DOM offsets
+// — they break the moment the draft changes). Multiple per piece; resolved
+// = the agency has addressed it.
+model PieceAnnotation {
+  id              String   @id @default(cuid())
+  contentPieceId  String
+  highlightedText String   @db.Text   // verbatim copy of what the client highlighted
+  comment         String   @db.Text   // the client's note about the selection
+  resolved        Boolean  @default(false)
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  contentPiece ContentPiece @relation(fields: [contentPieceId], references: [id], onDelete: Cascade)
+
+  @@index([contentPieceId])
 }
 
 // ─── Deliverables ─────────────────────────────────────

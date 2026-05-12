@@ -85,6 +85,113 @@ export async function getClientContentForReview(accessToken: string) {
   return { client, pieces: filteredPieces, pendingPlan: filteredPendingPlan };
 }
 
+/**
+ * Client highlights a span of text in a draft and leaves a comment on it.
+ * Stored as a free-form PieceAnnotation row. Multiple per piece allowed.
+ * Token-gated: verifies the piece belongs to the client behind the token.
+ */
+export async function submitPublicAnnotation(
+  accessToken: string,
+  contentPieceId: string,
+  highlightedText: string,
+  comment: string
+) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) throw new Error("Invalid access link");
+
+  const piece = await prisma.contentPiece.findUnique({
+    where: { id: contentPieceId },
+    include: { contentPlan: true },
+  });
+  if (!piece || piece.contentPlan.clientId !== client.id) {
+    throw new Error("Content not found");
+  }
+
+  const trimmedSelection = highlightedText.trim().slice(0, 2000);
+  const trimmedComment = comment.trim().slice(0, 4000);
+  if (!trimmedSelection || !trimmedComment) {
+    throw new Error("Selection and comment are both required");
+  }
+
+  const annotation = await prisma.pieceAnnotation.create({
+    data: {
+      contentPieceId,
+      highlightedText: trimmedSelection,
+      comment: trimmedComment,
+    },
+  });
+
+  return {
+    success: true,
+    annotation: {
+      id: annotation.id,
+      highlightedText: annotation.highlightedText,
+      comment: annotation.comment,
+      resolved: annotation.resolved,
+      createdAt: annotation.createdAt.toISOString(),
+    },
+  };
+}
+
+/**
+ * Returns annotations the client has left on a piece, for the panel that
+ * sits next to the draft body. Token-gated like the rest of this file.
+ */
+export async function getPublicAnnotations(
+  accessToken: string,
+  contentPieceId: string
+) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) return null;
+
+  const piece = await prisma.contentPiece.findUnique({
+    where: { id: contentPieceId },
+    include: { contentPlan: true },
+  });
+  if (!piece || piece.contentPlan.clientId !== client.id) return null;
+
+  const annotations = await prisma.pieceAnnotation.findMany({
+    where: { contentPieceId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return annotations.map((a) => ({
+    id: a.id,
+    highlightedText: a.highlightedText,
+    comment: a.comment,
+    resolved: a.resolved,
+    createdAt: a.createdAt.toISOString(),
+  }));
+}
+
+/**
+ * Client deletes their own annotation. We allow this so an over-eager
+ * comment can be retracted before the agency sees it. Once resolved by the
+ * agency, the row is preserved as a historical record (resolved=true).
+ */
+export async function deletePublicAnnotation(
+  accessToken: string,
+  annotationId: string
+) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) throw new Error("Invalid access link");
+
+  const annotation = await prisma.pieceAnnotation.findUnique({
+    where: { id: annotationId },
+    include: { contentPiece: { include: { contentPlan: true } } },
+  });
+  if (!annotation || annotation.contentPiece.contentPlan.clientId !== client.id) {
+    throw new Error("Annotation not found");
+  }
+  if (annotation.resolved) {
+    // Once resolved, only the agency can delete.
+    throw new Error("Cannot delete a resolved annotation");
+  }
+
+  await prisma.pieceAnnotation.delete({ where: { id: annotationId } });
+  return { success: true };
+}
+
 export async function submitPublicContentApproval(
   accessToken: string,
   contentPieceId: string,
