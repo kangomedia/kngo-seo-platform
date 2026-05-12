@@ -23,6 +23,21 @@ import {
 
 type Decision = "approved" | "rejected" | "save_for_later" | "request_edits" | null;
 
+// Strip internal jargon and metadata that older promotions appended to the
+// description — e.g. "_Pillar: Quick Wins_" and "_Funnel stage: TOFU_".
+// The newer promote endpoint no longer adds these, but existing ContentPieces
+// still carry them. We also strip the TOFU/MOFU/BOFU acronyms from any
+// remaining sentences in case they leaked in via other channels.
+function cleanDescription(desc: string | null): string {
+  if (!desc) return "";
+  return desc
+    .replace(/_Pillar:\s*[^_]+_/gi, "")
+    .replace(/_Funnel stage:\s*(TOFU|MOFU|BOFU)_/gi, "")
+    .replace(/\b(TOFU|MOFU|BOFU)\b/g, "") // catch any unwrapped mentions
+    .replace(/\n{3,}/g, "\n\n")            // collapse extra blank lines
+    .trim();
+}
+
 /** Lightweight markdown renderer for draft body — handles headings, bold/italic,
  *  lists, blockquotes, and paragraphs. No external deps. */
 function renderMarkdown(md: string): string {
@@ -397,8 +412,123 @@ function ContentApprovalInner() {
     const currentPiece = planPieces[currentIndex];
     const typeInfo = typeLabels[currentPiece?.type] || typeLabels.BLOG_POST;
 
+    // Group pieces by type for the sidebar TOC. Order: Blog → GBP Post →
+    // GBP Q&A → Press Release. Each group shows its title list with status.
+    const TYPE_ORDER: Array<ContentPiece["type"]> = [
+      "BLOG_POST",
+      "GBP_POST",
+      "GBP_QA",
+      "PRESS_RELEASE",
+    ];
+    const tocGroups = TYPE_ORDER.map((t) => ({
+      type: t,
+      label: typeLabels[t]?.label || t,
+      emoji: typeLabels[t]?.emoji || "•",
+      pieces: planPieces
+        .map((p, originalIndex) => ({ p, originalIndex }))
+        .filter(({ p }) => p.type === t),
+    })).filter((g) => g.pieces.length > 0);
+
+    const sidebar = (
+      <aside
+        className="rounded-2xl p-3 self-start"
+        style={{
+          background: "#fff",
+          border: "1px solid #E4E4E4",
+          // Sticky on wide screens so the sidebar stays in view while
+          // scrolling through the review card on the right.
+          position: "sticky",
+          top: 16,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
+      >
+        <p
+          className="text-[10px] font-extrabold uppercase tracking-widest mb-3 px-1"
+          style={{ color: "#888" }}
+        >
+          Jump to a piece
+        </p>
+        {tocGroups.map((group, gi) => {
+          const groupApproved = group.pieces.filter(
+            ({ p }) =>
+              p.approval?.outcome === "approved" || decisions[p.id] === "approved"
+          ).length;
+          return (
+            <div key={group.type} style={{ marginBottom: gi === tocGroups.length - 1 ? 0 : 14 }}>
+              <div className="flex items-center justify-between px-1 mb-1">
+                <span className="text-xs font-extrabold" style={{ color: "#444" }}>
+                  {group.emoji} {group.label}
+                </span>
+                <span className="text-[10px] font-bold" style={{ color: "#888" }}>
+                  {groupApproved} / {group.pieces.length}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {group.pieces.map(({ p, originalIndex }) => {
+                  const d = decisions[p.id] || p.approval?.outcome;
+                  const isActive = currentIndex === originalIndex;
+                  let statusDot: { bg: string; ring: string } = { bg: "transparent", ring: "#E4E4E4" };
+                  if (d === "approved") statusDot = { bg: "#16a34a", ring: "#16a34a" };
+                  else if (d === "rejected") statusDot = { bg: "#dc2626", ring: "#dc2626" };
+                  else if (d === "save_for_later") statusDot = { bg: "#b45309", ring: "#b45309" };
+                  return (
+                    <li key={p.id}>
+                      <button
+                        onClick={() => setCurrentIndex(originalIndex)}
+                        className="w-full text-left px-2 py-1.5 rounded-lg flex items-start gap-2 transition-all"
+                        style={{
+                          background: isActive ? "#fff0ef" : "transparent",
+                          border: `1px solid ${isActive ? "#E34234" : "transparent"}`,
+                          color: "#222",
+                          cursor: "pointer",
+                        }}
+                        title={p.title}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: statusDot.bg,
+                            border: `1.5px solid ${statusDot.ring}`,
+                            marginTop: 6,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          className="text-xs leading-snug"
+                          style={{
+                            fontWeight: isActive ? 700 : 500,
+                            color: isActive ? "#E34234" : "#444",
+                            // 2-line clamp so very long titles don't blow up the sidebar.
+                            display: "-webkit-box",
+                            WebkitBoxOrient: "vertical",
+                            WebkitLineClamp: 2,
+                            overflow: "hidden",
+                          }}
+                        >
+                          {p.title}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </aside>
+    );
+
     return (
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div
+        className="grid grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)] gap-4"
+        style={{ maxWidth: 1100, margin: "0 auto" }}
+      >
+        {sidebar}
+        <div style={{ maxWidth: 640, width: "100%", justifySelf: "center" }}>
         {/* Progress bar */}
         <div className="mb-4 rounded-xl px-4 py-3" style={{ background: "#fff", border: "1px solid #E4E4E4" }}>
           <div className="flex items-center justify-between mb-2">
@@ -450,7 +580,12 @@ function ContentApprovalInner() {
             <div className="p-5">
               <h2 className="text-xl font-extrabold mb-3" style={{ color: "#222", lineHeight: 1.3 }}>{currentPiece.title}</h2>
               {currentPiece.type === "BLOG_POST" && <p className="text-[10px] font-extrabold uppercase tracking-widest mb-2" style={{ color: "#888" }}>Proposed Angle</p>}
-              {currentPiece.description && <p className="text-sm leading-relaxed mb-3" style={{ color: "#444", lineHeight: 1.75 }}>{currentPiece.description}</p>}
+              {(() => {
+                const cleaned = cleanDescription(currentPiece.description);
+                return cleaned ? (
+                  <p className="text-sm leading-relaxed mb-3" style={{ color: "#444", lineHeight: 1.75 }}>{cleaned}</p>
+                ) : null;
+              })()}
               {currentPiece.keyword && (
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-3" style={{ background: "#fff0ef", color: "#E34234" }}>
                   🎯 Target: {currentPiece.keyword}
@@ -541,6 +676,7 @@ function ContentApprovalInner() {
               Next <ChevronRight size={16} />
             </button>
           )}
+        </div>
         </div>
       </div>
     );
@@ -706,11 +842,14 @@ function ContentApprovalInner() {
             <h2 className="text-xl font-extrabold mb-2" style={{ color: "#222" }}>
               {currentPiece.title}
             </h2>
-            {currentPiece.description && (
-              <p className="text-sm leading-relaxed mb-3" style={{ color: "#666" }}>
-                {currentPiece.description}
-              </p>
-            )}
+            {(() => {
+              const cleaned = cleanDescription(currentPiece.description);
+              return cleaned ? (
+                <p className="text-sm leading-relaxed mb-3" style={{ color: "#666" }}>
+                  {cleaned}
+                </p>
+              ) : null;
+            })()}
             {currentPiece.keyword && (
               <div
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold mb-4"

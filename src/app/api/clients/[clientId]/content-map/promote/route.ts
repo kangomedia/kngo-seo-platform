@@ -158,25 +158,26 @@ export async function POST(
     where: { contentPlanId: plan.id },
   });
 
+  // Description is shown to the CLIENT on the public review portal. Earlier
+  // versions appended "_Pillar: X_" and "_Funnel stage: TOFU_" metadata to
+  // help the agency context-switch, but that jargon shouldn't reach the
+  // client. The internal pillar/funnel info is still available on the
+  // Strategy tab and via the ContentMap row.
   const piece = await prisma.contentPiece.create({
     data: {
       contentPlanId: plan.id,
       type: type as "BLOG_POST" | "GBP_POST" | "GBP_QA" | "PRESS_RELEASE",
       title: foundPiece.title,
       keyword: foundPiece.keyword || null,
-      description: [
-        foundPiece.description || "",
-        pillarTitle ? `\n\n_Pillar: ${pillarTitle}_` : "",
-        foundPiece.funnelStage ? `\n_Funnel stage: ${foundPiece.funnelStage}_` : "",
-      ]
-        .filter(Boolean)
-        .join("")
-        .trim() || null,
+      description: foundPiece.description?.trim() || null,
       status: "PLANNED",
       priority: foundPiece.priority ?? 0,
       sortOrder,
     },
   });
+  // `pillarTitle` is left assigned but unused now; retained because the
+  // surrounding code is structured around it for future tagging.
+  void pillarTitle;
 
   // Mark promoted in the map JSON and persist
   foundPiece.promoted = true;
