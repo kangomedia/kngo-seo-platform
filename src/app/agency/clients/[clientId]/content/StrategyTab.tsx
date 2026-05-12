@@ -468,8 +468,12 @@ export default function StrategyTab({
             {f}
           </button>
         ))}
-        <span className="text-xs font-bold uppercase tracking-wide self-center mx-2" style={{ color: "var(--text-muted)" }}>
-          Month:
+        <span
+          className="text-xs font-bold uppercase tracking-wide self-center mx-2"
+          style={{ color: "var(--text-muted)" }}
+          title="Each piece comes pre-tagged with a suggested month, but this is just a recommendation — you decide when to actually schedule a piece by promoting it to a Content Plan month."
+        >
+          Suggested month:
         </span>
         <button
           onClick={() => setMonthFilter("ALL")}
@@ -492,7 +496,7 @@ export default function StrategyTab({
               color: monthFilter === m ? "var(--accent)" : "var(--text-muted)",
               border: "1px solid var(--border)",
             }}
-            title={monthlyFocus[String(m)] || ""}
+            title={monthlyFocus[String(m)] ? `Theme: ${monthlyFocus[String(m)]} (suggested only)` : "Suggested month only — you can promote any piece to any actual month"}
           >
             M{m}
           </button>

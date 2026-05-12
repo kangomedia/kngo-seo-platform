@@ -451,6 +451,12 @@ Return ONLY the JSON, no surrounding text.`;
             ? existing
             : `mp_${Date.now().toString(36)}_${nextSerial++}`;
 
+        // A fresh strategy must start with EVERY piece unpromoted. Claude
+        // sometimes echoes `"promoted": true` from the example JSON or
+        // marks high-priority pieces as already scheduled, which inflates
+        // the quota strip with phantom promotions that never created a
+        // ContentPiece row. The promote endpoint is the only legitimate
+        // way to set promoted=true.
         if (mapData?.pillars && Array.isArray(mapData.pillars)) {
           for (const pillar of mapData.pillars) {
             if (!pillar.slug && pillar.title) {
@@ -462,7 +468,8 @@ Return ONLY the JSON, no surrounding text.`;
             if (Array.isArray(pillar.pieces)) {
               for (const p of pillar.pieces) {
                 p.id = ensureId(p.id);
-                p.promoted = p.promoted === true;
+                p.promoted = false;
+                p.contentPieceId = undefined;
                 p.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(p.funnelStage)
                   ? p.funnelStage
                   : "MOFU";
@@ -477,7 +484,8 @@ Return ONLY the JSON, no surrounding text.`;
         if (Array.isArray(mapData?.quickWins)) {
           for (const q of mapData.quickWins) {
             q.id = ensureId(q.id);
-            q.promoted = q.promoted === true;
+            q.promoted = false;
+            q.contentPieceId = undefined;
             q.funnelStage = ["TOFU", "MOFU", "BOFU"].includes(q.funnelStage)
               ? q.funnelStage
               : "BOFU";
