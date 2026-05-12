@@ -91,6 +91,16 @@ export default function ContentHubPage() {
   // Draft generation
   const [generatingPieceId, setGeneratingPieceId] = useState<string | null>(null);
 
+  // Background batch draft generation. `isBatching` drives the polling loop;
+  // `batchStatus` is the latest snapshot from /api/content/drafts/batch/status
+  // and shapes the in-progress display.
+  const [isBatching, setIsBatching] = useState(false);
+  const [batchStatus, setBatchStatus] = useState<{
+    writing: number;
+    pending: number;
+    drafted: number;
+  } | null>(null);
+
   // Preview modal
   const [previewPiece, setPreviewPiece] = useState<ContentPiece | null>(null);
 
@@ -202,6 +212,65 @@ export default function ContentHubPage() {
       })
       .catch(() => setLoading(false));
   };
+
+  // Poll the batch draft status. Two effects:
+  //   1. On mount + when clientId changes, do one immediate status fetch so
+  //      that if the user navigates here while a batch is already in flight
+  //      (e.g. they closed the tab and came back), the UI picks up where
+  //      it left off and the polling effect engages.
+  //   2. When isBatching is true, poll every 3s. Each tick also refreshes
+  //      `plans` so as drafts complete, the piece cards flip to "Draft Ready"
+  //      without the user reloading.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(
+          `/api/content/drafts/batch/status?clientId=${clientId}`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setBatchStatus(data);
+        if (data.writing > 0) setIsBatching(true);
+      } catch {
+        /* ignore transient network errors */
+      }
+    };
+    fetchStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  useEffect(() => {
+    if (!isBatching) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/content/drafts/batch/status?clientId=${clientId}`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setBatchStatus(data);
+        // Refresh the plan so completed drafts appear in the UI as they
+        // finish. We call loadData() (not a piece-specific fetch) because
+        // it's the existing path and we know it works.
+        loadData();
+        if (data.writing === 0) {
+          setIsBatching(false);
+        }
+      } catch {
+        /* ignore — next tick will retry */
+      }
+    };
+    const interval = setInterval(tick, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBatching, clientId]);
 
   useEffect(() => {
     loadData();
@@ -382,6 +451,37 @@ export default function ContentHubPage() {
       setError("Network error — please try again");
     } finally {
       setGeneratingPieceId(null);
+    }
+  };
+
+  // Kicks off a server-side batch that drafts every PLANNED piece for this
+  // client with concurrency 3. Returns ~50ms; the worker keeps running in
+  // the Node process after the response, so the user can close the tab and
+  // come back. The polling effect below tracks progress.
+  const handleGenerateAllDrafts = async () => {
+    setIsBatching(true);
+    setError("");
+    try {
+      const res = await fetch("/api/content/drafts/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Failed to start batch");
+        setIsBatching(false);
+        return;
+      }
+      if (data.started === 0) {
+        // Nothing to do — every piece already has a draft.
+        setIsBatching(false);
+      }
+      // First status poll runs from the effect below as soon as
+      // isBatching flips on. No need to call it inline.
+    } catch {
+      setError("Network error — please try again");
+      setIsBatching(false);
     }
   };
 
@@ -1421,21 +1521,83 @@ export default function ContentHubPage() {
                 {piecesWithDrafts.length} drafted · {piecesWithoutDrafts.length} awaiting draft
               </p>
             </div>
-            {/* Send drafts for review — only when drafts exist */}
-            <button
-              onClick={handleSendForApproval}
-              disabled={isSendingApproval || piecesWithDrafts.length === 0}
-              className="btn-primary text-sm"
-              style={{ opacity: piecesWithDrafts.length === 0 ? 0.4 : 1 }}
-              title={piecesWithDrafts.length === 0 ? "Generate at least one draft first" : "Send written drafts for client review"}
-            >
-              {isSendingApproval ? (
-                <><Loader2 size={14} className="animate-spin" /> Sending...</>
-              ) : (
-                <><Send size={14} /> Send Drafts for Review</>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Batch-generate every PLANNED piece for this client.
+                  Disabled when there's nothing to draft or a batch is
+                  already in flight. */}
+              <button
+                onClick={handleGenerateAllDrafts}
+                disabled={isBatching || piecesWithoutDrafts.length === 0}
+                className="btn-secondary text-sm"
+                style={{
+                  opacity:
+                    isBatching || piecesWithoutDrafts.length === 0 ? 0.5 : 1,
+                  cursor:
+                    isBatching || piecesWithoutDrafts.length === 0
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+                title={
+                  piecesWithoutDrafts.length === 0
+                    ? "Every piece already has a draft."
+                    : "Generate drafts for all pending pieces in the background. You can close this tab — work continues on the server."
+                }
+              >
+                {isBatching ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />{" "}
+                    Generating ({batchStatus?.writing ?? 0} in progress)
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} /> Generate All Drafts ({piecesWithoutDrafts.length})
+                  </>
+                )}
+              </button>
+              {/* Send drafts for review — only when drafts exist */}
+              <button
+                onClick={handleSendForApproval}
+                disabled={isSendingApproval || piecesWithDrafts.length === 0}
+                className="btn-primary text-sm"
+                style={{ opacity: piecesWithDrafts.length === 0 ? 0.4 : 1 }}
+                title={piecesWithDrafts.length === 0 ? "Generate at least one draft first" : "Send written drafts for client review"}
+              >
+                {isSendingApproval ? (
+                  <><Loader2 size={14} className="animate-spin" /> Sending...</>
+                ) : (
+                  <><Send size={14} /> Send Drafts for Review</>
+                )}
+              </button>
+            </div>
           </div>
+
+          {/* Batch progress banner. Visible whenever a batch is in flight
+              OR when there are pending pieces left after a batch finished
+              (e.g. some failed and were reset to PLANNED). */}
+          {isBatching && batchStatus && (
+            <div
+              className="flex items-center gap-3 p-4 rounded-xl mb-4"
+              style={{
+                background: "rgba(124,58,237,0.08)",
+                border: "1px solid rgba(124,58,237,0.25)",
+              }}
+            >
+              <Loader2
+                size={18}
+                className="animate-spin flex-shrink-0"
+                style={{ color: "#7C3AED" }}
+              />
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: "#7C3AED" }}>
+                  Generating drafts in the background…
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  {batchStatus.writing} currently writing · {batchStatus.pending} queued ·{" "}
+                  {batchStatus.drafted} ready. Safe to close this tab — work continues on the server.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Draft approval link toast (one-time after sending) */}
           {approvalLink && (

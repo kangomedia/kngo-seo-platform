@@ -220,7 +220,17 @@ export async function generateContentBody(contentPieceId: string): Promise<strin
   if (!session?.user || session.user.role === "CLIENT") {
     throw new Error("Unauthorized");
   }
+  return generateContentBodyInternal(contentPieceId);
+}
 
+/**
+ * Auth-free version of `generateContentBody`. Only call this from trusted
+ * server code AFTER you have done your own auth check. Used by the batch
+ * draft generator, which checks auth once at the request boundary and then
+ * calls this for each piece in the background — by which point the original
+ * request's session cookie context is no longer available to `auth()`.
+ */
+export async function generateContentBodyInternal(contentPieceId: string): Promise<string> {
   const piece = await prisma.contentPiece.findUnique({
     where: { id: contentPieceId },
     include: { contentPlan: { include: { client: true } } },
