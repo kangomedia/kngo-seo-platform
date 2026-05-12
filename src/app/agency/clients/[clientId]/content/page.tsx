@@ -226,7 +226,7 @@ export default function ContentHubPage() {
     const fetchStatus = async () => {
       try {
         const res = await fetch(
-          `/api/content/drafts/batch/status?clientId=${clientId}`
+          `/api/content/drafts/batch?clientId=${clientId}`
         );
         if (!res.ok || cancelled) return;
         const data = await res.json();
@@ -248,7 +248,7 @@ export default function ContentHubPage() {
     const tick = async () => {
       try {
         const res = await fetch(
-          `/api/content/drafts/batch/status?clientId=${clientId}`
+          `/api/content/drafts/batch?clientId=${clientId}`
         );
         if (!res.ok || cancelled) return;
         const data = await res.json();
