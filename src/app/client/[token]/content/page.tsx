@@ -204,6 +204,17 @@ function ContentApprovalInner() {
     // - Pieces decided in the current session stay in the queue so the
     //   client can navigate back and change their mind before submitting.
     // - Truly unreviewed pieces are included up to (quota - approved) per type.
+    //
+    // After building the queue we sort it by content type so the client
+    // reviews ALL blog posts, then ALL Google Business posts, then ALL Q&As,
+    // then ALL press releases — instead of having the queue interleaved by
+    // each piece's original sortOrder.
+    const TYPE_SORT_ORDER: Record<string, number> = {
+      BLOG_POST: 0,
+      GBP_POST: 1,
+      GBP_QA: 2,
+      PRESS_RELEASE: 3,
+    };
     const planPieces: ContentPiece[] = (() => {
       const result: ContentPiece[] = [];
       const pendingCounts: Record<string, number> = { BLOG_POST: 0, GBP_POST: 0, GBP_QA: 0, PRESS_RELEASE: 0 };
@@ -220,7 +231,12 @@ function ContentApprovalInner() {
           result.push(p);
         }
       }
-      return result;
+      // Stable sort by type-priority. Pieces of the same type keep their
+      // original sortOrder relative to each other.
+      return result.sort(
+        (a, b) =>
+          (TYPE_SORT_ORDER[a.type] ?? 99) - (TYPE_SORT_ORDER[b.type] ?? 99)
+      );
     })();
 
     const typeLabels: Record<string, { emoji: string; label: string }> = {
@@ -260,6 +276,12 @@ function ContentApprovalInner() {
             tempResult.push(p);
           }
         }
+        // Same type-priority sort as the queue above — keeps Next/Back order
+        // grouped (all blogs, then GBP posts, then Q&As, then press releases).
+        tempResult.sort(
+          (a, b) =>
+            (TYPE_SORT_ORDER[a.type] ?? 99) - (TYPE_SORT_ORDER[b.type] ?? 99)
+        );
 
         setTimeout(() => {
           if (currentIndex < tempResult.length - 1) {
