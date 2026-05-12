@@ -1,6 +1,6 @@
 # KNGO SEO Platform — Product Roadmap
 
-> **Last updated:** April 5, 2026
+> **Last updated:** May 12, 2026
 > **Owner:** Kango Media
 > **Platform:** [seo.kangomedia.com](https://seo.kangomedia.com)
 
@@ -302,6 +302,84 @@
 **Estimated cost:** ~$0.04/image via Imagen 3. At 10 blogs × 3 images per client = $1.20/mo per client. Negligible.
 
 **New env vars:** `GEMINI_API_KEY` (Google AI Studio).
+
+---
+
+## 📋 Phase 10 — Published Content Library + Interlinking + Distribution Assets
+
+A second life for every blog post once it ships. Today the platform writes content and publishes it, then forgets it. This phase makes published content a searchable asset that powers (a) internal linking on future posts and (b) social/email distribution.
+
+### Published Content Library
+
+- [ ] **Per-client content library view** — a sortable, filterable list of every `ContentPiece` with `status = PUBLISHED` for the client. Columns: title, type, target keyword, published URL, published date, rank now vs at publish.
+- [ ] **Cross-client library (agency-wide)** — same table but spanning all clients. Useful when a writer needs an example of "how we did this topic before."
+- [ ] **Searchable by keyword, slug, pillar, funnel stage.** The library is queryable for slug suggestions during interlinking (see below).
+- [ ] **Published URL is required at publish time.** Today `publishedUrl` is optional; harden the publish endpoints (`/api/content/pieces/[id]/publish` for WP, `/api/content/pieces/[id]` PATCH for manual) to require a non-empty URL before transitioning to `PUBLISHED`. Without a URL, the post can't be used for interlinking and shouldn't count as published.
+
+### AI-Suggested URL Slug at Publish Time
+
+- [ ] **Slug suggestion in the publish modal** — when the operator clicks "Push to WordPress" (or "Mark Published Manually"), open a small modal that:
+  - Pre-fills a slug derived from the title (kebab-case, stopwords removed, ~60 chars max)
+  - Shows Claude's recommended slug as an alternative, optimized for keyword + readability
+  - Offers a "Check availability" button that hits the client's WP site to confirm the slug isn't already taken
+  - Lets the operator edit/override freely before publishing
+- [ ] Store the chosen slug separately on the ContentPiece (`slug` column) so future internal-link planning can use it without parsing the full URL.
+
+### Internal Linking Suggestions
+
+The big one. Two-sided so that:
+- A new draft can suggest internal links to **already-published** pieces.
+- A new draft can also reserve internal links to **future-published** pieces — the link is templated with the planned slug, and the link resolves once that future piece publishes.
+
+- [ ] **Schema additions:**
+  - `ContentPiece.slug String?` — the URL slug, set at publish time (or earlier as a "planned slug").
+  - `InternalLink` model: `{ id, fromPieceId, toPieceId?, plannedSlug?, anchorText, status: PENDING | RESOLVED | BROKEN, createdAt, resolvedAt? }`. `toPieceId` is null until the target is published.
+- [ ] **At draft-generation time**, the Claude prompt receives a manifest of the client's published library (title, slug, target keyword, short summary). The prompt asks Claude to insert real internal links wherever a published piece is topically relevant. Format in the draft body: `[anchor text](slug-of-target)` — slugs only, not full URLs, so links survive domain changes.
+- [ ] **At publish time**, all `[anchor](slug)` placeholders in the body are resolved against the library: if the slug matches a published piece, replace with the full URL; if not, leave the placeholder in place and create an `InternalLink` row with `status = PENDING`.
+- [ ] **When any piece publishes**, scan all `InternalLink` rows where `plannedSlug` matches the new piece's slug and:
+  - Set `toPieceId` and `status = RESOLVED`
+  - Push an updated post body to the source post via the WP REST API (the unresolved placeholder gets swapped for the real link)
+  - Notify the operator: "3 previously-published posts now have working links to your new article."
+- [ ] **Broken-link sweep** — a nightly job that checks every `InternalLink.status = RESOLVED` row's target URL still returns 200. Surface broken links in a "Link Health" panel on the agency Drafts tab.
+- [ ] **Manual link insertion UI** — in the manual edit modal, a sidebar widget that shows the client's published library filtered by topical relevance to the current draft, with one-click "insert as link" for each candidate. The operator highlights a phrase, clicks the candidate, and an `[anchor](slug)` is dropped at the cursor.
+
+### Meta Description / Post Excerpt
+
+- [ ] **Auto-generated SEO meta description** at draft creation time. Constraints: 150–160 chars, includes the target keyword, ends on a call-to-action verb, no clickbait. Stored as `ContentPiece.metaDescription`.
+- [ ] **Editable in the manual edit modal** alongside the title and body — its own field, not buried in the markdown.
+- [ ] **Pushed to WordPress** as both the post excerpt (`excerpt`) and the Yoast/Rank Math meta description (`meta` field) at publish time. The publish endpoint needs to detect whether the client's WP has Yoast vs Rank Math vs neither, and use the right field.
+
+### Social Media Post Per Blog Post
+
+- [ ] **Auto-generated social copy** at draft creation time. Output: a `socialPosts` JSON blob keyed by platform with the right length and tone for each:
+  - `twitter` (now X): 240 chars, one-line hook + URL placeholder
+  - `linkedin`: 600–800 chars, professional tone, includes 2–3 key takeaways
+  - `facebook`: 400–600 chars, conversational, ends with a question
+  - `instagram`: 1–2 paragraph caption + 8–12 relevant hashtags
+- [ ] **Editable in the manual edit modal** under a new "Distribution" tab — separate from the body editor.
+- [ ] **Copy-to-clipboard** buttons on each platform's draft, so the operator can paste into Buffer / Hootsuite / direct posting without re-typing.
+- [ ] **Future:** post-scheduling integration with Buffer or direct platform APIs. Out of scope for v1 — copy-paste is enough to start.
+
+### Client-Facing Content Library
+
+Once the agency-side library exists, expose a read-only version to the client. Their token-gated portal already has a Dashboard and Reports section — add a third surface that turns published content into an asset the *client* can use.
+
+- [ ] **New "Your Content" tab on `/client/[token]`** — sits alongside Dashboard, Content Review, and Reports. Lists every published piece for the client, newest first.
+- [ ] **Per-piece card** shows:
+  - Title (linked to the live published URL — opens in a new tab)
+  - Type (Blog / GBP post / Q&A / Press Release) and published date
+  - Target keyword + current ranking position (pulled from the existing keyword tracker)
+  - A "Share" sub-section with pre-written copy for each platform (the same `socialPosts` blob generated agency-side)
+- [ ] **One-click copy-to-clipboard** on each social variant — Twitter/X, LinkedIn, Facebook, Instagram. Each button copies the full caption + the published URL together so the client can paste straight into their own social tool. Brief "Copied!" toast on click.
+- [ ] **Filterable + searchable** — by type, by month, by keyword. With 100+ pieces of content a year, the client will want to find "that landscaping article from last spring" without scrolling.
+- [ ] **Quarterly recap email** (existing report cadence) gains a "Top performing pieces this quarter" section that links into the same library entries — drives clients back to the portal regularly.
+
+### What this unlocks operationally
+
+- Every blog post compounds — the next post you publish strengthens the SEO of the posts you published 3 months ago, via internal links.
+- The operator never has to write a meta description or a social post by hand again.
+- The client gets reporting visibility into "your content library has X published pieces with Y total internal links" — a tangible measure of compounding effort.
+- **The client becomes a distribution channel for their own content.** Most local-business owners would happily share a blog post about their service on their personal LinkedIn — they just don't have time to write the caption. Pre-writing it removes the friction entirely.
 
 ---
 

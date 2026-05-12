@@ -6,6 +6,230 @@ import { revalidatePath } from "next/cache";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 
+/**
+ * Turn a title into a URL-safe slug. Lowercase, alphanumerics + hyphens,
+ * stripped of leading/trailing hyphens, truncated to ~60 chars at a word
+ * boundary. Used as the *planned* slug at draft generation time — the
+ * operator can override at publish time.
+ */
+export function generateSlug(title: string, keyword?: string | null): string {
+  const base = (title || keyword || "untitled")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")     // strip diacritics
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  if (base.length <= 60) return base;
+  const truncated = base.slice(0, 60);
+  const lastDash = truncated.lastIndexOf("-");
+  return lastDash > 20 ? truncated.slice(0, lastDash) : truncated;
+}
+
+/**
+ * Produce a snapshot of the client's *published* content library, ready
+ * to embed in the draft prompt so Claude can insert real internal links.
+ * Only includes pieces with both a slug and a published URL, so links
+ * resolve cleanly at publish time. Capped at 30 entries to keep prompt
+ * tokens reasonable.
+ */
+async function getPublishedLibrary(clientId: string) {
+  const pieces = await prisma.contentPiece.findMany({
+    where: {
+      contentPlan: { clientId },
+      status: "PUBLISHED",
+      slug: { not: null },
+      publishedUrl: { not: null },
+    },
+    select: {
+      slug: true,
+      title: true,
+      keyword: true,
+      description: true,
+      type: true,
+    },
+    orderBy: { publishedAt: "desc" },
+    take: 30,
+  });
+  return pieces;
+}
+
+/**
+ * Second Claude call that takes a finished draft body and produces the
+ * distribution assets (meta description + per-platform social posts).
+ * Kept separate from the body call so we don't risk breaking the existing
+ * body-generation prompt — and so we can backfill meta+social for already-
+ * drafted pieces later via a "regenerate distribution" action.
+ */
+async function generateDistributionAssets(args: {
+  title: string;
+  keyword: string | null;
+  body: string;
+  type: string;
+  businessName: string;
+  domain: string | null;
+}): Promise<{
+  metaDescription: string | null;
+  socialPosts: { twitter: string; linkedin: string; facebook: string; instagram: string } | null;
+}> {
+  const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!claudeKey) return { metaDescription: null, socialPosts: null };
+
+  const prompt = `You are writing the distribution assets for a piece of content the agency just drafted. Output JSON only — no surrounding prose, no markdown fences.
+
+## Content context
+- **Business:** ${args.businessName}
+- **Website:** ${args.domain || "N/A"}
+- **Title:** ${args.title}
+- **Target keyword:** ${args.keyword || "n/a"}
+- **Type:** ${args.type}
+
+## Draft body (markdown)
+${args.body.slice(0, 8000)}${args.body.length > 8000 ? "\n\n[…truncated for prompt length…]" : ""}
+
+## Required output — JSON exactly in this shape
+
+{
+  "metaDescription": "150-160 char SEO meta description. Must include the target keyword naturally. End on a verb that prompts action. No clickbait, no quotation marks, no emoji.",
+  "socialPosts": {
+    "twitter":   "Under 240 chars. One-line hook that makes the click obvious. End with a clear value proposition, not a question. NO hashtags unless they're brand-relevant.",
+    "linkedin":  "600-800 chars. Professional but not stiff. Lead with the most surprising insight from the body, then 2-3 takeaways in short paragraph blocks (newlines between them). End with an open-ended question that prompts comments.",
+    "facebook":  "400-600 chars. Conversational, first-person agency voice. Tells a 1-2 sentence story or scenario from the draft. Ends with a question or invitation.",
+    "instagram": "Caption 1-2 paragraphs (~800 chars). Punchy first line that stops the scroll. Followed by 2-3 key points. End with 8-12 highly-relevant hashtags on their own lines — local + niche, no generic #marketing #seo bullshit."
+  }
+}
+
+## Rules
+- DO NOT include the published URL — the operator's social tool will append it on paste.
+- DO NOT use any of these terms: TOFU, MOFU, BOFU, GBP, SERP, "topical authority", "keyword clusters".
+- Match the voice of the body — if the body is technical, stay technical; if conversational, stay conversational.
+- Return ONLY the JSON object. No \`\`\`json fences. No commentary.`;
+
+  try {
+    const res = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": claudeKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) return { metaDescription: null, socialPosts: null };
+    const data = await res.json();
+    const raw: string = data?.content?.[0]?.text || "";
+    // Extract JSON — handle possible fence wrapping defensively.
+    let jsonStr = raw.trim();
+    const fenced = jsonStr.match(/```json\s*([\s\S]*?)\s*```/) || jsonStr.match(/```\s*([\s\S]*?)\s*```/);
+    if (fenced) jsonStr = fenced[1];
+    if (!jsonStr.startsWith("{")) {
+      const first = jsonStr.indexOf("{");
+      const last = jsonStr.lastIndexOf("}");
+      if (first !== -1 && last > first) jsonStr = jsonStr.slice(first, last + 1);
+    }
+    const parsed = JSON.parse(jsonStr);
+    return {
+      metaDescription: typeof parsed.metaDescription === "string" ? parsed.metaDescription.trim() : null,
+      socialPosts:
+        parsed.socialPosts &&
+        typeof parsed.socialPosts === "object" &&
+        typeof parsed.socialPosts.twitter === "string"
+          ? {
+              twitter: String(parsed.socialPosts.twitter || "").trim(),
+              linkedin: String(parsed.socialPosts.linkedin || "").trim(),
+              facebook: String(parsed.socialPosts.facebook || "").trim(),
+              instagram: String(parsed.socialPosts.instagram || "").trim(),
+            }
+          : null,
+    };
+  } catch (err) {
+    console.warn("[DISTRIBUTION-ASSETS] generation failed:", err);
+    return { metaDescription: null, socialPosts: null };
+  }
+}
+
+/**
+ * Scan a draft body for `[anchor text](slug)` markdown links where the
+ * target looks like a slug (not http(s)://, no leading slash, no anchor #).
+ * Used to populate the InternalLink table so we can track and resolve
+ * these later.
+ */
+function extractInternalLinkPlaceholders(body: string): Array<{ anchor: string; slug: string }> {
+  const results: Array<{ anchor: string; slug: string }> = [];
+  const re = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    const anchor = m[1].trim();
+    const target = m[2].trim();
+    // Skip absolute URLs, anchor-only links, mailto/tel, and placeholders
+    // like "INTERNAL LINK: …" that Claude sometimes writes.
+    if (/^https?:\/\//i.test(target)) continue;
+    if (target.startsWith("#") || target.startsWith("/") || target.startsWith("mailto:") || target.startsWith("tel:")) continue;
+    if (target.includes(":") || target.includes(" ")) continue;
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(target)) continue;
+    results.push({ anchor, slug: target.toLowerCase() });
+  }
+  return results;
+}
+
+/**
+ * After a draft body is saved, sync the InternalLink rows for this piece
+ * to match the placeholders currently in the body. Drops rows that no
+ * longer have a matching placeholder; inserts rows for new placeholders.
+ * Idempotent — safe to call after every body change.
+ */
+export async function syncInternalLinks(pieceId: string, body: string, clientId: string) {
+  const placeholders = extractInternalLinkPlaceholders(body);
+  const wanted = new Map<string, { anchor: string; slug: string }>();
+  for (const p of placeholders) {
+    // Dedupe on slug — if Claude inserts the same slug twice with different
+    // anchor text, we only track one row.
+    wanted.set(p.slug, p);
+  }
+
+  const existing = await prisma.internalLink.findMany({
+    where: { fromPieceId: pieceId },
+  });
+
+  // Delete any rows whose plannedSlug isn't in the current body.
+  const toDelete = existing.filter((e) => !wanted.has(e.plannedSlug));
+  if (toDelete.length > 0) {
+    await prisma.internalLink.deleteMany({
+      where: { id: { in: toDelete.map((d) => d.id) } },
+    });
+  }
+
+  // For each placeholder not yet tracked, create the row. Resolve toPieceId
+  // immediately if the target piece already exists with that slug.
+  const existingSlugs = new Set(existing.map((e) => e.plannedSlug));
+  for (const [slug, { anchor }] of wanted.entries()) {
+    if (existingSlugs.has(slug)) continue;
+    const target = await prisma.contentPiece.findFirst({
+      where: {
+        contentPlan: { clientId },
+        slug,
+      },
+      select: { id: true, status: true, publishedUrl: true },
+    });
+    await prisma.internalLink.create({
+      data: {
+        fromPieceId: pieceId,
+        plannedSlug: slug,
+        anchorText: anchor,
+        toPieceId: target?.id ?? null,
+        status:
+          target && target.status === "PUBLISHED" && target.publishedUrl
+            ? "RESOLVED"
+            : "PENDING",
+        resolvedAt: target && target.status === "PUBLISHED" ? new Date() : null,
+      },
+    });
+  }
+}
+
 interface TopicMapResult {
   pillarTopic: string;
   blogPosts: Array<{
@@ -313,6 +537,28 @@ ${typeInstructions[piece.type] || typeInstructions.BLOG_POST}
 - ALWAYS include specific, actionable information — not vague generalizations
 - Format output in Markdown (except GBP posts which should be plain text with line breaks)`;
 
+  // Build a manifest of already-published pieces so Claude can insert
+  // real internal links wherever a related piece exists. Each entry is
+  // referenced by `slug` only — the publish flow swaps the slug for the
+  // real URL at publish time. If the manifest is empty (new client) we
+  // skip this section entirely.
+  const library = await getPublishedLibrary(client.id);
+  const internalLinkSection = library.length === 0
+    ? ""
+    : `
+
+## Internal linking manifest
+
+When topically relevant, add internal links to these already-published pieces. Use the format \`[anchor text](slug)\` — slug only, NOT the full URL. The platform resolves slugs to real URLs at publish time.
+
+DO NOT force links — only link when the related piece genuinely helps the reader. 2–4 internal links is typical for a 1,500-word post; 0 is fine if nothing fits.
+
+| Slug | Title | Target keyword | Type |
+|---|---|---|---|
+${library
+  .map((p) => `| \`${p.slug}\` | ${p.title.replace(/\|/g, "\\|")} | ${p.keyword || "—"} | ${p.type} |`)
+  .join("\n")}`;
+
   const userPrompt = `Write a ${typeLabel} for the following business and topic:
 
 **Business:** ${client.name}
@@ -321,6 +567,7 @@ ${typeInstructions[piece.type] || typeInstructions.BLOG_POST}
 **Primary Target Keyword:** ${piece.keyword || "general"}
 **Content Brief/Angle:** ${piece.description || "No specific brief provided"}
 **Seed Topic:** ${piece.contentPlan.seedKeyword || "N/A"}
+${internalLinkSection}
 
 Write the complete content now. Make it publication-ready.`;
 
@@ -333,13 +580,44 @@ Write the complete content now. Make it publication-ready.`;
   try {
     const body = await callClaude(systemPrompt, userPrompt);
 
+    // Generate distribution assets (meta description + social posts) from
+    // the finished body in a second, smaller call. Returns nulls if it
+    // fails — body generation is the primary deliverable, distribution
+    // assets are a bonus we can regenerate later.
+    const distribution = await generateDistributionAssets({
+      title: piece.title,
+      keyword: piece.keyword,
+      body,
+      type: piece.type,
+      businessName: client.name,
+      domain: client.domain,
+    });
+
+    // Generate a planned slug from the title. Operator can override at
+    // publish time, but having one from day 1 means future drafts can
+    // link to this piece even before it's published.
+    const plannedSlug = piece.slug || generateSlug(piece.title, piece.keyword);
+
     // Draft is ready for AGENCY review (not yet sent to the client). The
     // explicit "Send Drafts for Review" action transitions DRAFT_REVIEW →
     // CLIENT_REVIEW and dispatches the email.
     await prisma.contentPiece.update({
       where: { id: contentPieceId },
-      data: { body, status: "DRAFT_REVIEW" },
+      data: {
+        body,
+        status: "DRAFT_REVIEW",
+        slug: plannedSlug,
+        metaDescription: distribution.metaDescription,
+        socialPosts: distribution.socialPosts
+          ? JSON.stringify(distribution.socialPosts)
+          : null,
+      },
     });
+
+    // Mirror the inline `[anchor](slug)` placeholders into the
+    // InternalLink table so we can show the agency what's linked where,
+    // and resolve placeholders → real URLs at publish time.
+    await syncInternalLinks(contentPieceId, body, client.id);
 
     revalidatePath("/agency");
     return body;

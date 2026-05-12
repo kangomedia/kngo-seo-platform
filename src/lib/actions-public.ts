@@ -257,6 +257,66 @@ export async function submitPublicContentApproval(
   return { success: true };
 }
 
+/**
+ * Returns the client's full library of published content, newest first.
+ * Includes every field the "Your Content" tab needs to render: title, type,
+ * keyword, publish date, the live URL, the meta description, and the
+ * pre-written social posts (parsed from JSON).
+ *
+ * Token-gated like every other public action.
+ */
+export async function getClientPublishedContent(accessToken: string) {
+  const client = await prisma.client.findUnique({ where: { accessToken } });
+  if (!client || !client.isActive) return null;
+
+  const pieces = await prisma.contentPiece.findMany({
+    where: {
+      contentPlan: { clientId: client.id },
+      status: "PUBLISHED",
+      publishedUrl: { not: null },
+    },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      keyword: true,
+      slug: true,
+      publishedUrl: true,
+      publishedAt: true,
+      metaDescription: true,
+      socialPosts: true,
+    },
+    orderBy: { publishedAt: "desc" },
+  });
+
+  // Parse stringified socialPosts JSON server-side so the client doesn't
+  // have to. Returns nulls if the field is missing or malformed.
+  const parsed = pieces.map((p) => {
+    let social: { twitter?: string; linkedin?: string; facebook?: string; instagram?: string } | null = null;
+    if (p.socialPosts) {
+      try {
+        const obj = JSON.parse(p.socialPosts);
+        if (obj && typeof obj === "object") social = obj;
+      } catch {
+        social = null;
+      }
+    }
+    return {
+      id: p.id,
+      type: p.type,
+      title: p.title,
+      keyword: p.keyword,
+      slug: p.slug,
+      publishedUrl: p.publishedUrl!,
+      publishedAt: p.publishedAt?.toISOString() ?? null,
+      metaDescription: p.metaDescription,
+      socialPosts: social,
+    };
+  });
+
+  return { client: { name: client.name, domain: client.domain }, pieces: parsed };
+}
+
 export async function getClientReports(accessToken: string) {
   const client = await prisma.client.findUnique({
     where: { accessToken },

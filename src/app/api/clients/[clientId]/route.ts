@@ -32,7 +32,16 @@ export async function GET(
         include: {
           pieces: {
             orderBy: { sortOrder: "asc" },
-            include: { approval: true },
+            include: {
+              approval: true,
+              // Annotations let the agency see exactly which sentences the
+              // client highlighted and what they wrote on each. Loaded
+              // alongside approval so the Drafts tab can show inline feedback
+              // without an extra fetch.
+              annotations: {
+                orderBy: { createdAt: "asc" },
+              },
+            },
           },
         },
       },

@@ -39,6 +39,14 @@ import {
   Layers,
 } from "lucide-react";
 
+interface PieceAnnotation {
+  id: string;
+  highlightedText: string;
+  comment: string;
+  resolved: boolean;
+  createdAt: string;
+}
+
 interface ContentPiece {
   id: string;
   type: string;
@@ -54,6 +62,27 @@ interface ContentPiece {
   isReserve: boolean;
   sortOrder: number;
   approval: { outcome: string; notes?: string } | null;
+  annotations?: PieceAnnotation[];
+  slug?: string | null;
+  metaDescription?: string | null;
+  socialPosts?: string | null; // JSON-stringified { twitter, linkedin, facebook, instagram }
+}
+
+interface SocialPosts {
+  twitter?: string;
+  linkedin?: string;
+  facebook?: string;
+  instagram?: string;
+}
+
+function parseSocialPosts(raw: string | null | undefined): SocialPosts {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 interface ContentPlan {
@@ -103,6 +132,26 @@ export default function ContentHubPage() {
 
   // Preview modal
   const [previewPiece, setPreviewPiece] = useState<ContentPiece | null>(null);
+
+  // Manual editor modal — the agency opens this to revise a draft body in
+  // response to client `request_edits` feedback. `editingPiece` holds the
+  // original piece for context; `editDraft` is the in-progress textarea
+  // value (markdown). Phase 10 added slug + metaDescription + socialPosts
+  // editing alongside body.
+  const [editingPiece, setEditingPiece] = useState<ContentPiece | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDraft, setEditDraft] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editMetaDescription, setEditMetaDescription] = useState("");
+  const [editSocialPosts, setEditSocialPosts] = useState<SocialPosts>({});
+  const [editTab, setEditTab] = useState<"body" | "distribution">("body");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Per-piece publish state tracker, so we can show a spinner on the
+  // specific button being clicked when there are several APPROVED pieces.
+  const [publishingPieceId, setPublishingPieceId] = useState<string | null>(null);
 
   // Approval flow
   const [isSendingApproval, setIsSendingApproval] = useState(false);
@@ -451,6 +500,142 @@ export default function ContentHubPage() {
       setError("Network error — please try again");
     } finally {
       setGeneratingPieceId(null);
+    }
+  };
+
+  // Open the manual editor with the current piece body. Used when client
+  // requests edits and the agency wants to revise inline rather than
+  // regenerating the whole draft from scratch.
+  const openEditor = (piece: ContentPiece) => {
+    setEditingPiece(piece);
+    setEditTitle(piece.title);
+    setEditDraft(piece.body || "");
+    setEditSlug(piece.slug || "");
+    setEditMetaDescription(piece.metaDescription || "");
+    setEditSocialPosts(parseSocialPosts(piece.socialPosts));
+    setEditTab("body");
+    setEditError("");
+  };
+
+  const closeEditor = () => {
+    setEditingPiece(null);
+    setEditTitle("");
+    setEditDraft("");
+    setEditSlug("");
+    setEditMetaDescription("");
+    setEditSocialPosts({});
+    setEditError("");
+  };
+
+  // Small helper to copy a string to the OS clipboard and flash a "Copied!"
+  // marker on whichever field was just copied. Used by the per-platform
+  // social-post copy buttons.
+  const copyToClipboard = async (key: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(key);
+      setTimeout(() => setCopiedField((curr) => (curr === key ? null : curr)), 1500);
+    } catch {
+      /* fail silently */
+    }
+  };
+
+  // Save the manually-edited body. Two save modes, chosen by the operator:
+  //
+  //   "resend"  → piece goes to DRAFT_REVIEW. The operator will click
+  //               "Send Drafts for Review" to re-send to the client.
+  //               Use this when the edit was substantive enough that the
+  //               client should re-review.
+  //   "approve" → piece goes to APPROVED. Skips the re-send loop entirely.
+  //               Use this for typos, single-word fixes, and other minor
+  //               edits that don't change the meaning of the draft.
+  //
+  // Either way, every unresolved client annotation is marked resolved on
+  // save — the operator just addressed them by editing. The piece's
+  // revisionCount also bumps so the monthly report can show how many
+  // revisions happened.
+  const handleSaveEdit = async (mode: "resend" | "approve") => {
+    if (!editingPiece) return;
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      const nextStatus = mode === "approve" ? "APPROVED" : "DRAFT_REVIEW";
+      const annotationsToResolve = (editingPiece.annotations || [])
+        .filter((a) => !a.resolved)
+        .map((a) => a.id);
+      const res = await fetch(`/api/content/pieces/${editingPiece.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body: editDraft,
+          title: editTitle.trim() || undefined,
+          slug: editSlug.trim(),
+          metaDescription: editMetaDescription,
+          socialPosts: Object.keys(editSocialPosts).length > 0 ? editSocialPosts : null,
+          status: nextStatus,
+          resolveAnnotationIds: annotationsToResolve,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditError(data.error || "Couldn't save the edit.");
+        return;
+      }
+      // Optimistically update local plan state with the returned piece
+      // so the UI reflects the saved body + cleared annotations.
+      if (data.piece) {
+        setPlans((prev) =>
+          prev.map((pl) => ({
+            ...pl,
+            pieces: pl.pieces.map((p) =>
+              p.id === editingPiece.id
+                ? {
+                    ...p,
+                    body: data.piece.body,
+                    title: data.piece.title,
+                    status: data.piece.status,
+                    annotations: data.piece.annotations,
+                    slug: data.piece.slug,
+                    metaDescription: data.piece.metaDescription,
+                    socialPosts: data.piece.socialPosts,
+                  }
+                : p
+            ),
+          }))
+        );
+      } else {
+        loadData();
+      }
+      closeEditor();
+    } catch {
+      setEditError("Network error — please try again.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Publish an APPROVED piece to the client's WordPress site. Calls the
+  // existing /api/content/pieces/[id]/publish endpoint which handles the
+  // actual WP REST API call and the status transition to PUBLISHED.
+  const handlePublishPiece = async (pieceId: string, asDraft: boolean) => {
+    setPublishingPieceId(pieceId);
+    setError("");
+    try {
+      const res = await fetch(`/api/content/pieces/${pieceId}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: asDraft ? "draft" : "publish" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Couldn't publish — check that WordPress credentials are set for this client.");
+        return;
+      }
+      loadData();
+    } catch {
+      setError("Network error during publish.");
+    } finally {
+      setPublishingPieceId(null);
     }
   };
 
@@ -1631,7 +1816,11 @@ export default function ContentHubPage() {
           )}
 
           {/* ── Persistent Draft Review Link Bar — only when actually sent to the client ── */}
-          {plan.pieces.some((p) => p.status === "CLIENT_REVIEW") && clientAccessToken && !approvalLink && (
+          {plan.pieces.some((p) =>
+            p.status === "CLIENT_REVIEW" ||
+            p.status === "APPROVED" ||
+            p.status === "REJECTED"
+          ) && clientAccessToken && !approvalLink && (
             <div
               className="rounded-xl mb-4 overflow-hidden"
               style={{
@@ -1643,8 +1832,35 @@ export default function ContentHubPage() {
                 <Eye size={16} style={{ color: "#10b981" }} className="flex-shrink-0" />
                 <p className="text-sm font-semibold flex-1" style={{ color: "#10b981" }}>
                   {(() => {
-                    const sentCount = plan.pieces.filter((p) => p.status === "CLIENT_REVIEW").length;
-                    return `${sentCount} ${sentCount === 1 ? "draft" : "drafts"} sent for client review`;
+                    // "Sent" is the universe of pieces that ever left for
+                    // client review — i.e. anything currently in
+                    // CLIENT_REVIEW plus pieces the client has already
+                    // resolved (APPROVED or REJECTED). The count shouldn't
+                    // shrink as the client makes decisions; only the
+                    // "awaiting decision" half decreases.
+                    const sent = plan.pieces.filter(
+                      (p) =>
+                        p.status === "CLIENT_REVIEW" ||
+                        p.status === "APPROVED" ||
+                        p.status === "REJECTED" ||
+                        p.status === "PUBLISHED"
+                    );
+                    const awaiting = sent.filter((p) => p.status === "CLIENT_REVIEW").length;
+                    return (
+                      <>
+                        {sent.length} {sent.length === 1 ? "draft" : "drafts"} sent for client review
+                        {awaiting > 0 && (
+                          <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                            {" "}· {awaiting} awaiting decision
+                          </span>
+                        )}
+                        {awaiting === 0 && (
+                          <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                            {" "}· all reviewed
+                          </span>
+                        )}
+                      </>
+                    );
                   })()}
                   {clientContactEmail && <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {clientContactEmail}</span>}
                 </p>
@@ -1736,7 +1952,7 @@ export default function ContentHubPage() {
                     <p className="text-xs leading-relaxed mb-3" style={{ color: "var(--text-muted)" }}>
                       {piece.description}
                     </p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className="text-[10px] font-bold uppercase px-2 py-1 rounded-md"
                         style={{ background: "var(--bg-card-hover)", color: "var(--text-muted)" }}
@@ -1751,10 +1967,82 @@ export default function ContentHubPage() {
                           ✍️ Draft Ready
                         </span>
                       )}
+                      {/* Counts of unresolved client comments — quick signal
+                          that there's inline feedback to address. */}
+                      {(piece.annotations?.filter((a) => !a.resolved).length || 0) > 0 && (
+                        <span
+                          className="text-[10px] font-bold uppercase px-2 py-1 rounded-md"
+                          style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b" }}
+                        >
+                          💬 {piece.annotations!.filter((a) => !a.resolved).length} comment{piece.annotations!.filter((a) => !a.resolved).length === 1 ? "" : "s"}
+                        </span>
+                      )}
                     </div>
+
+                    {/* Client request-edits / save_for_later note */}
+                    {piece.approval?.outcome === "request_edits" && piece.approval.notes && (
+                      <div
+                        className="mt-3 p-3 rounded-lg text-xs"
+                        style={{
+                          background: "rgba(245,158,11,0.08)",
+                          border: "1px solid rgba(245,158,11,0.25)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <span className="font-bold block mb-1" style={{ color: "#f59e0b" }}>
+                          Client requested edits:
+                        </span>
+                        {piece.approval.notes}
+                      </div>
+                    )}
+
+                    {/* Inline annotations from the client — show the
+                        highlighted quote + their comment per item. */}
+                    {(piece.annotations?.filter((a) => !a.resolved).length || 0) > 0 && (
+                      <div
+                        className="mt-3 rounded-lg overflow-hidden"
+                        style={{ border: "1px solid rgba(245,158,11,0.25)" }}
+                      >
+                        <div
+                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide"
+                          style={{
+                            background: "rgba(245,158,11,0.10)",
+                            color: "#f59e0b",
+                          }}
+                        >
+                          💬 Inline comments from client
+                        </div>
+                        <ul className="flex flex-col">
+                          {piece.annotations!
+                            .filter((a) => !a.resolved)
+                            .map((a) => (
+                              <li
+                                key={a.id}
+                                className="px-3 py-2 text-xs"
+                                style={{
+                                  borderTop: "1px solid rgba(245,158,11,0.10)",
+                                  color: "var(--text-secondary)",
+                                }}
+                              >
+                                <p
+                                  className="italic mb-1"
+                                  style={{
+                                    color: "var(--text-muted)",
+                                    borderLeft: "2px solid #f59e0b",
+                                    paddingLeft: 8,
+                                  }}
+                                >
+                                  &ldquo;{a.highlightedText.length > 160 ? `${a.highlightedText.slice(0, 160)}…` : a.highlightedText}&rdquo;
+                                </p>
+                                <p style={{ color: "var(--text-secondary)" }}>{a.comment}</p>
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                   {/* Actions */}
-                  <div className="px-4 py-3 flex gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="px-4 py-3 flex flex-wrap gap-2" style={{ borderTop: "1px solid var(--border)" }}>
                     {!hasDraft && (piece.status === "APPROVED" || piece.status === "PLANNED") && (
                       <button
                         onClick={() => handleGenerateDraft(piece.id)}
@@ -1783,6 +2071,17 @@ export default function ContentHubPage() {
                         )}
                       </button>
                     )}
+                    {hasDraft && (
+                      <button
+                        onClick={() => openEditor(piece)}
+                        className="btn-secondary text-xs"
+                        style={{ padding: "6px 12px" }}
+                        title="Edit the draft body yourself (without regenerating from scratch)"
+                      >
+                        <Edit3 size={12} />
+                        Edit
+                      </button>
+                    )}
                     <button
                       onClick={() => setPreviewPiece(piece)}
                       disabled={!hasDraft}
@@ -1793,6 +2092,33 @@ export default function ContentHubPage() {
                       <Eye size={12} />
                       Preview
                     </button>
+                    {/* Publish (only when client has approved) */}
+                    {hasDraft && piece.status === "APPROVED" && (
+                      <button
+                        onClick={() => handlePublishPiece(piece.id, true)}
+                        disabled={publishingPieceId === piece.id}
+                        className="btn-primary text-xs"
+                        style={{ padding: "6px 12px", background: "#10b981", borderColor: "#10b981" }}
+                        title="Publish to WordPress (defaults to draft post — confirm on the site before going live)"
+                      >
+                        {publishingPieceId === piece.id ? (
+                          <><Loader2 size={12} className="animate-spin" /> Publishing...</>
+                        ) : (
+                          <><Send size={12} /> Publish</>
+                        )}
+                      </button>
+                    )}
+                    {piece.status === "PUBLISHED" && piece.publishedUrl && (
+                      <a
+                        href={piece.publishedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary text-xs"
+                        style={{ padding: "6px 12px", color: "#10b981" }}
+                      >
+                        <ExternalLink size={12} /> Published
+                      </a>
+                    )}
                   </div>
                 </div>
               );
@@ -1967,7 +2293,13 @@ export default function ContentHubPage() {
 
       {/* ═══════════ PUBLISHING TAB ═══════════ */}
       {activeTab === "publishing" && plan && (() => {
-        const readyPieces = plan.pieces.filter((p) => p.status === "READY_TO_PUBLISH");
+        // "Ready to publish" = the client has approved (status=APPROVED) and
+        // the draft body exists. The legacy filter on READY_TO_PUBLISH was
+        // dead — that status isn't set anywhere in the current flow because
+        // the client-approval endpoint transitions directly to APPROVED.
+        const readyPieces = plan.pieces.filter(
+          (p) => (p.status === "APPROVED" || p.status === "READY_TO_PUBLISH") && p.body
+        );
         const publishedPieces = plan.pieces.filter((p) => p.status === "PUBLISHED");
         const typeConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
           BLOG_POST: { icon: <FileText size={12} />, label: "Blog", color: "#3B82F6" },
@@ -2048,16 +2380,32 @@ export default function ContentHubPage() {
                               </p>
                             )}
                           </div>
-                          <button
-                            onClick={() => {
-                              setPublishingPiece(piece);
-                              setPubDate(new Date().toISOString().split("T")[0]);
-                            }}
-                            className="btn-primary text-xs whitespace-nowrap"
-                          >
-                            <ExternalLink size={14} />
-                            Mark Published
-                          </button>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => handlePublishPiece(piece.id, true)}
+                              disabled={publishingPieceId === piece.id}
+                              className="btn-primary text-xs whitespace-nowrap"
+                              style={{ background: "#10b981", borderColor: "#10b981" }}
+                              title="Send to the client's WordPress as a draft post — review on-site before going live"
+                            >
+                              {publishingPieceId === piece.id ? (
+                                <><Loader2 size={14} className="animate-spin" /> Publishing...</>
+                              ) : (
+                                <><Send size={14} /> Push to WordPress</>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPublishingPiece(piece);
+                                setPubDate(new Date().toISOString().split("T")[0]);
+                              }}
+                              className="btn-secondary text-xs whitespace-nowrap"
+                              title="Mark as published with a URL you paste in manually (use when WordPress isn't connected or content was posted outside the platform)"
+                            >
+                              <ExternalLink size={14} />
+                              Mark Published Manually
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2166,6 +2514,305 @@ export default function ContentHubPage() {
           </div>
         );
       })()}
+
+      {/* ═══ MANUAL EDIT MODAL ═══ */}
+      {/* Opens when the agency clicks "Edit" on a piece card. Lets them
+          revise the body and title in response to client `request_edits`
+          feedback, with the existing annotations + notes shown alongside so
+          they can address each item without losing context. Save sends the
+          piece back to DRAFT_REVIEW (so it has to be re-sent to the client
+          via the "Send Drafts for Review" action). */}
+      {editingPiece && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !savingEdit) closeEditor();
+          }}
+        >
+          <div
+            className="stat-card w-full max-w-5xl mx-4 animate-fade-in"
+            style={{ padding: 0, maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+          >
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: "rgba(124,58,237,0.15)",
+                    color: "#7C3AED",
+                  }}
+                >
+                  <Edit3 size={16} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    Edit Draft
+                  </p>
+                  <p className="text-sm font-bold truncate" style={{ color: "var(--text-primary)" }}>
+                    {editingPiece.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={closeEditor}
+                disabled={savingEdit}
+                className="p-2 rounded-lg hover:bg-white/5 flex-shrink-0"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Tab strip — Body | Distribution */}
+            <div className="flex items-center gap-1 px-5 pt-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              {(["body", "distribution"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setEditTab(t)}
+                  className="px-3 py-2 text-xs font-bold rounded-t-lg"
+                  style={{
+                    background: editTab === t ? "var(--accent-muted)" : "transparent",
+                    color: editTab === t ? "var(--accent)" : "var(--text-muted)",
+                    borderBottom: editTab === t ? "2px solid var(--accent)" : "2px solid transparent",
+                    marginBottom: -1,
+                  }}
+                >
+                  {t === "body" ? "Body" : "Distribution (SEO + Social)"}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col md:flex-row min-h-0 flex-1">
+              {/* Editor side */}
+              <div className="flex flex-col p-5 gap-3 flex-1 min-w-0">
+                {editTab === "body" && (
+                  <>
+                    <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      disabled={savingEdit}
+                    />
+                    <label className="text-[10px] font-bold uppercase tracking-wide mt-2" style={{ color: "var(--text-muted)" }}>
+                      Body (markdown)
+                    </label>
+                    <textarea
+                      className="input-field flex-1"
+                      style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13, lineHeight: 1.6, minHeight: 400, resize: "vertical" }}
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      disabled={savingEdit}
+                      placeholder="The draft body in markdown. Headings (##), bold (**text**), lists (- item), and GFM tables are all supported. Internal links: [anchor text](slug-of-target-piece) — slugs resolve to real URLs at publish time."
+                    />
+                  </>
+                )}
+
+                {editTab === "distribution" && (
+                  <>
+                    <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                      URL Slug
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      value={editSlug}
+                      onChange={(e) => setEditSlug(e.target.value)}
+                      disabled={savingEdit}
+                      placeholder="kebab-case-slug"
+                    />
+                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                      Becomes part of the published URL. Lowercase letters, numbers, and hyphens only.
+                    </p>
+
+                    <label className="text-[10px] font-bold uppercase tracking-wide mt-3" style={{ color: "var(--text-muted)" }}>
+                      Meta Description (SEO + post excerpt)
+                    </label>
+                    <textarea
+                      className="input-field"
+                      style={{ minHeight: 80 }}
+                      value={editMetaDescription}
+                      onChange={(e) => setEditMetaDescription(e.target.value)}
+                      disabled={savingEdit}
+                      placeholder="150–160 char SEO description. Pushed to WordPress as both the excerpt and the meta description for Yoast/Rank Math."
+                    />
+                    <p className="text-[10px]" style={{ color: editMetaDescription.length > 160 ? "#ef4444" : "var(--text-muted)" }}>
+                      {editMetaDescription.length}/160 chars
+                    </p>
+
+                    <div className="mt-3" style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                      <p className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "var(--text-muted)" }}>
+                        Social Posts (for paste-into Buffer/LinkedIn/etc.)
+                      </p>
+                      {([
+                        { key: "twitter", label: "Twitter / X", placeholder: "Under 240 chars, one-line hook…" },
+                        { key: "linkedin", label: "LinkedIn", placeholder: "600–800 chars, professional, ends with an open question…" },
+                        { key: "facebook", label: "Facebook", placeholder: "400–600 chars, conversational, ends with an invitation…" },
+                        { key: "instagram", label: "Instagram", placeholder: "Caption + 8–12 highly-relevant hashtags…" },
+                      ] as const).map((platform) => (
+                        <div key={platform.key} className="mb-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                              {platform.label}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(`social-${platform.key}`, (editSocialPosts[platform.key] || "").trim())}
+                              disabled={!(editSocialPosts[platform.key] || "").trim()}
+                              className="text-[10px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1"
+                              style={{
+                                background: copiedField === `social-${platform.key}` ? "rgba(16,185,129,0.15)" : "var(--surface)",
+                                color: copiedField === `social-${platform.key}` ? "#10b981" : "var(--text-muted)",
+                                border: "1px solid var(--border)",
+                                opacity: !(editSocialPosts[platform.key] || "").trim() ? 0.4 : 1,
+                              }}
+                            >
+                              {copiedField === `social-${platform.key}` ? (
+                                <>✓ Copied</>
+                              ) : (
+                                <><Copy size={10} /> Copy</>
+                              )}
+                            </button>
+                          </div>
+                          <textarea
+                            className="input-field"
+                            style={{ minHeight: platform.key === "twitter" ? 60 : 100, fontSize: 12 }}
+                            value={editSocialPosts[platform.key] || ""}
+                            onChange={(e) =>
+                              setEditSocialPosts((prev) => ({ ...prev, [platform.key]: e.target.value }))
+                            }
+                            disabled={savingEdit}
+                            placeholder={platform.placeholder}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {editError && (
+                  <p className="text-xs" style={{ color: "#ef4444" }}>
+                    {editError}
+                  </p>
+                )}
+              </div>
+
+              {/* Sidebar: client feedback in context */}
+              <aside
+                className="p-5 flex flex-col gap-3 overflow-y-auto"
+                style={{
+                  width: 320,
+                  borderLeft: "1px solid var(--border)",
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  Client Feedback
+                </p>
+                {editingPiece.approval?.outcome === "request_edits" && editingPiece.approval.notes && (
+                  <div
+                    className="p-3 rounded-lg text-xs"
+                    style={{
+                      background: "rgba(245,158,11,0.08)",
+                      border: "1px solid rgba(245,158,11,0.25)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <span className="font-bold block mb-1" style={{ color: "#f59e0b" }}>
+                      Overall note:
+                    </span>
+                    {editingPiece.approval.notes}
+                  </div>
+                )}
+                {(editingPiece.annotations?.filter((a) => !a.resolved).length || 0) === 0 &&
+                  !(editingPiece.approval?.outcome === "request_edits" && editingPiece.approval.notes) && (
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      No inline feedback on this draft.
+                    </p>
+                  )}
+                {(editingPiece.annotations || [])
+                  .filter((a) => !a.resolved)
+                  .map((a, i) => (
+                    <div
+                      key={a.id}
+                      className="p-3 rounded-lg text-xs"
+                      style={{
+                        background: "rgba(245,158,11,0.05)",
+                        border: "1px solid rgba(245,158,11,0.20)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <p className="font-bold mb-1" style={{ color: "#f59e0b" }}>
+                        Comment #{i + 1}
+                      </p>
+                      <p
+                        className="italic mb-2"
+                        style={{
+                          color: "var(--text-muted)",
+                          borderLeft: "2px solid #f59e0b",
+                          paddingLeft: 8,
+                        }}
+                      >
+                        &ldquo;{a.highlightedText.length > 200 ? `${a.highlightedText.slice(0, 200)}…` : a.highlightedText}&rdquo;
+                      </p>
+                      <p>{a.comment}</p>
+                    </div>
+                  ))}
+                <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>
+                  Saving marks every comment above as resolved — the client&apos;s view will show them as &ldquo;✓ Addressed by KangoMedia.&rdquo;
+                </p>
+              </aside>
+            </div>
+
+            <div className="px-6 py-4 flex items-center justify-between gap-3 flex-wrap" style={{ borderTop: "1px solid var(--border)" }}>
+              <p className="text-xs max-w-md" style={{ color: "var(--text-muted)" }}>
+                <strong>Save & approve</strong> is for minor edits (typos, single phrases) — the piece becomes <strong>Approved</strong> and is ready to publish, no client re-review needed.
+                <br />
+                <strong>Save & resend</strong> sends the revised draft back to the client for a fresh decision.
+              </p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={closeEditor}
+                  disabled={savingEdit}
+                  className="btn-secondary text-sm"
+                  style={{ padding: "6px 14px" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSaveEdit("resend")}
+                  disabled={savingEdit || editDraft.trim().length === 0}
+                  className="btn-secondary text-sm"
+                  style={{ padding: "6px 14px" }}
+                  title="Save the edit and send the revised draft back to the client for re-review"
+                >
+                  {savingEdit ? (
+                    <><Loader2 size={14} className="animate-spin" /> Saving...</>
+                  ) : (
+                    <><Send size={14} /> Save & Resend to Client</>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleSaveEdit("approve")}
+                  disabled={savingEdit || editDraft.trim().length === 0}
+                  className="btn-primary text-sm"
+                  style={{ padding: "6px 14px", background: "#16a34a", borderColor: "#16a34a" }}
+                  title="Save the edit and mark the piece as Approved — skips the client re-review loop. Use for minor edits only."
+                >
+                  {savingEdit ? (
+                    <><Loader2 size={14} className="animate-spin" /> Saving...</>
+                  ) : (
+                    <><CheckCircle2 size={14} /> Save & Approve</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ EMAIL PREVIEW MODAL ═══ */}
       {showEmailPreview && (

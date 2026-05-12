@@ -8,11 +8,13 @@ import {
   LayoutDashboard,
   FileText,
   FileBarChart,
+  Library,
 } from "lucide-react";
 
 const portalNav = [
   { href: "", label: "Dashboard", icon: LayoutDashboard },
   { href: "/content", label: "Content Review", icon: FileText },
+  { href: "/library", label: "Your Content", icon: Library },
   { href: "/reports", label: "Reports", icon: FileBarChart },
 ];
 
