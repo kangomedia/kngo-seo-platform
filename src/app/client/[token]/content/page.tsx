@@ -681,15 +681,7 @@ function ContentApprovalInner() {
           >
             <ChevronLeft size={16} /> Back
           </button>
-          {currentIndex === planPieces.length - 1 ? (
-            <button
-              onClick={() => setPlanPhase("summary")}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold"
-              style={{ background: "#E34234", color: "#fff" }}
-            >
-              Review Summary <ChevronRight size={16} />
-            </button>
-          ) : (
+          {currentIndex < planPieces.length - 1 ? (
             <button
               onClick={() => setCurrentIndex((i) => i + 1)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold"
@@ -697,6 +689,13 @@ function ContentApprovalInner() {
             >
               Next <ChevronRight size={16} />
             </button>
+          ) : (
+            // On the last piece, we deliberately hide the Next/Review Summary
+            // button. Clicking any decision (Approve/Reject/Later) already
+            // auto-advances to the summary screen via handlePlanDecision —
+            // a separate "Review Summary" button sitting next to Approve was
+            // easy to mis-tap.
+            <span aria-hidden style={{ visibility: "hidden" }}>placeholder</span>
           )}
         </div>
         </div>
