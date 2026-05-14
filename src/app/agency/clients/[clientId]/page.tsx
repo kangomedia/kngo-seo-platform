@@ -136,12 +136,20 @@ function jsonArrayToCommaString(stored: string | null | undefined): string {
   return "";
 }
 
-function commaStringToJsonArray(value: string): string {
-  const items = value
+/**
+ * Split a comma-separated edit-form field into a string array for submission.
+ * Used by the edit form's handleSave to convert primaryServices/serviceAreas/
+ * targetCities/brandTerms to the native-array shape ClientUpdateSchema expects.
+ *
+ * Previously this returned a JSON-stringified string (matching the pre-Zod
+ * route shape). Batch 2 retrofitted PUT /api/clients/[clientId] to expect
+ * native arrays; this helper was the missing form-side update.
+ */
+function commaStringToArray(value: string): string[] {
+  return value
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  return JSON.stringify(items);
 }
 
 import { getSectorForVertical, resolveLegacyIndustry } from "@/lib/industry-taxonomy";
@@ -812,14 +820,33 @@ export default function ClientOverview() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Convert the comma-separated text fields back to JSON arrays before
-      // sending. icpPains is already a JSON string (tag-list manages it).
+      // Convert form state into the native-array shape ClientUpdateSchema
+      // expects. Three categories of conversion:
+      //   - comma-separated text fields → string[] via commaStringToArray
+      //   - icpPains (held as JSON string in form state because the tag-list
+      //     UI mutates it as JSON) → string[] via JSON.parse
+      //   - priceRange ("" when unselected) → null, since the schema enum
+      //     doesn't accept empty strings
+      // The tag-list reader sites for icpPains stay as JSON.parse on form
+      // state — they get refactored alongside the Week 3 mega-file split.
+      let icpPainsArray: string[] = [];
+      try {
+        const parsed = JSON.parse(editForm.icpPains || "[]");
+        if (Array.isArray(parsed)) {
+          icpPainsArray = parsed.filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+        }
+      } catch {
+        icpPainsArray = [];
+      }
+
       const payload = {
         ...editForm,
-        primaryServices: commaStringToJsonArray(editForm.primaryServices),
-        serviceAreas: commaStringToJsonArray(editForm.serviceAreas),
-        targetCities: commaStringToJsonArray(editForm.targetCities),
-        brandTerms: commaStringToJsonArray(editForm.brandTerms),
+        primaryServices: commaStringToArray(editForm.primaryServices),
+        serviceAreas: commaStringToArray(editForm.serviceAreas),
+        targetCities: commaStringToArray(editForm.targetCities),
+        brandTerms: commaStringToArray(editForm.brandTerms),
+        icpPains: icpPainsArray,
+        priceRange: editForm.priceRange || null,
       };
       const res = await fetch(`/api/clients/${clientId}`, {
         method: "PUT",
