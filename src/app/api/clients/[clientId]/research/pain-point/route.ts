@@ -9,8 +9,16 @@
 // Body: { pillarSlug?: string, location?: string }
 
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+import {
+  parseClientIcpPains,
+  parseClientPrimaryServices,
+  parseClientServiceAreas,
+  parseClientTargetCities,
+} from "@/lib/parsers";
 import {
   type BusinessProfile,
   type RawKeyword,
@@ -20,6 +28,18 @@ import {
   generatePainPointSeeds,
   generateStrategicAnalysis,
 } from "@/lib/keyword-intelligence";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/research/pain-point`.
+ *
+ * Both fields optional — the route auto-generates seeds from the client's
+ * stored ICP pains + business profile. `pillarSlug` tags the research session
+ * for downstream content-map consumption.
+ */
+const PainPointPostSchema = z.object({
+  pillarSlug: z.string().trim().nullish(),
+  location: z.string().trim().nullish(),
+});
 
 export async function POST(
   request: Request,
@@ -35,9 +55,19 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  const body = await request.json().catch(() => ({}));
-  const pillarSlug: string | undefined = body.pillarSlug;
-  const location: string | undefined = body.location;
+  // Both fields are optional, so an empty/missing body is the common path —
+  // only validate when there's actually a body to parse.
+  let pillarSlug: string | null | undefined;
+  let location: string | null | undefined;
+  const hasBody =
+    request.headers.get("content-length") !== "0" &&
+    request.headers.get("content-length") !== null;
+  if (hasBody) {
+    const validated = await validateBody(request, PainPointPostSchema);
+    if (validated instanceof NextResponse) return validated;
+    pillarSlug = validated.pillarSlug;
+    location = validated.location;
+  }
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -73,21 +103,19 @@ export async function POST(
     );
   }
 
-  const parseList = (json: string | null): string[] => {
-    try { return JSON.parse(json || "[]"); } catch { return []; }
-  };
+  // Client JSON-column reads go through parsers.ts (CLAUDE.md Rule 1).
   const profile: BusinessProfile & { icpPains?: string[] } = {
     clientName: client.name,
     domain: client.domain || "",
     businessDescription: client.businessDescription,
-    primaryServices: parseList(client.primaryServices),
+    primaryServices: parseClientPrimaryServices(client.primaryServices),
     idealClientProfile: client.idealClientProfile,
     priceRange: client.priceRange,
     industryVertical: client.industryVertical || client.gbpCategory,
     industrySector: client.industrySector || null,
-    serviceAreas: parseList(client.serviceAreas),
-    targetCities: parseList(client.targetCities),
-    icpPains: parseList(client.icpPains),
+    serviceAreas: parseClientServiceAreas(client.serviceAreas),
+    targetCities: parseClientTargetCities(client.targetCities),
+    icpPains: parseClientIcpPains(client.icpPains),
   };
   if (profile.targetCities.length === 0 && client.city && client.state) {
     profile.targetCities = [`${client.city}, ${client.state}`];

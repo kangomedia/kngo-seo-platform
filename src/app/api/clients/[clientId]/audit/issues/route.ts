@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `PATCH /api/clients/[clientId]/audit/issues`.
+ * Status transitions are constrained to the three known states; anything
+ * else (e.g. a typo'd "FIXEDD") fails at the boundary.
+ */
+const AuditIssuePatchSchema = z.object({
+  issueId: z.string().min(1),
+  status: z.enum(["OPEN", "FIXED", "IGNORED"]),
+  fixNotes: z.string().nullish(),
+});
 
 // GET — List all issues for an audit (with fix status)
 export async function GET(
@@ -58,11 +71,9 @@ export async function PATCH(
   }
 
   const { clientId } = await params;
-  const { issueId, status, fixNotes } = await request.json();
-
-  if (!issueId || !status || !["OPEN", "FIXED", "IGNORED"].includes(status)) {
-    return NextResponse.json({ error: "issueId and valid status required" }, { status: 400 });
-  }
+  const validated = await validateBody(request, AuditIssuePatchSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { issueId, status, fixNotes } = validated;
 
   // Verify the issue belongs to this client's audit
   const issue = await prisma.auditIssue.findFirst({

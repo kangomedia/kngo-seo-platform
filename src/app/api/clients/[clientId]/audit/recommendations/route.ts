@@ -1,8 +1,24 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { generateSEORecommendations, type AuditPageData } from "@/lib/claude";
 import { getRealFailedChecks, filterToRealFailures } from "@/lib/audit-checks";
+import { validateBody } from "@/lib/validate";
+import { parseSiteAuditPageChecks } from "@/lib/parsers";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/audit/recommendations`.
+ *
+ * `targetKeyword` is optional — the recommendation generator can produce
+ * value without one, but quality is better when supplied. The handler
+ * verifies `pageId` belongs to this client before invoking Claude, so we
+ * trust the format here but not the authorization implication.
+ */
+const RecommendationsPostSchema = z.object({
+  pageId: z.string().min(1),
+  targetKeyword: z.string().trim().nullish(),
+});
 
 function getClaudeApiKey(): string {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -21,11 +37,9 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  const { pageId, targetKeyword } = await request.json();
-
-  if (!pageId) {
-    return NextResponse.json({ error: "pageId is required" }, { status: 400 });
-  }
+  const validated = await validateBody(request, RecommendationsPostSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { pageId, targetKeyword } = validated;
 
   // Verify the page belongs to this client
   const page = await prisma.siteAuditPage.findFirst({
@@ -37,7 +51,7 @@ export async function POST(
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  const checks: Record<string, boolean> = page.checks ? JSON.parse(page.checks) : {};
+  const checks = parseSiteAuditPageChecks(page.checks);
   const failedChecks = getRealFailedChecks(checks);
   if (failedChecks.length === 0) {
     return NextResponse.json({ recommendations: [], message: "No issues to fix" });

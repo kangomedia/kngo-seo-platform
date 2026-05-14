@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendEmail, auditCompleteEmail } from "@/lib/email";
+import { validateBody } from "@/lib/validate";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/audit/check`.
+ * Single required field: the audit ID to poll. Strict so a future stray
+ * options object surfaces as a 400 instead of being silently ignored.
+ */
+const AuditCheckPostSchema = z.object({
+  auditId: z.string().min(1),
+}).strict();
 
 async function getCredentials() {
   const login = process.env.DATAFORSEO_LOGIN;
@@ -30,16 +41,9 @@ export async function POST(
     }
 
     const { clientId } = await params;
-
-    let body;
-    try {
-      body = await request.json();
-    } catch (parseErr) {
-      console.error("[AUDIT CHECK] Failed to parse request body:", parseErr);
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-    }
-
-    const { auditId } = body;
+    const validated = await validateBody(request, AuditCheckPostSchema);
+    if (validated instanceof NextResponse) return validated;
+    const { auditId } = validated;
     console.log(`[AUDIT CHECK] Starting check for auditId=${auditId}, clientId=${clientId}`);
 
     const audit = await prisma.siteAudit.findFirst({

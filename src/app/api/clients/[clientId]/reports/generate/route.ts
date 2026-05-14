@@ -1,15 +1,40 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getReportFailedChecks, getCheckLabel, getCheckDescription } from "@/lib/audit-checks";
 import { fetchGSCData, fetchGA4Data } from "@/lib/google-data";
 import { snapshotMonth } from "@/lib/performance";
 import { generateNarrative } from "@/lib/claude";
+import { validateBody } from "@/lib/validate";
+import {
+  parseKeywordResearchResults,
+  parseSiteAuditPageChecks,
+  parseSiteAuditPageRecommendations,
+  parseMonthlySnapshotPageData,
+} from "@/lib/parsers";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/reports/generate`.
+ *
+ * `type` is the only required field. `month`/`year`/`quarter` are optional;
+ * the handler defaults them from the current date when absent.
+ *
+ * NOTE: this route reads `SiteAuditPage.checks`, `SiteAuditPage.recommendations`,
+ * and `MonthlySnapshot.pageData` via inline `JSON.parse`. Those columns don't
+ * have parsers yet (out of scope this batch per the "only columns we're
+ * adding parsers for" rule); they're tracked as parser-migration backlog.
+ */
+const ReportsGenerateSchema = z.object({
+  type: z.enum(["SITE_AUDIT", "BASELINE", "QUARTERLY"]),
+  month: z.number().int().min(1).max(12).optional(),
+  year: z.number().int().min(2020).max(2100).optional(),
+  quarter: z.number().int().min(1).max(4).optional(),
+});
 
 /**
  * POST /api/clients/[clientId]/reports/generate
- * Generate a Site Audit Report or Baseline Report
- * Body: { type: "SITE_AUDIT" | "BASELINE" }
+ * Generate a Site Audit, Baseline, or Quarterly Report.
  */
 export async function POST(
   request: Request,
@@ -21,20 +46,9 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-  }
-
-  const { type, month: reqMonth, year: reqYear, quarter: reqQuarter } = body;
-  if (!type || !["SITE_AUDIT", "BASELINE", "QUARTERLY"].includes(type)) {
-    return NextResponse.json(
-      { error: "type must be SITE_AUDIT, BASELINE, or QUARTERLY" },
-      { status: 400 }
-    );
-  }
+  const validated = await validateBody(request, ReportsGenerateSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { type, month: reqMonth, year: reqYear, quarter: reqQuarter } = validated;
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -170,9 +184,9 @@ async function buildSiteAuditSnapshot(
   // Process pages — filter out excluded pages first
   const includedPages = audit.pages.filter((p: PageRecord) => !p.excludedFromReport);
   const pages = includedPages.map((p: PageRecord) => {
-    const checksObj = p.checks ? JSON.parse(p.checks) : {};
+    const checksObj = parseSiteAuditPageChecks(p.checks);
     const failedChecks = getReportFailedChecks(checksObj);
-    const recs = p.recommendations ? JSON.parse(p.recommendations) : [];
+    const recs = parseSiteAuditPageRecommendations(p.recommendations);
 
     return {
       url: p.url,
@@ -186,7 +200,13 @@ async function buildSiteAuditSnapshot(
         label: getCheckLabel(key),
         description: getCheckDescription(key),
       })),
-      topRecommendation: recs[0]?.recommendation || null,
+      // NOTE: reads `recommendation` field. The current generator
+      // (`generateSEORecommendations` in lib/claude.ts) writes `suggestion`.
+      // This is a pre-existing field-name mismatch — `topRecommendation` has
+      // probably been silently null for a while. Not fixing in the parser
+      // migration to preserve behavior; tracked as a content-route backlog.
+      topRecommendation:
+        (recs[0] as { recommendation?: string } | undefined)?.recommendation || null,
     };
   });
 
@@ -294,10 +314,10 @@ async function buildBaselineSnapshot(
   let aiAnalysis: string | null = null;
 
   if (research) {
-    try {
-      const parsed = JSON.parse(research.results);
-      keywords = parsed.slice(0, 30);
-    } catch { /* */ }
+    // Read through the shared parser so malformed legacy rows degrade
+    // gracefully (drop bad entries, keep the rest) instead of nuking the
+    // whole keyword section of the report.
+    keywords = parseKeywordResearchResults(research.results).slice(0, 30);
     aiAnalysis = research.aiAnalysis || null;
   }
 
@@ -449,21 +469,12 @@ async function buildQuarterlySnapshot(
   };
   const byUrl = new Map<string, AggPiece>();
   for (const s of snapshots) {
-    if (!s.pageData) continue;
-    try {
-      const pages = JSON.parse(s.pageData) as {
-        url: string;
-        clicks: number;
-        impressions: number;
-      }[];
-      for (const p of pages) {
-        const cur = byUrl.get(p.url) || { url: p.url, clicks: 0, impressions: 0 };
-        cur.clicks += p.clicks;
-        cur.impressions += p.impressions;
-        byUrl.set(p.url, cur);
-      }
-    } catch {
-      /* ignore */
+    const pages = parseMonthlySnapshotPageData(s.pageData);
+    for (const p of pages) {
+      const cur = byUrl.get(p.url) || { url: p.url, clicks: 0, impressions: 0 };
+      cur.clicks += p.clicks;
+      cur.impressions += p.impressions;
+      byUrl.set(p.url, cur);
     }
   }
   // Enrich with content-piece titles where we have them

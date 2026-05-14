@@ -146,6 +146,7 @@ function commaStringToJsonArray(value: string): string {
 
 import { getSectorForVertical, resolveLegacyIndustry } from "@/lib/industry-taxonomy";
 import { SectorVerticalPicker } from "@/components/SectorVerticalPicker";
+import { parseKeywordResearchResults } from "@/lib/parsers";
 
 function MiniStat({
   label,
@@ -280,10 +281,8 @@ function OnboardingTracker({
           setDiscoveryData(data);
 
           if (data.latestResearch?.results) {
-            try {
-              const parsed = JSON.parse(data.latestResearch.results);
-              setSuggestedKeywords(parsed.slice(0, 20));
-            } catch { /* silently fail */ }
+            const parsed = parseKeywordResearchResults(data.latestResearch.results);
+            setSuggestedKeywords(parsed.slice(0, 20));
           }
 
           if (data.onboardingStatus === "COMPLETE") {

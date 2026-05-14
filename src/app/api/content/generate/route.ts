@@ -1,6 +1,33 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/generate`.
+ *
+ * `blogCount`, `gbpCount`, `gbpQACount`, `pressReleaseCount` are optional —
+ * when omitted the route defaults each to the client's `monthly*` tier
+ * config. Bounding the counts at 50 stops a typo'd `blogCount: 999999` from
+ * blowing up Claude's max_tokens.
+ *
+ * `planId` triggers the append-to-existing-plan branch.
+ *
+ * NOTE: the route also parses Claude's JSON-array response inline. That's
+ * an API-response parse (same category as `suggest-pains`); the body-level
+ * Zod here covers the operator's request, the per-piece content validation
+ * happens via the expectedTypes override loop downstream.
+ */
+const ContentGenerateSchema = z.object({
+  clientId: z.string().min(1),
+  seedKeyword: z.string().trim().min(1),
+  blogCount: z.number().int().min(0).max(50).optional(),
+  gbpCount: z.number().int().min(0).max(50).optional(),
+  gbpQACount: z.number().int().min(0).max(50).optional(),
+  pressReleaseCount: z.number().int().min(0).max(50).optional(),
+  planId: z.string().min(1).optional(),
+});
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -12,15 +39,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
+  const validated = await validateBody(request, ContentGenerateSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body = validated;
   const { clientId, seedKeyword } = body;
-
-  if (!clientId || !seedKeyword) {
-    return NextResponse.json(
-      { error: "clientId and seedKeyword are required" },
-      { status: 400 }
-    );
-  }
 
   // Claude API key is read exclusively from environment variables.
   const apiKey = process.env.ANTHROPIC_API_KEY;

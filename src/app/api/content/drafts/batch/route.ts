@@ -16,11 +16,30 @@
 //   batch is done.
 
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { generateContentBodyInternal } from "@/lib/actions-ai";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
 
 const CONCURRENCY = 3;
+
+/**
+ * Body schema for `POST /api/content/drafts/batch`.
+ *
+ * Sibling to `POST /api/content/draft` (single piece). Both routes operate
+ * on `contentPieceId` strings — the batch variant just takes an array. Kept
+ * in lockstep deliberately: a future field added here should be added there
+ * too. See `DraftPostSchema` in ../draft/route.ts.
+ *
+ * `pieceIds` is optional — when omitted, the route batches ALL eligible
+ * pieces for the client. Required to be non-empty when present so callers
+ * sending `pieceIds: []` get a clear 400 instead of "nothing happened."
+ */
+const DraftsBatchSchema = z.object({
+  clientId: z.string().min(1),
+  pieceIds: z.array(z.string().min(1)).min(1).optional(),
+});
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -28,16 +47,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { clientId?: string; pieceIds?: string[] } = {};
-  try {
-    body = await request.json();
-  } catch {
-    /* allow empty body */
-  }
-  const { clientId, pieceIds: explicitIds } = body;
-  if (!clientId) {
-    return NextResponse.json({ error: "clientId is required" }, { status: 400 });
-  }
+  const validated = await validateBody(request, DraftsBatchSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { clientId, pieceIds: explicitIds } = validated;
 
   // Find eligible pieces. Matches the same `isDraftablePiece` filter the
   // Drafts tab uses to render "awaiting draft":

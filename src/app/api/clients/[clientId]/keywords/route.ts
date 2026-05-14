@@ -1,6 +1,41 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/keywords`.
+ *
+ * Each keyword can be a bare string OR a full metrics object. The 80-char
+ * `max` on the keyword text is load-bearing: DataForSEO's `search_volume`
+ * endpoint rejects keywords longer than ~80 chars with a 40501. Without this
+ * cap, a stray long pain-point seed (the audit-flagged regression from
+ * 2026-05-11) silently fails to fetch metrics — the keyword gets created
+ * but stays metrics-less, with the error only visible in DataForSEO's log.
+ */
+const KeywordObjectSchema = z.object({
+  keyword: z.string().trim().min(1).max(80),
+  searchVolume: z.number().int().min(0).nullish(),
+  difficulty: z.number().int().min(0).max(100).nullish(),
+  cpc: z.number().min(0).nullish(),
+  group: z.string().trim().nullish(),
+});
+
+const KeywordsPostSchema = z.object({
+  keywords: z
+    .array(
+      z.union([
+        z.string().trim().min(1).max(80),
+        KeywordObjectSchema,
+      ]),
+    )
+    .min(1, "At least one keyword is required"),
+  /** Fallback group applied to any keyword that doesn't specify its own. */
+  group: z.string().trim().nullish(),
+});
+
+type KeywordInput = z.infer<typeof KeywordsPostSchema>["keywords"][number];
 
 // GET — list tracked keywords for a client. Used by the Discovery card on
 // the client overview to know which suggested keywords are already tracked
@@ -47,14 +82,9 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  const body = await request.json();
-
-  if (!body.keywords || !Array.isArray(body.keywords) || body.keywords.length === 0) {
-    return NextResponse.json(
-      { error: "keywords array is required" },
-      { status: 400 }
-    );
-  }
+  const validated = await validateBody(request, KeywordsPostSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body = validated;
 
   // Validate client exists
   const client = await prisma.client.findUnique({
@@ -66,23 +96,36 @@ export async function POST(
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Create keywords, skipping duplicates
+  // Create keywords, skipping duplicates. The schema already trimmed strings,
+  // validated max length, and ensured numbers are non-negative — so the
+  // handler can read fields by shape without runtime type-tests.
   const results = [];
-  const skipped = [];
+  const skipped: string[] = [];
+
+  const extractFields = (kw: KeywordInput) =>
+    typeof kw === "string"
+      ? { keyword: kw, searchVolume: null, difficulty: null, cpc: null, group: null }
+      : {
+          keyword: kw.keyword,
+          searchVolume: kw.searchVolume ?? null,
+          difficulty: kw.difficulty ?? null,
+          cpc: kw.cpc ?? null,
+          group: kw.group ?? null,
+        };
 
   for (const kw of body.keywords) {
-    const keyword = typeof kw === "string" ? kw.trim() : kw.keyword?.trim();
-    if (!keyword) continue;
+    const fields = extractFields(kw);
+    if (!fields.keyword) continue;
 
     try {
       const created = await prisma.keyword.create({
         data: {
           clientId,
-          keyword,
-          searchVolume: typeof kw === "object" ? kw.searchVolume || null : null,
-          difficulty: typeof kw === "object" ? kw.difficulty || null : null,
-          cpc: typeof kw === "object" && typeof kw.cpc === "number" ? kw.cpc : null,
-          group: typeof kw === "object" ? kw.group || body.group || null : body.group || null,
+          keyword: fields.keyword,
+          searchVolume: fields.searchVolume,
+          difficulty: fields.difficulty,
+          cpc: fields.cpc,
+          group: fields.group ?? body.group ?? null,
           isTracking: true,
         },
       });
@@ -90,7 +133,7 @@ export async function POST(
     } catch (err: unknown) {
       // Unique constraint violation — keyword already exists for this client
       if (err && typeof err === "object" && "code" in err && err.code === "P2002") {
-        skipped.push(keyword);
+        skipped.push(fields.keyword);
       } else {
         throw err;
       }

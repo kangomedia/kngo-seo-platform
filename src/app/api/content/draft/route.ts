@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { generateContentBody } from "@/lib/actions-ai";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/draft`.
+ *
+ * Single-piece draft generation. The batch variant (`/drafts/batch`) shares
+ * the same `contentPieceId` shape — see also `DraftBatchSchema` in that
+ * route. If a field is added here, mirror it there to prevent drift.
+ */
+const DraftPostSchema = z.object({
+  contentPieceId: z.string().min(1),
+});
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -8,15 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const body = await request.json();
-    const { contentPieceId } = body;
-
-    if (!contentPieceId) {
-      return NextResponse.json(
-        { error: "contentPieceId is required" },
-        { status: 400 }
-      );
-    }
+    const validated = await validateBody(request, DraftPostSchema);
+    if (validated instanceof NextResponse) return validated;
+    const { contentPieceId } = validated;
 
     const content = await generateContentBody(contentPieceId);
 

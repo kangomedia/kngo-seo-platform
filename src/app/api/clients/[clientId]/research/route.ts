@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
+import {
+  parseClientPrimaryServices,
+  parseClientServiceAreas,
+  parseClientTargetCities,
+  parseKeywordResearchResults,
+} from "@/lib/parsers";
 import {
   type BusinessProfile,
   type RawKeyword,
@@ -13,12 +21,25 @@ import {
 } from "@/lib/keyword-intelligence";
 
 /**
+ * Body schema for `POST /api/clients/[clientId]/research`.
+ *
+ * Seeds are individual short phrases — DataForSEO rejects "keywords" longer
+ * than ~80 chars, so we cap each seed there. Min length 2 stops degenerate
+ * single-char seeds from burning DataForSEO calls.
+ */
+const ResearchPostSchema = z.object({
+  seedTopics: z
+    .array(z.string().trim().min(2).max(80))
+    .min(1, "At least one seed topic is required"),
+  location: z.string().trim().nullish(),
+  context: z.string().nullish(),
+});
+
+/**
  * POST /api/clients/[clientId]/research
  * Run AI-powered keyword research using DataForSEO suggestions + the same
  * filter + AI scoring pipeline as the discover route, so manual research
  * sessions return the same quality of curated keywords.
- *
- * Body: { seedTopics: string[], location?: string, context?: string }
  */
 export async function POST(
   request: Request,
@@ -34,15 +55,9 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  const body = await request.json();
-  const { seedTopics, location, context } = body;
-
-  if (!seedTopics || !Array.isArray(seedTopics) || seedTopics.length === 0) {
-    return NextResponse.json(
-      { error: "seedTopics array is required" },
-      { status: 400 }
-    );
-  }
+  const validated = await validateBody(request, ResearchPostSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { seedTopics, location, context } = validated;
 
   // Pull the full business profile so the AI scorer has the same context as
   // the discovery pipeline — without it, "score for THIS business" is hollow.
@@ -76,20 +91,18 @@ export async function POST(
   const claudeKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
   // Build BusinessProfile for downstream scoring + seed generation parity.
-  const parseList = (json: string | null): string[] => {
-    try { return JSON.parse(json || "[]"); } catch { return []; }
-  };
+  // All Client JSON-column reads route through parsers.ts (CLAUDE.md Rule 1).
   const profile: BusinessProfile = {
     clientName: client.name,
     domain: client.domain || "",
     businessDescription: client.businessDescription,
-    primaryServices: parseList(client.primaryServices),
+    primaryServices: parseClientPrimaryServices(client.primaryServices),
     idealClientProfile: client.idealClientProfile,
     priceRange: client.priceRange,
     industryVertical: client.industryVertical || client.gbpCategory,
     industrySector: client.industrySector || null,
-    serviceAreas: parseList(client.serviceAreas),
-    targetCities: parseList(client.targetCities),
+    serviceAreas: parseClientServiceAreas(client.serviceAreas),
+    targetCities: parseClientTargetCities(client.targetCities),
   };
   // Fill from city/state if targetCities is empty
   if (profile.targetCities.length === 0 && client.city && client.state) {
@@ -246,7 +259,7 @@ export async function GET(
   return NextResponse.json(
     sessions.map((s) => ({
       ...s,
-      results: JSON.parse(s.results || "[]"),
+      results: parseKeywordResearchResults(s.results),
     }))
   );
 }

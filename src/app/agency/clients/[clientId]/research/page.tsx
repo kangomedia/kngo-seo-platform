@@ -21,6 +21,7 @@ import {
   Sparkles,
   MapPin,
 } from "lucide-react";
+import { parseKeywordResearchResults } from "@/lib/parsers";
 
 interface KeywordResult {
   keyword: string;
@@ -122,10 +123,8 @@ export default function ResearchPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.latestResearch?.results) {
-            try {
-              const parsed = JSON.parse(data.latestResearch.results);
-              setDiscoverySuggestions(parsed.slice(0, 20));
-            } catch { /* silently fail */ }
+            const parsed = parseKeywordResearchResults(data.latestResearch.results);
+            setDiscoverySuggestions(parsed.slice(0, 20));
           }
         }
       } catch { /* silently fail */ }

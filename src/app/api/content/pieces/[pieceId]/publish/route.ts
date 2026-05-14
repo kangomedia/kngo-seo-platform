@@ -1,8 +1,29 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { loadCredentials, createPost } from "@/lib/wordpress";
 import { generateSlug } from "@/lib/slug";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/pieces/[pieceId]/publish`.
+ *
+ * `status` defaults to "draft" so the WP editor can review on-site before
+ * the post goes live. Anything other than "publish" routes to "draft".
+ *
+ * TRANSACTION NOTE: this route makes a side-effecting WP API call (createPost)
+ * followed by a local DB write (contentPiece.update). The two are NOT in a
+ * transaction — if the DB write fails after WP succeeds, the post exists on
+ * the client's WordPress site but our DB has no record of it. Tracked as
+ * "publish idempotency" backlog; the fix needs a schema migration (add
+ * `wpPostId` to ContentPiece) so retries can detect existing posts.
+ */
+const PublishPostSchema = z
+  .object({
+    status: z.enum(["draft", "publish"]).optional(),
+  })
+  .strict();
 
 /**
  * Replace every `[anchor](slug)` placeholder in a draft body with either:
@@ -96,8 +117,18 @@ export async function POST(
   }
 
   const { pieceId } = await params;
-  const body = await req.json().catch(() => ({}));
-  const targetStatus: "draft" | "publish" = body?.status === "publish" ? "publish" : "draft";
+  // Body is optional — empty body means "publish as draft." Only validate
+  // when the caller actually sent content, mirroring the discover/audit
+  // routes' pattern.
+  let targetStatus: "draft" | "publish" = "draft";
+  const hasBody =
+    req.headers.get("content-length") !== "0" &&
+    req.headers.get("content-length") !== null;
+  if (hasBody) {
+    const validated = await validateBody(req, PublishPostSchema);
+    if (validated instanceof NextResponse) return validated;
+    if (validated.status === "publish") targetStatus = "publish";
+  }
 
   const piece = await prisma.contentPiece.findUnique({
     where: { id: pieceId },

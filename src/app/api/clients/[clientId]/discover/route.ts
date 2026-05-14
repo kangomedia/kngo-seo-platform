@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
+import { validateBody } from "@/lib/validate";
+import {
+  parseClientServiceAreas,
+  parseClientTargetCities,
+  parseClientCompetitorsLegacy,
+  parseClientBrandTerms,
+  parseClientPrimaryServices,
+} from "@/lib/parsers";
 import {
   type BusinessProfile,
   type RawKeyword,
@@ -21,6 +30,17 @@ import {
 } from "@/lib/keyword-intelligence";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/discover`.
+ *
+ * Today the discovery endpoint takes no body — it reads the client profile
+ * from the DB and kicks off the pipeline. We still declare an empty schema
+ * so any future field additions go through the Zod boundary by default,
+ * and so callers sending unexpected content (a future stray "options" object)
+ * fail loudly at the boundary rather than silently mutating behavior.
+ */
+const DiscoverPostSchema = z.object({}).strict();
 
 function getDataForSEOAuth() {
   const login = process.env.DATAFORSEO_LOGIN;
@@ -54,6 +74,14 @@ export async function POST(
   const session = await auth();
   if (!session || (session.user.role !== "AGENCY_ADMIN" && session.user.role !== "AGENCY_MEMBER")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Body is currently empty by contract — validate anyway so unknown fields
+  // are rejected instead of silently ignored. Empty/missing body is OK.
+  const hasBody = request.headers.get("content-length") !== "0" && request.headers.get("content-length") !== null;
+  if (hasBody) {
+    const validated = await validateBody(request, DiscoverPostSchema);
+    if (validated instanceof NextResponse) return validated;
   }
 
   const { clientId } = await params;
@@ -167,11 +195,15 @@ async function runDiscoveryPipeline({
   if (!client.domain) return;
 
   try {
-    const competitors: string[] = (() => { try { return JSON.parse(client.competitors || "[]"); } catch { return []; } })();
-    const serviceAreas: string[] = (() => { try { return JSON.parse(client.serviceAreas || "[]"); } catch { return []; } })();
-    const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
-    const brandTerms: string[] = (() => { try { return JSON.parse(client.brandTerms || "[]"); } catch { return []; } })();
-    const primaryServices: string[] = (() => { try { return JSON.parse(client.primaryServices || "[]"); } catch { return []; } })();
+    // All Client JSON-column reads route through parsers.ts. Each parser
+    // is shape-validated with Zod and logs a [parsers] warning on malformed
+    // data — surfacing legacy/corrupt rows instead of silently falling
+    // through to []. See CLAUDE.md Rule 1.
+    const competitors = parseClientCompetitorsLegacy(client.competitors);
+    const serviceAreas = parseClientServiceAreas(client.serviceAreas);
+    const targetCities = parseClientTargetCities(client.targetCities);
+    const brandTerms = parseClientBrandTerms(client.brandTerms);
+    const primaryServices = parseClientPrimaryServices(client.primaryServices);
 
     // Run audit FIRST so we can pull the service pages it crawled and feed
     // them into keyword discovery as pillar anchors. Audit failures don't

@@ -1,9 +1,64 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { TIER_DEFAULTS } from "@/lib/tier-config";
+import { validateBody } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Body schema for `POST /api/clients`. Single source of truth for what the
+ * wizard (and any other caller) is allowed to send when creating a client.
+ *
+ * Notes on shape:
+ * - JSON-column fields (serviceAreas, targetCities, brandTerms, etc.) come
+ *   in as NATIVE ARRAYS, not pre-encoded JSON strings. They're encoded for
+ *   storage in the handler. Callers that send a string for these (the audit's
+ *   documented `brandTerms: "foo"` failure mode) get a 400 at the boundary.
+ * - Optional strings use `nullish` so the wizard can send `null` or omit the
+ *   field interchangeably without the schema rejecting it.
+ */
+const ClientCreateSchema = z.object({
+  name: z.string().trim().min(1),
+  contactName: z.string().trim().optional(),
+  contactEmail: z.string().trim().email(),
+  domain: z.string().trim().optional().nullable(),
+  tier: z.enum(["STARTER", "GROWTH", "PRO"]).default("STARTER"),
+
+  // Industry + location
+  // `category` is a wizard-era alias that gets mapped to gbpCategory + falls
+  // back to industryVertical when industryVertical is missing.
+  category: z.string().trim().nullish(),
+  industryVertical: z.string().trim().nullish(),
+  industrySector: z.string().trim().nullish(),
+  city: z.string().trim().nullish(),
+  state: z.string().trim().nullish(),
+  priceRange: z.enum(["budget", "mid-range", "premium", "enterprise"]).nullish(),
+
+  // GBP profile fields
+  gbpName: z.string().trim().nullish(),
+  gbpUrl: z.string().trim().nullish(),
+  gbpPhone: z.string().trim().nullish(),
+  gbpAddress: z.string().trim().nullish(),
+
+  // Crawl config
+  sitemapUrl: z.string().trim().nullish(),
+
+  // JSON-column arrays — see comment on schema above
+  serviceAreas: z.array(z.string().trim().min(1)).default([]),
+  primaryServices: z.array(z.string().trim().min(1)).default([]),
+  targetCities: z.array(z.string().trim().min(1)).default([]),
+  competitors: z.array(z.string().trim().min(1)).default([]),
+  brandTerms: z.array(z.string().trim().min(1)).default([]),
+  icpPains: z.array(z.string().trim().min(1)).default([]),
+
+  // Free-form profile depth
+  businessDescription: z.string().trim().nullish(),
+  idealClientProfile: z.string().trim().nullish(),
+});
+
+type ClientCreateBody = z.infer<typeof ClientCreateSchema>;
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -107,18 +162,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
+  const validated = await validateBody(request, ClientCreateSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body: ClientCreateBody = validated;
 
-  if (!body.name) {
-    return NextResponse.json({ error: "Client name is required" }, { status: 400 });
-  }
+  const defaults = TIER_DEFAULTS[body.tier] || TIER_DEFAULTS.STARTER;
 
-  if (!body.contactEmail) {
-    return NextResponse.json({ error: "Contact email is required" }, { status: 400 });
-  }
-
-  const tier = body.tier || "STARTER";
-  const defaults = TIER_DEFAULTS[tier] || TIER_DEFAULTS.STARTER;
+  // Encode validated arrays as JSON strings for storage. Native arrays go in,
+  // JSON strings go out — and parsers.ts decodes them on the way back. The
+  // arrays are already shape-validated by the Zod schema, so the only thing
+  // happening here is encoding.
+  const encodeArray = (arr: string[]): string | null =>
+    arr.length > 0 ? JSON.stringify(arr) : null;
 
   const client = await prisma.client.create({
     data: {
@@ -126,31 +181,25 @@ export async function POST(request: Request) {
       contactName: body.contactName || body.name,
       contactEmail: body.contactEmail,
       domain: body.domain || null,
-      tier,
+      tier: body.tier,
       gbpCategory: body.category || null,
       gbpName: body.gbpName || null,
       gbpUrl: body.gbpUrl || null,
       gbpPhone: body.gbpPhone || null,
       gbpAddress: body.gbpAddress || null,
       sitemapUrl: body.sitemapUrl || null,
-      brandTerms: Array.isArray(body.brandTerms) && body.brandTerms.length > 0
-        ? JSON.stringify(body.brandTerms)
-        : null,
+      brandTerms: encodeArray(body.brandTerms),
       city: body.city || null,
       state: body.state || null,
-      // serviceAreas = geographic regions (e.g. "Northern Colorado").
-      // primaryServices = the actual services sold. Distinct fields, distinct
-      // semantics — historically the wizard wrote services to both.
-      serviceAreas: body.serviceAreas ? JSON.stringify(body.serviceAreas) : null,
-      primaryServices: body.primaryServices
-        ? JSON.stringify(body.primaryServices)
-        : null,
-      targetCities: body.targetCities ? JSON.stringify(body.targetCities) : null,
-      competitors: body.competitors ? JSON.stringify(body.competitors) : null,
-      // Business profile depth (used by AI scoring + seed generation)
+      // serviceAreas = geographic regions; primaryServices = actual services
+      // sold. Distinct fields, distinct semantics — the schema enforces it.
+      serviceAreas: encodeArray(body.serviceAreas),
+      primaryServices: encodeArray(body.primaryServices),
+      targetCities: encodeArray(body.targetCities),
+      competitors: encodeArray(body.competitors),
       businessDescription: body.businessDescription || null,
       idealClientProfile: body.idealClientProfile || null,
-      icpPains: body.icpPains ? JSON.stringify(body.icpPains) : null,
+      icpPains: encodeArray(body.icpPains),
       industryVertical: body.industryVertical || body.category || null,
       industrySector: body.industrySector || null,
       priceRange: body.priceRange || null,
@@ -164,26 +213,25 @@ export async function POST(request: Request) {
   });
 
   // Mirror wizard-supplied competitors into the structured Competitor table.
-  // The legacy Client.competitors JSON column is kept for read-back compat.
-  if (Array.isArray(body.competitors) && body.competitors.length > 0) {
-    for (const raw of body.competitors as string[]) {
-      const domain = raw.replace(/^https?:\/\//, "").replace(/\/$/, "").trim();
-      if (!domain) continue;
-      try {
-        await prisma.competitor.upsert({
-          where: { clientId_domain: { clientId: client.id, domain } },
-          create: {
-            clientId: client.id,
-            domain,
-            classification: "PEER",
-            isAccepted: true,
-            source: "wizard",
-          },
-          update: {},
-        });
-      } catch (err) {
-        console.warn("[clients POST] competitor upsert failed", domain, err);
-      }
+  // The legacy Client.competitors JSON column is kept for read-back compat
+  // until the table migration is finished and the column is dropped.
+  for (const raw of body.competitors) {
+    const domain = raw.replace(/^https?:\/\//, "").replace(/\/$/, "").trim();
+    if (!domain) continue;
+    try {
+      await prisma.competitor.upsert({
+        where: { clientId_domain: { clientId: client.id, domain } },
+        create: {
+          clientId: client.id,
+          domain,
+          classification: "PEER",
+          isAccepted: true,
+          source: "wizard",
+        },
+        update: {},
+      });
+    } catch (err) {
+      console.warn("[clients POST] competitor upsert failed", domain, err);
     }
   }
 

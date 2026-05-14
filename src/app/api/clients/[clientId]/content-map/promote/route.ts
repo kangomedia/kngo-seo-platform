@@ -77,6 +77,15 @@ export async function POST(
     return NextResponse.json({ error: "Content map not found" }, { status: 404 });
   }
 
+  // NOTE: this route intentionally uses inline `JSON.parse` rather than
+  // `parseContentMapData` from parsers.ts. The promote flow mutates the map
+  // and re-serializes it — it needs to fail LOUDLY on malformed JSON (500)
+  // rather than silently treat the map as empty, because writing back an
+  // accidentally-empty mapData would destroy the operator's content strategy.
+  // The other two read sites (content-map GET, content-map/active GET) are
+  // pure reads and can tolerate the permissive parser's fallback. A strict
+  // variant of parseContentMapData (returning null on failure) would let this
+  // route migrate too — tracked as parser-migration backlog.
   let mapData: MapData;
   try {
     mapData = JSON.parse(map.mapData);

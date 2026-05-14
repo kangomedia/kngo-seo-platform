@@ -1,8 +1,44 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { syncInternalLinks } from "@/lib/actions-ai";
 import { generateSlug } from "@/lib/slug";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `PATCH /api/content/pieces/[pieceId]`.
+ *
+ * Same partial-update shape as the Client edit endpoint — all fields
+ * optional, only fields actually present in the body get written. The
+ * status enum is the canonical list of ContentStatus values; mistyped
+ * statuses (the audit-flagged failure mode of typo'd "PUBLISED") fail
+ * at the boundary.
+ *
+ * `socialPosts` accepts either a string OR a plain object — the route
+ * stringifies on the way to storage. `null` and `""` clear the field.
+ */
+const ContentStatusEnum = z.enum([
+  "PLANNED",
+  "WRITING",
+  "DRAFT_REVIEW",
+  "CLIENT_REVIEW",
+  "APPROVED",
+  "REJECTED",
+  "PUBLISHED",
+]);
+
+const ContentPiecePatchSchema = z.object({
+  body: z.string().optional(),
+  title: z.string().trim().min(1).optional(),
+  slug: z.string().optional(),
+  metaDescription: z.string().optional(),
+  socialPosts: z.union([z.string(), z.record(z.string(), z.unknown()), z.null()]).optional(),
+  publishedUrl: z.string().optional(),
+  publishedAt: z.string().optional(),
+  status: ContentStatusEnum.optional(),
+  resolveAnnotationIds: z.array(z.string().min(1)).optional(),
+});
 
 export async function DELETE(
   _req: Request,
@@ -51,7 +87,10 @@ export async function PATCH(
 
   try {
     const { pieceId } = await params;
-    const body = await request.json().catch(() => ({}));
+    const validated = await validateBody(request, ContentPiecePatchSchema);
+    if (validated instanceof NextResponse) return validated;
+    const body = validated;
+
     const piece = await prisma.contentPiece.findUnique({
       where: { id: pieceId },
       include: { contentPlan: { select: { clientId: true } } },
@@ -68,12 +107,12 @@ export async function PATCH(
       socialPosts?: string | null;
       publishedUrl?: string | null;
       publishedAt?: Date | null;
-      status?: "PLANNED" | "WRITING" | "DRAFT_REVIEW" | "CLIENT_REVIEW" | "APPROVED" | "REJECTED" | "PUBLISHED";
+      status?: z.infer<typeof ContentStatusEnum>;
       revisionCount?: { increment: number };
     } = {};
     if (typeof body.body === "string") updateData.body = body.body;
-    if (typeof body.title === "string" && body.title.trim().length > 0) {
-      updateData.title = body.title.trim();
+    if (typeof body.title === "string") {
+      updateData.title = body.title;
     }
     if (typeof body.slug === "string") {
       // Sanitize slug: lowercase alphanumerics + hyphens. Empty string
@@ -85,13 +124,14 @@ export async function PATCH(
       updateData.metaDescription = body.metaDescription.trim() || null;
     }
     if (body.socialPosts !== undefined) {
-      // Accept either a stringified JSON blob or an object (we always
-      // store stringified). Falsy → null clears the field.
+      // socialPosts is JSON-encoded for storage. Zod has already constrained
+      // shape to string|object|null — handler just chooses the encoding path.
+      // The empty-string-clears-field semantic is preserved.
       if (body.socialPosts === null || body.socialPosts === "") {
         updateData.socialPosts = null;
       } else if (typeof body.socialPosts === "string") {
         updateData.socialPosts = body.socialPosts;
-      } else if (typeof body.socialPosts === "object") {
+      } else {
         updateData.socialPosts = JSON.stringify(body.socialPosts);
       }
     }
@@ -102,11 +142,8 @@ export async function PATCH(
       const parsed = new Date(body.publishedAt);
       if (!Number.isNaN(parsed.getTime())) updateData.publishedAt = parsed;
     }
-    if (typeof body.status === "string") {
-      const allowed = ["PLANNED", "WRITING", "DRAFT_REVIEW", "CLIENT_REVIEW", "APPROVED", "REJECTED", "PUBLISHED"] as const;
-      if ((allowed as readonly string[]).includes(body.status)) {
-        updateData.status = body.status as typeof allowed[number];
-      }
+    if (body.status) {
+      updateData.status = body.status;
     }
     // If the agency edited the body, bump the revision counter so the
     // monthly report can show "X revisions this month."

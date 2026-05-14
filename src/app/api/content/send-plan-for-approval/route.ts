@@ -1,7 +1,25 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendEmail, planApprovalEmail } from "@/lib/email";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/send-plan-for-approval`.
+ * Same surface as `send-for-approval`. Kept aligned deliberately.
+ */
+const SendPlanForApprovalSchema = z.object({
+  clientId: z.string().min(1),
+  contentPlanId: z.string().min(1),
+  skipEmail: z.boolean().optional(),
+});
+
+/** Body schema for `PATCH /api/content/send-plan-for-approval`. */
+const PlanStatusPatchSchema = z.object({
+  contentPlanId: z.string().min(1),
+  planStatus: z.enum(["DRAFT", "PENDING_APPROVAL", "APPROVED"]),
+});
 
 /** POST: Set ContentPlan.planStatus to PENDING_APPROVAL and send notification email */
 export async function POST(request: Request) {
@@ -10,15 +28,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
+  const validated = await validateBody(request, SendPlanForApprovalSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body = validated;
   const { clientId, contentPlanId } = body;
-
-  if (!clientId || !contentPlanId) {
-    return NextResponse.json(
-      { error: "clientId and contentPlanId are required" },
-      { status: 400 }
-    );
-  }
 
   // Get the client's access token and contact email
   const client = await prisma.client.findUnique({
@@ -107,17 +120,9 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { contentPlanId, planStatus } = body;
-
-  if (!contentPlanId || !planStatus) {
-    return NextResponse.json({ error: "contentPlanId and planStatus are required" }, { status: 400 });
-  }
-
-  const validStatuses = ["DRAFT", "PENDING_APPROVAL", "APPROVED"];
-  if (!validStatuses.includes(planStatus)) {
-    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` }, { status: 400 });
-  }
+  const validated = await validateBody(request, PlanStatusPatchSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { contentPlanId, planStatus } = validated;
 
   await prisma.contentPlan.update({
     where: { id: contentPlanId },

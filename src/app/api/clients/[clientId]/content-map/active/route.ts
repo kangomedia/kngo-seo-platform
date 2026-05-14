@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { parseContentMapData } from "@/lib/parsers";
 
 export async function GET(
   request: Request,
@@ -28,13 +29,6 @@ export async function GET(
     return NextResponse.json({ map: null });
   }
 
-  let mapData;
-  try {
-    mapData = JSON.parse(map.mapData);
-  } catch {
-    mapData = null;
-  }
-
   return NextResponse.json({
     map: {
       id: map.id,
@@ -43,7 +37,7 @@ export async function GET(
       createdAt: map.createdAt,
       updatedAt: map.updatedAt,
       aiSummary: map.aiSummary,
-      mapData,
+      mapData: parseContentMapData(map.mapData),
     },
   });
 }

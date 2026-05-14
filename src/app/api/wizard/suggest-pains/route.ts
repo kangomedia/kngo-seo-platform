@@ -5,25 +5,38 @@
 // flow) so the operator can click-to-add pain candidates rather than
 // inventing them from scratch.
 //
-// Body: {
-//   businessDescription?: string
-//   idealClientProfile?: string
-//   industryVertical?: string
-//   primaryServices?: string[]
-// }
-//
 // Returns: { pains: string[] }
 
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { generateNarrative } from "@/lib/claude";
+import { validateBody } from "@/lib/validate";
 
-interface SuggestPayload {
-  businessDescription?: string;
-  idealClientProfile?: string;
-  industryVertical?: string;
-  primaryServices?: string[];
-}
+/**
+ * Body schema. All four fields are individually optional, but the handler
+ * additionally requires at least ONE of the three signal-carrying fields
+ * (industryVertical, businessDescription, primaryServices) to be present —
+ * pain generation needs material to work with.
+ */
+const SuggestPainsSchema = z.object({
+  businessDescription: z.string().trim().nullish(),
+  idealClientProfile: z.string().trim().nullish(),
+  industryVertical: z.string().trim().nullish(),
+  industrySector: z.string().trim().nullish(),
+  primaryServices: z.array(z.string().trim().min(1)).default([]),
+});
+
+/**
+ * Schema for Claude's response. Per CLAUDE.md Rule 6, outbound API responses
+ * get Zod-validated at the boundary — same rationale as inbound bodies.
+ * The trim/min/max bounds catch model drift (e.g. Claude returning sentences
+ * or empty strings) before they hit the UI as pain chips.
+ */
+const PainsResponseSchema = z
+  .array(z.string().trim().min(3).max(120))
+  .min(1)
+  .max(20);
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -34,16 +47,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body: SuggestPayload = await request.json().catch(() => ({}));
+  const validated = await validateBody(request, SuggestPainsSchema);
+  if (validated instanceof NextResponse) return validated;
   const {
     businessDescription,
     idealClientProfile,
     industryVertical,
-    primaryServices = [],
-  } = body;
+    primaryServices,
+  } = validated;
 
   // Need at least *some* signal to generate against. Industry vertical alone
-  // is enough; otherwise require a description.
+  // is enough; otherwise require a description or services.
   if (!industryVertical && !businessDescription && primaryServices.length === 0) {
     return NextResponse.json(
       {
@@ -101,8 +115,9 @@ Generate 12–15 ICP pain points specific to this business's customers.`;
     );
   }
 
-  // Parse the JSON array (Claude sometimes wraps in fences despite the rule)
-  let pains: string[] = [];
+  // Parse + Zod-validate the Claude response. Strips code fences first
+  // (Claude sometimes wraps despite the prompt rule).
+  let parsedJson: unknown;
   try {
     const cleaned = raw
       .trim()
@@ -110,20 +125,29 @@ Generate 12–15 ICP pain points specific to this business's customers.`;
       .replace(/^```\s*/i, "")
       .replace(/\s*```$/i, "")
       .trim();
-    const parsed = JSON.parse(cleaned);
-    if (!Array.isArray(parsed)) throw new Error("Not an array");
-    pains = parsed
-      .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
-      .map((p) => p.trim())
-      .filter((p, i, arr) => arr.indexOf(p) === i)
-      .slice(0, 15);
+    parsedJson = JSON.parse(cleaned);
   } catch (err) {
-    console.error("[suggest-pains] JSON parse error:", err, raw);
+    console.error("[suggest-pains] JSON parse failed:", err);
     return NextResponse.json(
       { error: "AI returned malformed JSON" },
       { status: 502 }
     );
   }
+
+  const validatedPains = PainsResponseSchema.safeParse(parsedJson);
+  if (!validatedPains.success) {
+    console.error(
+      "[suggest-pains] Claude response shape mismatch:",
+      validatedPains.error.issues[0],
+    );
+    return NextResponse.json(
+      { error: "AI returned an unexpected shape" },
+      { status: 502 }
+    );
+  }
+
+  // Dedupe + cap at 15 (the prompt asks for 12–15 but allow some slack).
+  const pains = Array.from(new Set(validatedPains.data)).slice(0, 15);
 
   return NextResponse.json({ pains });
 }

@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { sendEmail, contentReviewEmail } from "@/lib/email";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/send-for-approval`.
+ *
+ * `skipEmail` lets the wizard's preview-modal flow skip the email send
+ * (it sends its own preview-rendered version). Shared shape with
+ * `send-plan-for-approval` and `resend-email` for the same operator surface.
+ */
+const SendForApprovalSchema = z.object({
+  clientId: z.string().min(1),
+  contentPlanId: z.string().min(1),
+  skipEmail: z.boolean().optional(),
+});
 
 /** POST: Mark all drafted content pieces as CLIENT_REVIEW and send notification email */
 export async function POST(request: Request) {
@@ -10,15 +25,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
+  const validated = await validateBody(request, SendForApprovalSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body = validated;
   const { clientId, contentPlanId } = body;
-
-  if (!clientId || !contentPlanId) {
-    return NextResponse.json(
-      { error: "clientId and contentPlanId are required" },
-      { status: 400 }
-    );
-  }
 
   // Get the client's access token and contact email
   const client = await prisma.client.findUnique({

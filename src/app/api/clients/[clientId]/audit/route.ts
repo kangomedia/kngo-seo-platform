@@ -1,8 +1,23 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { validateBody } from "@/lib/validate";
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
+
+/**
+ * POST body schema. Today this endpoint takes no body — it just kicks off a
+ * crawl using the client's stored config. The strict empty-object schema
+ * means unexpected fields fail loudly at the boundary instead of being
+ * silently ignored. When this route grows real body fields (e.g. an
+ * `options` object for crawl tuning), the schema is the place to add them.
+ *
+ * NOTE: this route currently calls DataForSEO with raw `fetch()` instead of
+ * `fetchWithRetry` from lib/dataforseo.ts. Per CLAUDE.md Rule 6 that's a
+ * known violation slated for the Week 3 HTTP-consolidation pass.
+ */
+const AuditPostSchema = z.object({}).strict();
 
 async function getCredentials() {
   const login = process.env.DATAFORSEO_LOGIN;
@@ -52,6 +67,17 @@ export async function POST(
   const session = await auth();
   if (!session || session.user.role !== "AGENCY_ADMIN") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Reject unknown body fields. Empty body is the expected case; the
+  // Content-Length check avoids a "Invalid JSON" 400 when callers POST
+  // with no body at all (the typical UI invocation).
+  const hasBody =
+    request.headers.get("content-length") !== "0" &&
+    request.headers.get("content-length") !== null;
+  if (hasBody) {
+    const validated = await validateBody(request, AuditPostSchema);
+    if (validated instanceof NextResponse) return validated;
   }
 
   const { clientId } = await params;

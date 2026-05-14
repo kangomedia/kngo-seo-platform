@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
+import { validateBody } from "@/lib/validate";
+
+/**
+ * Body schema for `POST /api/content/resend-email`.
+ *
+ * Free-form email send used by the approval-preview modal. The shape is
+ * intentionally permissive on `html` (could be arbitrarily long); we just
+ * enforce non-empty + valid email recipient.
+ */
+const ResendEmailSchema = z.object({
+  to: z.string().email(),
+  subject: z.string().trim().min(1),
+  html: z.string().min(1),
+});
 
 /** POST: Resend an email with custom subject/html (agency admin only) */
 export async function POST(request: Request) {
@@ -9,15 +24,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { to, subject, html } = body;
-
-  if (!to || !subject || !html) {
-    return NextResponse.json(
-      { error: "to, subject, and html are required" },
-      { status: 400 }
-    );
-  }
+  const validated = await validateBody(request, ResendEmailSchema);
+  if (validated instanceof NextResponse) return validated;
+  const { to, subject, html } = validated;
 
   const result = await sendEmail({ to, subject, html });
 

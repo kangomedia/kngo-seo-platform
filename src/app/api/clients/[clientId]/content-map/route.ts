@@ -1,12 +1,53 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { TIER_DEFAULTS } from "@/lib/tier-config";
+import { validateBody } from "@/lib/validate";
+import {
+  parseKeywordResearchResults,
+  parseContentMapData,
+} from "@/lib/parsers";
+
+/**
+ * Body schema for `POST /api/clients/[clientId]/content-map`.
+ *
+ * All four fields optional — the handler has fallback logic that folds ALL
+ * recent research sessions into one map when no IDs or inline keywords are
+ * supplied. The body schema validates SHAPE only; semantic preconditions
+ * (e.g. "at least one keyword surfaced") fail later with a clearer message.
+ *
+ * Inline `keywords` lets callers skip the DB lookup entirely. The shape is
+ * permissive on optional metric fields because legacy/external callers may
+ * supply less than the discovery pipeline does.
+ *
+ * NOTE: this route also calls `JSON.parse` on Claude's streaming SSE events
+ * (lines 374, 437). Those are API-response parses, not DB-column parses, and
+ * stay as inline parses — different category from the parsers.ts work.
+ */
+const ContentMapBodyKeywordSchema = z
+  .object({
+    keyword: z.string().min(1),
+    searchVolume: z.number().int().nonnegative().optional(),
+    competition: z.number().int().nonnegative().optional(),
+    cpc: z.number().nonnegative().optional(),
+    source: z.string().optional(),
+    intent: z.string().nullable().optional(),
+    suggestedGroup: z.string().optional(),
+    relevanceScore: z.number().optional(),
+  })
+  .passthrough();
+
+const ContentMapPostSchema = z.object({
+  researchIds: z.array(z.string().min(1)).optional(),
+  researchId: z.string().min(1).optional(),
+  keywords: z.array(ContentMapBodyKeywordSchema).optional(),
+  title: z.string().trim().optional(),
+});
 
 /**
  * POST /api/clients/[clientId]/content-map
  * Generate an AI-powered content strategy map from keyword research.
- * Body: { researchId?: string, keywords?: Array, title?: string }
  */
 export async function POST(
   request: Request,
@@ -22,7 +63,9 @@ export async function POST(
   }
 
   const { clientId } = await params;
-  const body = await request.json();
+  const validated = await validateBody(request, ContentMapPostSchema);
+  if (validated instanceof NextResponse) return validated;
+  const body = validated;
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -74,18 +117,15 @@ export async function POST(
       where: { id: { in: researchIds }, clientId },
     });
     for (const r of researches) {
-      try {
-        const arr: ResearchKw[] = JSON.parse(r.results || "[]");
-        for (const kw of arr) {
-          keywords.push(kw);
-          keywordModes.set(kw.keyword.toLowerCase(), r.mode);
-        }
-      } catch {
-        /* skip malformed */
+      const arr = parseKeywordResearchResults(r.results);
+      for (const kw of arr) {
+        keywords.push(kw as ResearchKw);
+        keywordModes.set(kw.keyword.toLowerCase(), r.mode);
       }
     }
   } else if (body.keywords && Array.isArray(body.keywords)) {
-    keywords = body.keywords;
+    // Inline keywords path — already shape-validated by Zod.
+    keywords = body.keywords as ResearchKw[];
   } else {
     // Default: fold ALL active research sessions for this client into one map.
     const all = await prisma.keywordResearch.findMany({
@@ -94,14 +134,10 @@ export async function POST(
       take: 5,
     });
     for (const r of all) {
-      try {
-        const arr: ResearchKw[] = JSON.parse(r.results || "[]");
-        for (const kw of arr) {
-          keywords.push(kw);
-          keywordModes.set(kw.keyword.toLowerCase(), r.mode);
-        }
-      } catch {
-        /* skip */
+      const arr = parseKeywordResearchResults(r.results);
+      for (const kw of arr) {
+        keywords.push(kw as ResearchKw);
+        keywordModes.set(kw.keyword.toLowerCase(), r.mode);
       }
     }
   }
@@ -636,7 +672,7 @@ export async function GET(
   return NextResponse.json(
     maps.map((m) => ({
       ...m,
-      mapData: JSON.parse(m.mapData || "{}"),
+      mapData: parseContentMapData(m.mapData),
     }))
   );
 }
