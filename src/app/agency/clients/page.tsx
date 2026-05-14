@@ -25,6 +25,9 @@ import {
   Mail,
   User,
   AlertCircle,
+  Phone,
+  Tag,
+  FileCode,
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
@@ -53,6 +56,20 @@ function ClientOnboardingWizard({
   const [primaryState, setPrimaryState] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
   const [priceRange, setPriceRange] = useState("");
+
+  // Step 3 — Local & Technical (GBP + crawl config + brand terms)
+  // All optional. Captured up front so initial audit + keyword discovery
+  // have full context (sitemap URL, service-area geography, brand-term
+  // filter list) instead of running blind.
+  const [gbpName, setGbpName] = useState("");
+  const [gbpUrl, setGbpUrl] = useState("");
+  const [gbpPhone, setGbpPhone] = useState("");
+  const [gbpAddress, setGbpAddress] = useState("");
+  const [sitemapUrl, setSitemapUrl] = useState("");
+  const [serviceAreaInput, setServiceAreaInput] = useState("");
+  const [serviceAreas, setServiceAreas] = useState<string[]>([]);
+  const [brandTermInput, setBrandTermInput] = useState("");
+  const [brandTerms, setBrandTerms] = useState<string[]>([]);
 
   // Step 2 — SEO Intake
   // Note: `services` populates `primaryServices` (what the agency *sells*).
@@ -168,8 +185,7 @@ function ClientOnboardingWizard({
           category: industryVertical || industrySector || undefined,
           city: primaryCity,
           state: primaryState,
-          // serviceAreas (geographic) left empty unless explicitly captured.
-          serviceAreas: [],
+          serviceAreas,
           primaryServices: services,
           targetCities,
           competitors: competitors.map((c) => c.replace(/^https?:\/\//, "").replace(/\/$/, "")),
@@ -179,6 +195,13 @@ function ClientOnboardingWizard({
           priceRange: priceRange || null,
           industryVertical: industryVertical || null,
           industrySector: industrySector || null,
+          // Step 3 — Local & Technical
+          gbpName: gbpName.trim() || null,
+          gbpUrl: gbpUrl.trim() || null,
+          gbpPhone: gbpPhone.trim() || null,
+          gbpAddress: gbpAddress.trim() || null,
+          sitemapUrl: sitemapUrl.trim() || null,
+          brandTerms,
         }),
       });
 
@@ -217,10 +240,11 @@ function ClientOnboardingWizard({
             <h2 className="text-xl font-extrabold">
               {step === 1 && "New Client Setup"}
               {step === 2 && "SEO Intake"}
-              {step === 3 && "Review & Launch"}
+              {step === 3 && "Local & Technical"}
+              {step === 4 && "Review & Launch"}
             </h2>
             <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-              Step {step} of 3
+              Step {step} of 4
             </p>
           </div>
           <button onClick={onClose} style={{ color: "var(--text-muted)" }}>
@@ -231,7 +255,7 @@ function ClientOnboardingWizard({
         {/* Progress Bar */}
         <div className="px-5 pt-4">
           <div className="flex gap-1.5">
-            {[1, 2, 3].map((s) => (
+            {[1, 2, 3, 4].map((s) => (
               <div
                 key={s}
                 className="h-1 rounded-full flex-1 transition-all duration-300"
@@ -688,6 +712,192 @@ function ClientOnboardingWizard({
                   Back
                 </button>
                 <button onClick={() => setStep(3)} className="btn-primary">
+                  Next: Local & Technical
+                  <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Step 3: Local & Technical ─── */}
+          {step === 3 && (
+            <div className="flex flex-col gap-5 animate-fade-in">
+              <div
+                className="rounded-xl p-3 text-xs"
+                style={{ background: "var(--accent-muted)", color: "var(--accent)" }}
+              >
+                <strong className="flex items-center gap-1.5 mb-1">
+                  <Sparkles size={12} /> Why this step matters
+                </strong>
+                All optional — but the more we know up front, the better the audit and keyword discovery. The sitemap URL controls which pages get crawled; brand terms keep branded queries out of keyword results; GBP details feed local schema and AI context.
+              </div>
+
+              {/* Google Business Profile */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <Building2 size={12} className="inline mr-1" />
+                  GBP Listing Name
+                </label>
+                <input
+                  className="input-field"
+                  value={gbpName}
+                  onChange={(e) => setGbpName(e.target.value)}
+                  placeholder="e.g. Building While Giving"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <Globe size={12} className="inline mr-1" />
+                  GBP Profile URL
+                </label>
+                <input
+                  className="input-field"
+                  value={gbpUrl}
+                  onChange={(e) => setGbpUrl(e.target.value)}
+                  placeholder="e.g. https://maps.google.com/?cid=..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                    <Phone size={12} className="inline mr-1" />
+                    GBP Phone
+                  </label>
+                  <input
+                    className="input-field"
+                    value={gbpPhone}
+                    onChange={(e) => setGbpPhone(e.target.value)}
+                    placeholder="e.g. (303) 555-0100"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                    <MapPin size={12} className="inline mr-1" />
+                    GBP Address
+                  </label>
+                  <input
+                    className="input-field"
+                    value={gbpAddress}
+                    onChange={(e) => setGbpAddress(e.target.value)}
+                    placeholder="e.g. 123 Main St, Denver, CO"
+                  />
+                </div>
+              </div>
+
+              {/* Sitemap URL */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <FileCode size={12} className="inline mr-1" />
+                  Sitemap URL
+                </label>
+                <input
+                  className="input-field"
+                  value={sitemapUrl}
+                  onChange={(e) => setSitemapUrl(e.target.value)}
+                  placeholder="e.g. https://example.com/sitemap_index.xml"
+                />
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  WordPress with Yoast/RankMath usually uses <code>/sitemap_index.xml</code>. Defaults to <code>/sitemap.xml</code> if blank.
+                </p>
+              </div>
+
+              {/* Service Areas */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <Target size={12} className="inline mr-1" />
+                  Service Areas <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— geographic regions (distinct from target cities)</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="input-field flex-1"
+                    placeholder="e.g. Denver Metro, Colorado Mountain Corridor"
+                    value={serviceAreaInput}
+                    onChange={(e) => setServiceAreaInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag(serviceAreaInput, serviceAreas, setServiceAreas, setServiceAreaInput);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => addTag(serviceAreaInput, serviceAreas, setServiceAreas, setServiceAreaInput)}
+                    className="btn-secondary"
+                    disabled={serviceAreas.length >= 10}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                {serviceAreas.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {serviceAreas.map((s) => (
+                      <span
+                        key={s}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-70 transition-all"
+                        style={{ background: "rgba(16,185,129,0.15)", color: "#10B981" }}
+                        onClick={() => removeTag(s, serviceAreas, setServiceAreas)}
+                      >
+                        <Target size={9} /> {s} ×
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Brand Terms */}
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+                  <Tag size={12} className="inline mr-1" />
+                  Brand Terms <span className="font-normal normal-case" style={{ color: "var(--text-muted)" }}>— branded query terms to filter out of research</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="input-field flex-1"
+                    placeholder="e.g. building while giving"
+                    value={brandTermInput}
+                    onChange={(e) => setBrandTermInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag(brandTermInput, brandTerms, setBrandTerms, setBrandTermInput);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => addTag(brandTermInput, brandTerms, setBrandTerms, setBrandTermInput)}
+                    className="btn-secondary"
+                    disabled={brandTerms.length >= 10}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                {brandTerms.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {brandTerms.map((b) => (
+                      <span
+                        key={b}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer hover:opacity-70 transition-all"
+                        style={{ background: "rgba(124,58,237,0.15)", color: "#7C3AED" }}
+                        onClick={() => removeTag(b, brandTerms, setBrandTerms)}
+                      >
+                        <Tag size={9} /> {b} ×
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  If blank, branded variants of the business name + domain are used automatically.
+                </p>
+              </div>
+
+              <div className="flex justify-between mt-2">
+                <button onClick={() => setStep(2)} className="btn-secondary">
+                  <ArrowLeft size={16} />
+                  Back
+                </button>
+                <button onClick={() => setStep(4)} className="btn-primary">
                   Review
                   <ArrowRight size={16} />
                 </button>
@@ -695,8 +905,8 @@ function ClientOnboardingWizard({
             </div>
           )}
 
-          {/* ─── Step 3: Review & Launch ─── */}
-          {step === 3 && (
+          {/* ─── Step 4: Review & Launch ─── */}
+          {step === 4 && (
             <div className="flex flex-col gap-4 animate-fade-in">
               {/* Summary Card */}
               <div className="rounded-xl p-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
@@ -790,6 +1000,38 @@ function ClientOnboardingWizard({
                 </div>
               </div>
 
+              {/* Local & Technical summary */}
+              {(gbpName || gbpUrl || gbpPhone || gbpAddress || sitemapUrl || serviceAreas.length > 0 || brandTerms.length > 0) && (
+                <div className="rounded-xl p-3 flex flex-col gap-2 text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                  <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-muted)" }}>Local & Technical</span>
+                  {gbpName && <div><span style={{ color: "var(--text-muted)" }}>GBP name:</span> <strong>{gbpName}</strong></div>}
+                  {gbpUrl && <div><span style={{ color: "var(--text-muted)" }}>GBP URL:</span> <span style={{ wordBreak: "break-all" }}>{gbpUrl}</span></div>}
+                  {gbpPhone && <div><span style={{ color: "var(--text-muted)" }}>GBP phone:</span> <strong>{gbpPhone}</strong></div>}
+                  {gbpAddress && <div><span style={{ color: "var(--text-muted)" }}>GBP address:</span> {gbpAddress}</div>}
+                  {sitemapUrl && <div><span style={{ color: "var(--text-muted)" }}>Sitemap:</span> <span style={{ wordBreak: "break-all" }}>{sitemapUrl}</span></div>}
+                  {serviceAreas.length > 0 && (
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>Service areas:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {serviceAreas.map((s) => (
+                          <span key={s} className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: "rgba(16,185,129,0.15)", color: "#10B981" }}>{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {brandTerms.length > 0 && (
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>Brand terms:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {brandTerms.map((b) => (
+                          <span key={b} className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: "rgba(124,58,237,0.15)", color: "#7C3AED" }}>{b}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Intake summary */}
               {(services.length > 0 || targetCities.length > 0 || competitors.length > 0) && (
                 <div className="rounded-xl p-3" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
@@ -833,7 +1075,7 @@ function ClientOnboardingWizard({
               )}
 
               <div className="flex justify-between mt-2">
-                <button onClick={() => setStep(2)} className="btn-secondary">
+                <button onClick={() => setStep(3)} className="btn-secondary">
                   <ArrowLeft size={16} />
                   Back
                 </button>

@@ -67,9 +67,11 @@ export async function POST(
     targetDomain = `https://${targetDomain}`;
   }
 
-  // Auto-detect common sitemap paths
-  // Uses client's custom sitemap URL if set, otherwise defaults to /sitemap.xml
-  const sitemapUrl = client.sitemapUrl || `${targetDomain}/sitemap.xml`;
+  // Sitemap precedence: explicit client config > WordPress index > generic root.
+  // WordPress with Yoast/RankMath uses /sitemap_index.xml — defaulting to
+  // /sitemap.xml on WP often returns the posts-only sitemap, capping the
+  // crawl at home + blog posts.
+  const sitemapUrl = client.sitemapUrl || `${targetDomain}/sitemap_index.xml`;
 
   // Submit crawl task to DataForSEO On-Page API
   const body = [

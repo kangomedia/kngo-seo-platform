@@ -11,6 +11,8 @@ import {
   filterByAudience,
   filterByGibberish,
   filterByIntent,
+  filterByBrandTerms,
+  dedupNearDuplicates,
   scoreKeywordRelevance,
   generateStrategicAnalysis,
 } from "@/lib/keyword-intelligence";
@@ -59,6 +61,8 @@ export async function POST(
       priceRange: true,
       industryVertical: true,
       industrySector: true,
+      sitemapUrl: true,
+      brandTerms: true,
     },
   });
 
@@ -86,13 +90,13 @@ export async function POST(
   const competitors: string[] = (() => { try { return JSON.parse(client.competitors || "[]"); } catch { return []; } })();
   const serviceAreas: string[] = (() => { try { return JSON.parse(client.serviceAreas || "[]"); } catch { return []; } })();
   const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
+  const brandTerms: string[] = (() => { try { return JSON.parse(client.brandTerms || "[]"); } catch { return []; } })();
 
   // Start background pipeline
   const auditPromise = triggerSiteAudit(
     clientId,
     client.domain,
-    process.env.DATAFORSEO_LOGIN || "",
-    process.env.DATAFORSEO_PASSWORD || "",
+    client.sitemapUrl,
     authHdr
   );
 
@@ -110,6 +114,7 @@ export async function POST(
     industrySector: client.industrySector || null,
     serviceAreas,
     targetCities,
+    brandTerms,
   };
 
   const keywordPromise = discoverKeywords(
@@ -212,8 +217,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function triggerSiteAudit(
   clientId: string,
   domain: string,
-  login: string,
-  password: string,
+  clientSitemapUrl: string | null,
   authHdr: string,
 ) {
   const headers = { "Content-Type": "application/json", Authorization: authHdr };
@@ -224,22 +228,28 @@ async function triggerSiteAudit(
     targetDomain = `https://${targetDomain}`;
   }
 
-  // ── Step 1: Create the crawl task ──
-  // Lightweight crawl for onboarding — full audit handles deep analysis
+  // Sitemap precedence: explicit client config > WordPress index > generic root.
+  // WordPress with Yoast/RankMath uses /sitemap_index.xml — defaulting to
+  // /sitemap.xml on WP often returns the posts-only sitemap, which caps the
+  // crawl at home + blog posts.
+  const sitemapUrl = clientSitemapUrl || `${targetDomain}/sitemap_index.xml`;
+
   const body = [
     {
       target: targetDomain,
-      max_crawl_pages: 30,
+      max_crawl_pages: 100,
 
-      // Rendering — lightweight (no browser rendering for speed)
+      // Rendering — browser rendering must be enabled for JS execution to
+      // actually run. Setting enable_javascript without enable_browser_rendering
+      // is a no-op in DataForSEO's pipeline.
       enable_javascript: true,
-      load_resources: false,
-      enable_browser_rendering: false,
+      load_resources: true,
+      enable_browser_rendering: true,
       support_cookies: true,
 
-      // Sitemap
+      // Sitemap — seed the crawl from the configured/auto-detected sitemap
       respect_sitemap: true,
-      custom_sitemap: `${targetDomain}/sitemap.xml`,
+      custom_sitemap: sitemapUrl,
 
       // Storage
       store_raw_html: false,
@@ -548,6 +558,9 @@ async function discoverKeywords(
   console.log(`[DISCOVER] Total raw keywords collected: ${allKeywords.length}`);
 
   // ── Stage 3: Deduplicate ──
+  // First exact-match dedup (same string, different casing), then near-duplicate
+  // collapse — kills "kitchen remodeling denver co" / "kitchen remodeling in
+  // denver co" and "basement finishing denver" / "denver basement finishing".
   const seen = new Map<string, RawKeyword>();
   for (const kw of allKeywords) {
     const key = kw.keyword.toLowerCase();
@@ -557,11 +570,18 @@ async function discoverKeywords(
     }
   }
   let filtered = Array.from(seen.values());
-  console.log(`[DISCOVER] After dedup: ${filtered.length} keywords`);
+  console.log(`[DISCOVER] After exact dedup: ${filtered.length} keywords`);
+
+  filtered = dedupNearDuplicates(filtered);
+  console.log(`[DISCOVER] After near-duplicate collapse: ${filtered.length} keywords`);
 
   // ── Stage 4: Negative Pattern Filter ── universal noise (piracy, porn, etc.)
   filtered = filterByNegativePatterns(filtered);
   console.log(`[DISCOVER] After negative pattern filter: ${filtered.length} keywords`);
+
+  // ── Stage 4a: Brand Term Filter ── drop branded queries when configured
+  filtered = filterByBrandTerms(filtered, profile.brandTerms || []);
+  console.log(`[DISCOVER] After brand term filter: ${filtered.length} keywords`);
 
   // ── Stage 4b: Audience Filter ── drops learner / DIY / job-seeker queries
   filtered = filterByAudience(filtered);

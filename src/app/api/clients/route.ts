@@ -128,6 +128,14 @@ export async function POST(request: Request) {
       domain: body.domain || null,
       tier,
       gbpCategory: body.category || null,
+      gbpName: body.gbpName || null,
+      gbpUrl: body.gbpUrl || null,
+      gbpPhone: body.gbpPhone || null,
+      gbpAddress: body.gbpAddress || null,
+      sitemapUrl: body.sitemapUrl || null,
+      brandTerms: Array.isArray(body.brandTerms) && body.brandTerms.length > 0
+        ? JSON.stringify(body.brandTerms)
+        : null,
       city: body.city || null,
       state: body.state || null,
       // serviceAreas = geographic regions (e.g. "Northern Colorado").

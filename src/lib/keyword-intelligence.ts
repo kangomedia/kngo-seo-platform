@@ -21,6 +21,9 @@ export interface BusinessProfile {
   industrySector: string | null;
   serviceAreas: string[];
   targetCities: string[];
+  /** Optional branded query terms — used to filter out branded keywords from
+   *  research and to remind the AI seed prompt not to propose branded seeds. */
+  brandTerms?: string[];
   clientName: string;
   domain: string;
 }
@@ -160,6 +163,64 @@ export function filterByGibberish(keywords: RawKeyword[]): RawKeyword[] {
   });
 }
 
+// ─── Brand Term Filter ───────────────────────────────────
+
+/**
+ * Filter out keywords that contain any of the client's brand terms.
+ * Brand keywords clog research output — the client already ranks for their
+ * own name, and we want non-branded opportunity keywords.
+ */
+export function filterByBrandTerms(
+  keywords: RawKeyword[],
+  brandTerms: string[],
+): RawKeyword[] {
+  const terms = brandTerms.map((t) => t.toLowerCase().trim()).filter(Boolean);
+  if (terms.length === 0) return keywords;
+  return keywords.filter((kw) => {
+    const k = kw.keyword.toLowerCase();
+    return !terms.some((t) => k.includes(t));
+  });
+}
+
+// ─── Near-Duplicate Dedup ────────────────────────────────
+
+/**
+ * Collapse near-duplicate keywords that differ only by word order, stop words,
+ * or minor punctuation/state-suffix variation. Keeps the variant with the
+ * highest search volume.
+ *
+ * Examples that get collapsed:
+ *   "kitchen remodeling denver co" / "kitchen remodeling in denver co"
+ *   "basement finishing denver" / "denver basement finishing"
+ *   "design-build vs general contractor" / "general contractor vs design build"
+ */
+const NEAR_DUP_STOP = new Set([
+  "the", "a", "an", "in", "for", "of", "to", "with", "and", "or", "on", "at",
+  "by", "is", "are", "co", "vs", "near",
+]);
+
+function nearDupKey(keyword: string): string {
+  const tokens = keyword
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w && !NEAR_DUP_STOP.has(w));
+  return [...tokens].sort().join(" ");
+}
+
+export function dedupNearDuplicates(keywords: RawKeyword[]): RawKeyword[] {
+  const byKey = new Map<string, RawKeyword>();
+  for (const kw of keywords) {
+    const key = nearDupKey(kw.keyword);
+    if (!key) continue;
+    const existing = byKey.get(key);
+    if (!existing || kw.searchVolume > existing.searchVolume) {
+      byKey.set(key, kw);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 // ─── Intent Filter ───────────────────────────────────────
 
 /**
@@ -267,7 +328,10 @@ export async function generateAISeeds(
   profile: BusinessProfile,
   anthropicKey: string,
 ): Promise<string[]> {
-  const cityLine = profile.targetCities[0] || "(no city specified)";
+  const allCities = profile.targetCities.filter(Boolean);
+  const primaryCity = allCities[0] || "(no city specified)";
+  const cityList = allCities.length > 0 ? allCities.join(", ") : "(no cities specified)";
+  const brandTerms = (profile.brandTerms || []).filter(Boolean);
   const profileLines = [
     `Business: ${profile.clientName}`,
     profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
@@ -276,25 +340,27 @@ export async function generateAISeeds(
     profile.industrySector ? `Industry sector: ${profile.industrySector}` : null,
     profile.industryVertical ? `Industry vertical: ${profile.industryVertical}` : null,
     profile.serviceAreas.length > 0 ? `Service areas: ${profile.serviceAreas.join(", ")}` : null,
-    `Primary city: ${cityLine}`,
+    `Target cities (cover the full list, not just the first): ${cityList}`,
+    brandTerms.length > 0 ? `Brand terms to AVOID in seeds: ${brandTerms.join(", ")}` : null,
   ].filter(Boolean).join("\n");
 
-  const prompt = `You are an SEO strategist preparing seed keywords for a LOCAL SERVICE BUSINESS that sells to paying customers in ${cityLine}.
+  const prompt = `You are an SEO strategist preparing seed keywords for a LOCAL SERVICE BUSINESS. The business serves multiple distinct geographic markets — generate seeds that cover the FULL list of target cities, not only the first one. Distinct sub-markets (e.g. metro vs. mountain resort towns) deserve distinct seeds.
 
 BUSINESS PROFILE:
 ${profileLines}
 
 Produce 20 seed phrases that, when expanded by a keyword research tool, will yield keywords a real prospect would actually search before HIRING this business. Cover this mix across the 20:
 
-  - 5–7 LOCAL MONEY phrases ("{service} {city}", "best {service} near me", "{service} agency {city}", "hire {service} {city}")
-  - 4–6 SERVICE COMMERCIAL phrases ("{service} cost", "{service} pricing", "{service} services", "{service} company")
-  - 3–5 VERTICAL-SPECIFIC phrases tied to the business's actual ideal customer ("{service} for {vertical}", "{vertical} {service}")
-  - 3–5 TOP-OF-FUNNEL problem-aware phrases real prospects have right before buying ("how to choose a {service}", "{service} vs alternative")
+  - 6–8 LOCAL MONEY phrases — spread these across the target cities (don't anchor all of them to ${primaryCity}). Examples: "{service} {city}", "best {service} near me", "{service} {city}", "hire {service} {city}"
+  - 3–5 SERVICE COMMERCIAL phrases ("{service} cost", "{service} pricing", "{service} services", "{service} company")
+  - 3–5 VERTICAL- or ICP-SPECIFIC phrases tied to the business's actual ideal customer or unique sub-market (e.g. a niche the business explicitly serves — STR/Airbnb investors, mountain second-home owners, bilingual prospects, etc. — if any of these appear in the profile)
+  - 2–4 TOP-OF-FUNNEL problem-aware phrases real prospects have right before buying ("how to choose a {service}", "{service} vs alternative")
 
 Rules — do not break these:
   - Each seed must look like something a paying customer would actually type
   - DO NOT include educational ("course", "tutorial", "how to learn"), DIY ("make your own"), or job-seeker ("salary", "jobs") phrases
   - DO NOT include single-word generic terms unless paired with a qualifier
+  - DO NOT include the business's brand terms${brandTerms.length > 0 ? ` (listed above)` : ""}
   - Use the business's exact service names where possible
   - Lowercase, trimmed, no punctuation other than spaces
 
@@ -673,6 +739,8 @@ export async function generateStrategicAnalysis(
     profile.priceRange ? `Price Range: ${profile.priceRange}` : null,
     profile.industrySector ? `Industry Sector: ${profile.industrySector}` : null,
     profile.industryVertical ? `Industry Vertical: ${profile.industryVertical}` : null,
+    profile.serviceAreas.length > 0 ? `Service Areas: ${profile.serviceAreas.join(", ")}` : null,
+    profile.targetCities.length > 0 ? `Target Cities: ${profile.targetCities.join(", ")}` : null,
   ].filter(Boolean).join("\n");
 
   const kwSummary = keywords.slice(0, 40).map((kw, i) =>
