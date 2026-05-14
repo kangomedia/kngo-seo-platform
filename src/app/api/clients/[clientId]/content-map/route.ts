@@ -7,6 +7,7 @@ import { validateBody } from "@/lib/validate";
 import {
   parseKeywordResearchResults,
   parseContentMapData,
+  parseClientIcpPains,
 } from "@/lib/parsers";
 
 /**
@@ -81,6 +82,11 @@ export async function POST(
       monthlyGbpPosts: true,
       monthlyGbpQAs: true,
       monthlyPressReleases: true,
+      // Strategic-context fields injected into the prompt below. See
+      // session-state.md item 13 (strategic-context-flow-gap) for why these
+      // were absent and the matrix of remaining unenriched prompts.
+      idealClientProfile: true,
+      icpPains: true,
     },
   });
 
@@ -111,12 +117,20 @@ export async function POST(
   // Track which mode each keyword came from so the prompt can spread pieces
   // across pillars informed by both demand-capture and demand-creation data.
   const keywordModes = new Map<string, string>();
+  // Capture the most recent KeywordResearch.aiAnalysis (Claude's strategic
+  // summary from the prior research run) so the prompt can build on it
+  // instead of regenerating strategy from scratch every map. The iterator
+  // grabs the first non-null analysis it sees — findMany is ordered desc
+  // by createdAt in both DB-fetching branches.
+  let latestAiAnalysis: string | null = null;
 
   if (researchIds.length > 0) {
     const researches = await prisma.keywordResearch.findMany({
       where: { id: { in: researchIds }, clientId },
+      orderBy: { createdAt: "desc" },
     });
     for (const r of researches) {
+      if (latestAiAnalysis === null && r.aiAnalysis) latestAiAnalysis = r.aiAnalysis;
       const arr = parseKeywordResearchResults(r.results);
       for (const kw of arr) {
         keywords.push(kw as ResearchKw);
@@ -124,7 +138,8 @@ export async function POST(
       }
     }
   } else if (body.keywords && Array.isArray(body.keywords)) {
-    // Inline keywords path — already shape-validated by Zod.
+    // Inline keywords path — already shape-validated by Zod. No aiAnalysis
+    // available on this path (the caller bypassed the research session).
     keywords = body.keywords as ResearchKw[];
   } else {
     // Default: fold ALL active research sessions for this client into one map.
@@ -134,6 +149,7 @@ export async function POST(
       take: 5,
     });
     for (const r of all) {
+      if (latestAiAnalysis === null && r.aiAnalysis) latestAiAnalysis = r.aiAnalysis;
       const arr = parseKeywordResearchResults(r.results);
       for (const kw of arr) {
         keywords.push(kw as ResearchKw);
@@ -228,6 +244,33 @@ export async function POST(
   const currentYear = now.getFullYear();
   const monthLabel = `${monthNames[currentMonth - 1]} ${currentYear}`;
 
+  // Strategic-context sections. Each renders only when source data exists —
+  // empty fields would burn prompt tokens on placeholders without informing
+  // Claude. See session-state.md item 13 for the full multi-prompt enrichment
+  // plan; this is the first surgical pass.
+  const idealClientSection = client.idealClientProfile && client.idealClientProfile.trim().length > 0
+    ? `\n## Ideal Client Profile\n${client.idealClientProfile.trim()}\n`
+    : "";
+
+  const icpPainsArray = parseClientIcpPains(client.icpPains);
+  const icpPainsSection = icpPainsArray.length > 0
+    ? `\n## ICP Pain Points\nProspects describe their problem in these terms — phrase TOFU/MOFU content in this voice and target these queries explicitly when they map to a researched keyword:\n${icpPainsArray.map((p) => `- ${p}`).join("\n")}\n`
+    : "";
+
+  // Cap the prior-analysis injection at 3000 chars (~750 tokens). The full
+  // aiAnalysis can run several thousand chars of markdown; capping it keeps
+  // the prompt's token budget predictable and avoids crowding out the
+  // keyword list below.
+  const ANALYSIS_CAP = 3000;
+  const truncatedAnalysis = latestAiAnalysis
+    ? latestAiAnalysis.length > ANALYSIS_CAP
+      ? `${latestAiAnalysis.slice(0, ANALYSIS_CAP)}\n\n[…truncated for prompt length…]`
+      : latestAiAnalysis
+    : null;
+  const analysisSection = truncatedAnalysis
+    ? `\n## Prior Strategic Analysis\nThis is the strategic summary Claude generated from the most recent keyword research session. Treat it as established context — extend and refine its themes rather than restating its findings:\n${truncatedAnalysis}\n`
+    : "";
+
   const prompt = `You are an expert SEO content strategist building a 6-month topical authority plan for this business. Your output drives the agency's content workflow — every piece you propose must be specific, scoped, and promotable to a writer without further refinement.
 
 ## Current Date
@@ -240,7 +283,7 @@ ${monthLabel} — when proposing year-in-review or trends pieces, reference ${cu
 - **Industry:** ${client.gbpCategory || "Not specified"}
 - **Service Tier:** ${client.tier}
 - **Monthly Content Capacity:** ${monthlyCapacity.blogs} blogs, ${monthlyCapacity.gbpPosts} GBP posts, ${monthlyCapacity.gbpQAs} GBP Q&As, ${monthlyCapacity.pressReleases} press releases
-
+${idealClientSection}${icpPainsSection}${analysisSection}
 ## Output volume requirements (HARD, NON-NEGOTIABLE)
 
 You MUST generate **exactly ${PILLAR_COUNT} pillars**. Each pillar contains **exactly ${perPillarTotal} pieces**, broken down by type as follows:
