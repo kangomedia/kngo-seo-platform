@@ -524,10 +524,35 @@ async function discoverKeywords(
     ? await generateAISeeds(profile, earlyAnthropicKey)
     : generateSmartSeeds(profile).map((seed) => ({ seed, pillarUrl: null, pillarTitle: null }));
 
+  // Defensive seed sanitization: DataForSEO's keyword_suggestions endpoint
+  // rejects "keywords" longer than ~80 chars (40501) AND silently returns 0
+  // items for anything that looks like a sentence rather than a short head
+  // term. If primaryServices was entered as one comma-separated string in
+  // the wizard (a real failure mode we just fixed in addTag), or if the AI
+  // seed generator produced an overlong phrase, we drop it here rather than
+  // burn a DataForSEO call on a guaranteed-empty response.
+  const sanitizedSeeds = seedsWithPillar
+    .map((s) => ({ ...s, seed: s.seed.trim() }))
+    .filter((s) => {
+      if (!s.seed) return false;
+      if (s.seed.length > 80) {
+        console.warn(`[DISCOVER] Dropping over-long seed (${s.seed.length} chars): "${s.seed.slice(0, 60)}…"`);
+        return false;
+      }
+      // Skip seeds that contain commas — those are usually paste-from-notes
+      // accidents (e.g. "kitchen remodeling, bathroom remodeling") that
+      // DataForSEO can't expand. The user can re-add as separate seeds.
+      if (s.seed.includes(",")) {
+        console.warn(`[DISCOVER] Dropping comma-laden seed: "${s.seed}"`);
+        return false;
+      }
+      return true;
+    });
+
   // Cap at 25 seeds to bound DataForSEO cost. Up from the prior 15 — service-
   // page-anchored seeds yield more useful expansion territory so we can spend
   // a few more calls per discovery run.
-  const seedsToUse = seedsWithPillar.slice(0, 25);
+  const seedsToUse = sanitizedSeeds.slice(0, 25);
   console.log(
     `[DISCOVER] Generated ${seedsWithPillar.length} seeds (${earlyAnthropicKey ? "AI" : "mechanical"}): ` +
     `${seedsToUse.slice(0, 5).map((s) => s.seed + (s.pillarTitle ? ` [${s.pillarTitle}]` : "")).join(", ")}...`
@@ -669,6 +694,11 @@ async function discoverKeywords(
   filtered = dedupNearDuplicates(filtered);
   funnelCounts.nearDupDedup = filtered.length;
 
+  // Snapshot the post-dedup pool BEFORE filters run. This is the safety net
+  // when the filter chain collapses to 0 — better to surface rough candidates
+  // the operator can curate than show "0 keywords found."
+  const postDedupPool: RawKeyword[] = filtered.slice();
+
   // ── Stage 4: filters (negative patterns, brand, audience, gibberish, intent) ──
   filtered = filterByNegativePatterns(filtered);
   funnelCounts.negativePatterns = filtered.length;
@@ -733,6 +763,32 @@ async function discoverKeywords(
     console.log(`[DISCOVER] Applied fallback floor: ${supplement.length} added`);
   }
 
+  // ── Stage 6c: Emergency Fallback ──
+  // The fallback floor above only triggers when `filtered.length > 0`. If the
+  // filter chain ITSELF dropped everything (filters too aggressive, all
+  // candidates were navigational, etc.), we'd still ship 0 keywords. That's a
+  // failure mode the operator can't recover from — they need SOMETHING to
+  // curate. Surface the top 30 from the post-dedup pool (before any filters
+  // ran) so the discovery never returns empty when DataForSEO actually gave
+  // us material to work with.
+  if (scoredKeywords.length === 0 && postDedupPool.length > 0) {
+    console.warn(
+      `[DISCOVER] Emergency fallback: filter chain collapsed to 0. Surfacing top 30 from post-dedup pool (size ${postDedupPool.length}).`,
+    );
+    scoredKeywords = postDedupPool
+      .map((k) => ({ k, s: Math.log(k.searchVolume + 1) + k.cpc * 0.5 }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 30)
+      .map(({ k }) => ({
+        ...k,
+        intent: k.intent || "unknown",
+        relevanceScore: 2,
+        relevanceReason: "Emergency fallback — filters dropped all candidates; raw top-volume shown for manual review",
+        suggestedGroup: "Needs Review",
+      }));
+    funnelCounts.afterEmergencyFallback = scoredKeywords.length;
+  }
+
   // Cap at 60 (up from 40) — lower AI threshold + fallback floor mean more
   // legitimate supporting-content candidates now survive. Operator chooses
   // which to track via the dashboard.
@@ -776,6 +832,43 @@ async function discoverKeywords(
     aiAnalysis = await generateStrategicAnalysis(finalKeywords, profile, anthropicKey);
   }
 
+  // Prepend a funnel diagnostics block so the operator can see exactly where
+  // keywords were dropped without needing Coolify log access. Especially
+  // useful when discovery returns 0 — the operator can immediately see
+  // whether DataForSEO produced nothing (no `raw`) vs. filters being too
+  // aggressive (raw high, intent low) vs. AI scoring rejecting everything.
+  const funnelDiagnostic = [
+    "## Discovery Diagnostics",
+    "",
+    `**Seeds generated:** ${seedsToUse.length} (${earlyAnthropicKey ? "AI" : "mechanical"})`,
+    (profile.servicePages?.length ?? 0) > 0
+      ? `**Service pages identified from audit:** ${profile.servicePages!.length} (${profile.servicePages!.map((p) => p.slug).slice(0, 5).join(", ")}${profile.servicePages!.length > 5 ? "…" : ""})`
+      : `**Service pages identified from audit:** 0 — keyword seeds were not anchored to specific service pages this run.`,
+    "",
+    "**Funnel (keywords surviving each stage):**",
+    `- Raw from DataForSEO: ${funnelCounts.raw ?? 0}`,
+    `- After exact dedup: ${funnelCounts.exactDedup ?? 0}`,
+    `- After near-duplicate collapse: ${funnelCounts.nearDupDedup ?? 0}`,
+    `- After negative-pattern filter: ${funnelCounts.negativePatterns ?? 0}`,
+    `- After brand-term filter: ${funnelCounts.brandTerms ?? 0}`,
+    `- After audience filter (drops courses/DIY/jobs): ${funnelCounts.audience ?? 0}`,
+    `- After gibberish filter: ${funnelCounts.gibberish ?? 0}`,
+    `- After intent filter (commercial/transactional): ${funnelCounts.intent ?? 0}`,
+    `- After AI relevance scoring: ${funnelCounts.aiScored ?? 0}`,
+    funnelCounts.afterFallbackFloor !== undefined
+      ? `- After fallback floor (top pre-relevance candidates): ${funnelCounts.afterFallbackFloor}`
+      : null,
+    funnelCounts.afterEmergencyFallback !== undefined
+      ? `- After EMERGENCY fallback (raw top-volume): ${funnelCounts.afterEmergencyFallback}`
+      : null,
+    "",
+    "---",
+    "",
+  ].filter(Boolean).join("\n");
+  const aiAnalysisWithDiagnostic = aiAnalysis
+    ? `${funnelDiagnostic}\n${aiAnalysis}`
+    : `${funnelDiagnostic}\n_No strategic analysis was generated — typically because no keywords survived the pipeline. Use the diagnostic above to identify which stage collapsed and adjust filters / seeds / sitemap accordingly._`;
+
   // ── Save to KeywordResearch ──
   // results stays a flat keyword array for backward compat with existing
   // consumers (reports, research page, content map). Each keyword now carries
@@ -787,7 +880,7 @@ async function discoverKeywords(
         seedTopics: seedsToUse.map((s) => s.seed).join(", "),
         location: profile.targetCities.length > 0 ? profile.targetCities[0] : "United States",
         results: JSON.stringify(finalKeywords),
-        aiAnalysis,
+        aiAnalysis: aiAnalysisWithDiagnostic,
         keywordsFound: finalKeywords.length,
       },
     });

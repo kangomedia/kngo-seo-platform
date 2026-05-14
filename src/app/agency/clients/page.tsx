@@ -113,9 +113,23 @@ function ClientOnboardingWizard({
     setInput: (v: string) => void,
     max: number = 10
   ) => {
-    const v = value.trim();
-    if (v && !list.includes(v) && list.length < max) {
-      setList([...list, v]);
+    // Split on commas and newlines so paste-then-Enter creates one tag per
+    // item rather than a single multi-comma blob. Operators often paste
+    // comma-separated lists from notes/SOPs; without this, the whole list
+    // becomes a single "kitchen, bathroom, basement" tag which DataForSEO
+    // can't expand into useful keywords.
+    const items = value
+      .split(/[,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (items.length === 0) return;
+    const next = [...list];
+    for (const item of items) {
+      if (next.length >= max) break;
+      if (!next.includes(item)) next.push(item);
+    }
+    if (next.length !== list.length) {
+      setList(next);
       setInput("");
     }
   };

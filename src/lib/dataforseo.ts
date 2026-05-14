@@ -178,13 +178,15 @@ export async function getCompetitorsDomain(
   config: DataForSEOConfig,
   opts: { locationCode?: number; limit?: number; minIntersections?: number } = {}
 ) {
+  // DataForSEO removed `intersections` as a request parameter — the field is
+  // now always populated in the response automatically. Sending it returns
+  // 40506 "Unknown Fields in POST Data: intersections".
   const body = [
     {
       target: domain,
       location_code: opts.locationCode || 2840,
       language_code: "en",
       limit: opts.limit || 50,
-      intersections: true,
       ...(opts.minIntersections
         ? { intersections_min_value: opts.minIntersections }
         : {}),

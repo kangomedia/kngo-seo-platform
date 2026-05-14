@@ -690,8 +690,24 @@ Respond with a JSON array of 25 strings only — no prose, no markdown, no code 
     return filtered;
   } catch (err) {
     console.warn("[KW-INTEL] generatePainPointSeeds failed:", err instanceof Error ? err.message : err);
-    // Fall back to literal user-supplied pains as seeds
-    return painLines.slice(0, 12);
+    // Fall back to user-supplied pains as seeds — but DataForSEO rejects any
+    // "keyword" longer than ~80 chars (40501 "Keyword text exceeds the allowed
+    // limit"). User-typed pain strings are full sentences ("getting burned
+    // by a previous contractor — ghosting, blown budgets…"), so we extract
+    // the first 2–5 meaningful words from each pain instead of sending the
+    // sentence verbatim. Imperfect, but safer than 40501s on every call.
+    return painLines
+      .map((p) => {
+        const cleaned = p
+          .toLowerCase()
+          .replace(/[—–-]/g, " ")
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return cleaned.split(" ").slice(0, 5).join(" ");
+      })
+      .filter((s) => s.length > 0 && s.length <= 80)
+      .slice(0, 12);
   }
 }
 

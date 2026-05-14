@@ -426,7 +426,9 @@ function OnboardingTracker({
                 {isDiscovering
                   ? "Crawling website + discovering keywords — this may take 2-5 minutes"
                   : isComplete
-                  ? `Found ${discoveryData?.latestResearch?.keywordsFound || 0} keywords from your site and competitors`
+                  ? (discoveryData?.latestResearch?.keywordsFound ?? 0) === 0
+                    ? "0 keywords surfaced — click View Full Research to see the funnel diagnostics and adjust seeds/filters before re-running."
+                    : `Found ${discoveryData?.latestResearch?.keywordsFound || 0} keywords from your site and competitors`
                   : "Click Launch to start automatic site analysis and keyword discovery"}
               </p>
             </div>
