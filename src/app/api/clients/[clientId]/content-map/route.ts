@@ -215,7 +215,23 @@ export async function POST(
   const perPillarTotal =
     perPillar.blogs + perPillar.gbpPosts + perPillar.gbpQAs + perPillar.pressReleases;
 
+  // Anchor the model in today's date. Without this context Claude infers a
+  // year from its training cutoff and produces titles like "2025 Breakdown"
+  // even when we're well into 2026. Mirrors the existing pattern in
+  // content/generate/route.ts.
+  const now = new Date();
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const monthLabel = `${monthNames[currentMonth - 1]} ${currentYear}`;
+
   const prompt = `You are an expert SEO content strategist building a 6-month topical authority plan for this business. Your output drives the agency's content workflow — every piece you propose must be specific, scoped, and promotable to a writer without further refinement.
+
+## Current Date
+${monthLabel} — when proposing year-in-review or trends pieces, reference ${currentYear} or future years, never past years.
 
 ## Client Profile
 - **Business:** ${client.name}
