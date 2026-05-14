@@ -30,6 +30,7 @@ import {
   Search,
   Plus,
   ArrowRight,
+  RotateCcw,
 } from "lucide-react";
 import {
   XAxis,
@@ -261,6 +262,8 @@ function OnboardingTracker({
   const [trackedKeywords, setTrackedKeywords] = useState<Set<string>>(new Set());
   const [trackingInProgress, setTrackingInProgress] = useState<Set<string>>(new Set());
   const [trackingAll, setTrackingAll] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunError, setRerunError] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(`discovery-dismissed-${clientId}`) === "true";
@@ -470,7 +473,7 @@ function OnboardingTracker({
 
           {/* Action Links */}
           {isComplete && (
-            <div className="flex gap-3 mt-4">
+            <div className="flex flex-wrap gap-3 mt-4 items-center">
               <a
                 href={`/agency/clients/${clientId}/audit`}
                 className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
@@ -485,6 +488,56 @@ function OnboardingTracker({
               >
                 <Microscope size={12} className="inline mr-1" /> View Full Research
               </a>
+              <button
+                onClick={async () => {
+                  if (rerunning) return;
+                  const proceed = window.confirm(
+                    "Re-run discovery? This will trigger a fresh site crawl and keyword discovery using the current business profile fields. The previous audit and keyword research will be preserved as history. Takes 3–8 minutes.",
+                  );
+                  if (!proceed) return;
+                  setRerunning(true);
+                  setRerunError("");
+                  try {
+                    const res = await fetch(`/api/clients/${clientId}/discover`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    // Fire-and-forget — the server runs the pipeline in the
+                    // background. Flip the local status so the tracker starts
+                    // polling again.
+                    setDiscoveryData((prev) =>
+                      prev ? { ...prev, onboardingStatus: "DISCOVERING" } : prev,
+                    );
+                    setPolling(true);
+                  } catch (e) {
+                    setRerunError(e instanceof Error ? e.message : "Re-run failed");
+                  } finally {
+                    setRerunning(false);
+                  }
+                }}
+                disabled={rerunning || isDiscovering}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all hover:opacity-80 inline-flex items-center"
+                style={{
+                  background: "rgba(245,158,11,0.15)",
+                  color: "#F59E0B",
+                  opacity: rerunning || isDiscovering ? 0.5 : 1,
+                  cursor: rerunning || isDiscovering ? "wait" : "pointer",
+                }}
+                title="Re-crawl the site + re-run keyword discovery with the current business profile"
+              >
+                {rerunning ? (
+                  <Loader2 size={12} className="animate-spin inline mr-1" />
+                ) : (
+                  <RotateCcw size={12} className="inline mr-1" />
+                )}
+                Re-run Discovery
+              </button>
+              {rerunError && (
+                <span className="text-[11px] font-bold" style={{ color: "var(--danger)" }}>
+                  {rerunError}
+                </span>
+              )}
             </div>
           )}
         </div>

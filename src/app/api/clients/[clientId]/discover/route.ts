@@ -5,8 +5,11 @@ import { sendEmail, discoveryCompleteEmail } from "@/lib/email";
 import {
   type BusinessProfile,
   type RawKeyword,
+  type SeedWithPillar,
+  type ServicePage,
   generateSmartSeeds,
   generateAISeeds,
+  identifyServicePages,
   filterByNegativePatterns,
   filterByAudience,
   filterByGibberish,
@@ -20,8 +23,8 @@ import {
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
 
 function getDataForSEOAuth() {
-  let login = process.env.DATAFORSEO_LOGIN;
-  let password = process.env.DATAFORSEO_PASSWORD;
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
 
   if (login && password) {
     return `Basic ${Buffer.from(`${login}:${password}`).toString("base64")}`;
@@ -92,16 +95,37 @@ export async function POST(
   const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
   const brandTerms: string[] = (() => { try { return JSON.parse(client.brandTerms || "[]"); } catch { return []; } })();
 
-  // Start background pipeline
-  const auditPromise = triggerSiteAudit(
-    clientId,
-    client.domain,
-    client.sitemapUrl,
-    authHdr
-  );
-
   // Parse business profile fields
   const primaryServices: string[] = (() => { try { return JSON.parse(client.primaryServices || "[]"); } catch { return []; } })();
+
+  // Pipeline: run audit FIRST so we can pull the service pages it crawled and
+  // feed them into keyword discovery as pillar anchors. Without this step,
+  // keyword seeds are built only from the typed primaryServices array — the
+  // actual site structure (the most authoritative source of "what services
+  // does this business actually sell") is ignored.
+  const auditResultSettled = await Promise.allSettled([
+    triggerSiteAudit(clientId, client.domain, client.sitemapUrl, authHdr),
+  ]).then((r) => r[0]);
+
+  // Pull service pages from the just-completed audit. Graceful: if audit
+  // failed or surfaced no service pages, keyword discovery still runs — it
+  // just falls back to the typed-services seed path.
+  let servicePages: ServicePage[] = [];
+  if (
+    auditResultSettled.status === "fulfilled" &&
+    auditResultSettled.value?.auditId
+  ) {
+    try {
+      const pages = await prisma.siteAuditPage.findMany({
+        where: { auditId: auditResultSettled.value.auditId },
+        select: { url: true, title: true, description: true, wordCount: true },
+      });
+      servicePages = identifyServicePages(pages, primaryServices, client.domain);
+      console.log(`[DISCOVER] Identified ${servicePages.length} service pages from audit: ${servicePages.map((p) => p.slug).join(", ")}`);
+    } catch (e) {
+      console.error("[DISCOVER] Failed to fetch service pages from audit:", e);
+    }
+  }
 
   const businessProfile: BusinessProfile = {
     clientName: client.name,
@@ -115,21 +139,17 @@ export async function POST(
     serviceAreas,
     targetCities,
     brandTerms,
+    servicePages,
   };
 
-  const keywordPromise = discoverKeywords(
-    clientId,
-    client.domain,
-    competitors,
-    businessProfile,
-    authHdr
-  );
+  const keywordResultSettled = await Promise.allSettled([
+    discoverKeywords(clientId, client.domain, competitors, businessProfile, authHdr),
+  ]).then((r) => r[0]);
 
-  // Run them concurrently but wait for both
-  const [auditResult, keywordResult] = await Promise.allSettled([auditPromise, keywordPromise]);
-
-  const auditSuccess = auditResult.status === "fulfilled" && auditResult.value?.status !== "FAILED";
-  const keywordSuccess = keywordResult.status === "fulfilled";
+  // Reshape to the existing variable names so the rest of this function
+  // (email, response) doesn't need to be touched.
+  const auditResult = auditResultSettled;
+  const keywordResult = keywordResultSettled;
 
   // Mark status as COMPLETE
   await prisma.client.update({
@@ -438,17 +458,27 @@ async function discoverKeywords(
 ) {
   const allKeywords: RawKeyword[] = [];
 
-  // ── Stage 1: Smart Seed-Based Discovery (keyword_suggestions) ──
-  // Prefer Claude-generated seeds when an Anthropic key is available — they
-  // produce sharper, intent-laden phrases than mechanical templates can.
-  // Falls back to generateSmartSeeds() automatically inside generateAISeeds().
+  // ── Stage 1: Seed-Based Discovery (keyword_suggestions) ──
+  // Claude-generated seeds when an Anthropic key is configured — they produce
+  // sharper, intent-laden phrases than mechanical templates can. When the
+  // BusinessProfile carries servicePages (from the just-completed audit),
+  // seeds are PILLAR-TAGGED so each keyword can be traced back to a specific
+  // service page, enabling the dashboard to render content clusters per pillar.
   const earlyAnthropicKey = process.env.ANTHROPIC_API_KEY;
-  const seeds = earlyAnthropicKey
+  const seedsWithPillar: SeedWithPillar[] = earlyAnthropicKey
     ? await generateAISeeds(profile, earlyAnthropicKey)
-    : generateSmartSeeds(profile);
-  console.log(`[DISCOVER] Generated ${seeds.length} seeds (${earlyAnthropicKey ? "AI" : "mechanical"}): ${seeds.slice(0, 5).join(", ")}...`);
+    : generateSmartSeeds(profile).map((seed) => ({ seed, pillarUrl: null, pillarTitle: null }));
 
-  for (const seed of seeds.slice(0, 15)) {
+  // Cap at 25 seeds to bound DataForSEO cost. Up from the prior 15 — service-
+  // page-anchored seeds yield more useful expansion territory so we can spend
+  // a few more calls per discovery run.
+  const seedsToUse = seedsWithPillar.slice(0, 25);
+  console.log(
+    `[DISCOVER] Generated ${seedsWithPillar.length} seeds (${earlyAnthropicKey ? "AI" : "mechanical"}): ` +
+    `${seedsToUse.slice(0, 5).map((s) => s.seed + (s.pillarTitle ? ` [${s.pillarTitle}]` : "")).join(", ")}...`
+  );
+
+  for (const { seed, pillarUrl, pillarTitle } of seedsToUse) {
     try {
       const body = [
         {
@@ -456,7 +486,10 @@ async function discoverKeywords(
           location_name: "United States",
           language_name: "English",
           include_seed_keyword: true,
-          limit: 50,
+          // Per-seed cap raised 50 → 100. DataForSEO returns the long-tail in
+          // ranked order, so this gives the AI scorer more material to work
+          // with after dedup and filtering prune the obvious garbage.
+          limit: 100,
         },
       ];
 
@@ -478,7 +511,7 @@ async function discoverKeywords(
         }
 
         const items = result?.tasks?.[0]?.result?.[0]?.items || [];
-        console.log(`[DISCOVER] keyword_suggestions "${seed}": ${items.length} keywords returned`);
+        console.log(`[DISCOVER] keyword_suggestions "${seed}"${pillarTitle ? ` [${pillarTitle}]` : ""}: ${items.length} keywords returned`);
 
         for (const item of items) {
           const kw = item?.keyword;
@@ -492,6 +525,8 @@ async function discoverKeywords(
               cpc: info.cpc || 0,
               source: `seed:${seed}`,
               intent: intentInfo?.main_intent || null,
+              pillarUrl,
+              pillarTitle,
             });
           }
         }
@@ -557,10 +592,14 @@ async function discoverKeywords(
 
   console.log(`[DISCOVER] Total raw keywords collected: ${allKeywords.length}`);
 
+  // Track per-stage drop counts so the response can tell the operator
+  // exactly where in the funnel keywords were lost. Surfaces "why only N
+  // keywords" without needing Coolify log access.
+  const funnelCounts: Record<string, number> = {
+    raw: allKeywords.length,
+  };
+
   // ── Stage 3: Deduplicate ──
-  // First exact-match dedup (same string, different casing), then near-duplicate
-  // collapse — kills "kitchen remodeling denver co" / "kitchen remodeling in
-  // denver co" and "basement finishing denver" / "denver basement finishing".
   const seen = new Map<string, RawKeyword>();
   for (const kw of allKeywords) {
     const key = kw.keyword.toLowerCase();
@@ -570,30 +609,28 @@ async function discoverKeywords(
     }
   }
   let filtered = Array.from(seen.values());
-  console.log(`[DISCOVER] After exact dedup: ${filtered.length} keywords`);
+  funnelCounts.exactDedup = filtered.length;
 
   filtered = dedupNearDuplicates(filtered);
-  console.log(`[DISCOVER] After near-duplicate collapse: ${filtered.length} keywords`);
+  funnelCounts.nearDupDedup = filtered.length;
 
-  // ── Stage 4: Negative Pattern Filter ── universal noise (piracy, porn, etc.)
+  // ── Stage 4: filters (negative patterns, brand, audience, gibberish, intent) ──
   filtered = filterByNegativePatterns(filtered);
-  console.log(`[DISCOVER] After negative pattern filter: ${filtered.length} keywords`);
+  funnelCounts.negativePatterns = filtered.length;
 
-  // ── Stage 4a: Brand Term Filter ── drop branded queries when configured
   filtered = filterByBrandTerms(filtered, profile.brandTerms || []);
-  console.log(`[DISCOVER] After brand term filter: ${filtered.length} keywords`);
+  funnelCounts.brandTerms = filtered.length;
 
-  // ── Stage 4b: Audience Filter ── drops learner / DIY / job-seeker queries
   filtered = filterByAudience(filtered);
-  console.log(`[DISCOVER] After audience filter: ${filtered.length} keywords`);
+  funnelCounts.audience = filtered.length;
 
-  // ── Stage 4c: Gibberish Filter ── drops keyword-stuffing artifacts from DFS
   filtered = filterByGibberish(filtered);
-  console.log(`[DISCOVER] After gibberish filter: ${filtered.length} keywords`);
+  funnelCounts.gibberish = filtered.length;
 
-  // ── Stage 5: Intent Filter ── only keep commercial / transactional intent
   filtered = filterByIntent(filtered);
-  console.log(`[DISCOVER] After intent filter: ${filtered.length} keywords`);
+  funnelCounts.intent = filtered.length;
+
+  console.log(`[DISCOVER] Funnel: ${JSON.stringify(funnelCounts)}`);
 
   // ── Stage 6: AI Relevance Scoring ──
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -611,14 +648,71 @@ async function discoverKeywords(
     const aiScored = await scoreKeywordRelevance(filtered, profile, anthropicKey);
     if (aiScored.length > 0) {
       scoredKeywords = aiScored;
-      console.log(`[DISCOVER] AI scoring complete: ${aiScored.length} keywords passed (score ≥ 4)`);
+      console.log(`[DISCOVER] AI scoring complete: ${aiScored.length} keywords passed (score ≥ 3)`);
     }
   }
 
-  // Limit to top 40 — the AI scorer is now stricter (≥5 to pass) and
-  // pre-scoring biases toward local commercial intent, so a tighter cap
-  // surfaces the keywords actually worth tracking instead of a long tail.
-  const finalKeywords = scoredKeywords.slice(0, 40);
+  funnelCounts.aiScored = scoredKeywords.length;
+
+  // ── Stage 6b: Fallback Floor ──
+  // If AI scoring produced fewer than 15 keywords, supplement with the top
+  // pre-relevance-scored candidates so the operator gets something usable
+  // rather than 2 keywords. Marked with a lower relevanceScore so the UI
+  // can flag them as weak matches needing review.
+  if (scoredKeywords.length < 15 && filtered.length > 0) {
+    const haveKeys = new Set(scoredKeywords.map((k) => k.keyword.toLowerCase()));
+    const supplement = filtered
+      .filter((k) => !haveKeys.has(k.keyword.toLowerCase()))
+      .map((k) => ({ k, s: Math.log(k.searchVolume + 1) + k.cpc * 0.5 }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 25 - scoredKeywords.length)
+      .map(({ k }) => ({
+        ...k,
+        intent: k.intent || "unknown",
+        relevanceScore: 3,
+        relevanceReason: "Fallback candidate — AI scorer did not include; review manually",
+        suggestedGroup: "Long-Tail Opportunity",
+      }));
+    scoredKeywords = [...scoredKeywords, ...supplement];
+    funnelCounts.afterFallbackFloor = scoredKeywords.length;
+    console.log(`[DISCOVER] Applied fallback floor: ${supplement.length} added`);
+  }
+
+  // Cap at 60 (up from 40) — lower AI threshold + fallback floor mean more
+  // legitimate supporting-content candidates now survive. Operator chooses
+  // which to track via the dashboard.
+  const finalKeywords = scoredKeywords.slice(0, 60);
+
+  // Build pillar groupings for the dashboard. Each pillar gets its own list
+  // of keywords sorted by relevance × volume. Keywords with no pillarUrl land
+  // in the "General" bucket.
+  const pillarBuckets = new Map<string, { url: string; title: string; keywords: typeof finalKeywords }>();
+  const generalBucket: typeof finalKeywords = [];
+  for (const kw of finalKeywords) {
+    if (kw.pillarUrl) {
+      const existing = pillarBuckets.get(kw.pillarUrl);
+      if (existing) {
+        existing.keywords.push(kw);
+      } else {
+        pillarBuckets.set(kw.pillarUrl, {
+          url: kw.pillarUrl,
+          title: kw.pillarTitle || kw.pillarUrl,
+          keywords: [kw],
+        });
+      }
+    } else {
+      generalBucket.push(kw);
+    }
+  }
+  const pillarGroups = Array.from(pillarBuckets.values()).map((p) => ({
+    ...p,
+    keywords: p.keywords.sort(
+      (a, b) => b.relevanceScore * Math.log(b.searchVolume + 1) - a.relevanceScore * Math.log(a.searchVolume + 1),
+    ),
+  }));
+  if (generalBucket.length > 0) {
+    pillarGroups.push({ url: "", title: "General / Business-Wide", keywords: generalBucket });
+  }
 
   // ── Stage 7: Strategic Analysis ──
   let aiAnalysis: string | null = null;
@@ -628,22 +722,29 @@ async function discoverKeywords(
   }
 
   // ── Save to KeywordResearch ──
+  // results stays a flat keyword array for backward compat with existing
+  // consumers (reports, research page, content map). Each keyword now carries
+  // pillarUrl + pillarTitle so the dashboard can group client-side.
   try {
     const research = await prisma.keywordResearch.create({
       data: {
         clientId,
-        seedTopics: seeds.join(", "),
+        seedTopics: seedsToUse.map((s) => s.seed).join(", "),
         location: profile.targetCities.length > 0 ? profile.targetCities[0] : "United States",
         results: JSON.stringify(finalKeywords),
         aiAnalysis,
         keywordsFound: finalKeywords.length,
       },
     });
-    console.log(`[DISCOVER] Saved ${finalKeywords.length} scored keywords for ${domain} to DB.`);
+    console.log(
+      `[DISCOVER] Saved ${finalKeywords.length} keywords across ${pillarGroups.length} pillar group${pillarGroups.length === 1 ? "" : "s"} for ${domain}`,
+    );
     return {
       researchId: research.id,
       keywordsFound: finalKeywords.length,
       keywords: finalKeywords.slice(0, 20),
+      pillarGroups: pillarGroups.map((p) => ({ url: p.url, title: p.title, count: p.keywords.length })),
+      funnelCounts,
       aiAnalysis,
     };
   } catch (err) {

@@ -12,6 +12,30 @@
 
 // ─── Types ───────────────────────────────────────────────
 
+/**
+ * A service page crawled from the client's site. Used as a "pillar" anchor:
+ * each pillar gets its own set of supporting-content keywords that the AI
+ * pipeline can later turn into a topic cluster.
+ */
+export interface ServicePage {
+  url: string;
+  title: string | null;
+  description: string | null;
+  /** Derived: the last meaningful path segment (e.g. "kitchen-remodeling"). */
+  slug: string;
+}
+
+/**
+ * A seed phrase + its provenance — which pillar (if any) it was generated
+ * against. Keywords expanded from a pillar-tagged seed inherit the pillar
+ * so the dashboard can render content clusters per service page.
+ */
+export interface SeedWithPillar {
+  seed: string;
+  pillarUrl: string | null;
+  pillarTitle: string | null;
+}
+
 export interface BusinessProfile {
   businessDescription: string | null;
   primaryServices: string[];
@@ -24,6 +48,10 @@ export interface BusinessProfile {
   /** Optional branded query terms — used to filter out branded keywords from
    *  research and to remind the AI seed prompt not to propose branded seeds. */
   brandTerms?: string[];
+  /** Service pages crawled from the audit. When present, seed generation
+   *  produces pillar-tagged seeds so each service page gets its own cluster
+   *  of supporting-content keywords. */
+  servicePages?: ServicePage[];
   clientName: string;
   domain: string;
 }
@@ -35,6 +63,10 @@ export interface RawKeyword {
   cpc: number;
   source: string;
   intent?: string | null;
+  /** Pillar provenance — which service page this keyword supports. Null for
+   *  general/business-wide keywords not tied to a specific service. */
+  pillarUrl?: string | null;
+  pillarTitle?: string | null;
 }
 
 export interface ScoredKeyword extends RawKeyword {
@@ -237,19 +269,125 @@ export function filterByIntent(keywords: RawKeyword[]): RawKeyword[] {
     // Always keep commercial and transactional
     if (intent === "commercial" || intent === "transactional") return true;
 
-    // Keep informational ONLY if CPC signals real commercial value
-    if (intent === "informational" && kw.cpc >= 10) return true;
+    // Keep informational with any meaningful CPC — these are supporting-content
+    // (blog) keywords that drive traffic to pillars. Threshold lowered from $10
+    // to $1 so we don't shred TOFU/MOFU candidates.
+    if (intent === "informational" && kw.cpc >= 1) return true;
 
     // Drop navigational entirely
     if (intent === "navigational") return false;
 
-    // If no intent data, use CPC as a proxy: CPC > $3 = likely commercial
+    // If DataForSEO didn't return intent metadata, lean on CPC as a soft
+    // commercial-intent proxy. Threshold dropped from $3 to $1 so long-tail
+    // candidates don't get nuked by missing-intent + low-CPC.
     if (!intent || intent === "undefined") {
-      return kw.cpc >= 3;
+      return kw.cpc >= 1;
     }
 
     return false;
   });
+}
+
+// ─── Service Page Identification ─────────────────────────
+
+const NON_SERVICE_URL_PATTERNS = [
+  /\/blog(\/|$)/i,
+  /\/post[s]?(\/|$)/i,
+  /\/article[s]?(\/|$)/i,
+  /\/news(\/|$)/i,
+  /\/tag[s]?(\/|$)/i,
+  /\/category(\/|$)/i,
+  /\/author(\/|$)/i,
+  /\/page\/\d+/i,
+  /\/contact(\/|$)/i,
+  /\/about(\/|$)/i,
+  /\/privacy(\/|$)/i,
+  /\/terms(\/|$)/i,
+  /\/sitemap/i,
+  /\/wp-/i,
+  /\.(pdf|jpg|jpeg|png|gif|css|js)$/i,
+];
+
+const SERVICE_URL_HINTS = [
+  /\/services?\//i,
+  /\/what-we-do\//i,
+  /\/our-services?\//i,
+  /\/offerings\//i,
+  /\/solutions?\//i,
+];
+
+function slugFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split("/").filter(Boolean);
+    return parts[parts.length - 1] || "home";
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Identify the subset of crawled pages that look like SERVICE pages —
+ * the pillars worth generating supporting-content keyword clusters for.
+ *
+ * Heuristics:
+ *   - Excludes blog/post/tag/category/utility URLs
+ *   - Excludes pages with 0/100+ word count (likely empty or list pages)
+ *   - Prioritizes URLs under /services/, /solutions/, etc.
+ *   - Prioritizes URLs whose slug or title contains a primary-service term
+ */
+export function identifyServicePages(
+  pages: Array<{
+    url: string;
+    title: string | null;
+    description: string | null;
+    wordCount?: number;
+  }>,
+  primaryServices: string[],
+  domain: string,
+): ServicePage[] {
+  const serviceTerms = primaryServices
+    .flatMap((s) => s.toLowerCase().split(/[\s,&/]+/))
+    .filter((w) => w.length > 3);
+
+  const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  const candidates = pages
+    .filter((p) => p.url && p.url.includes(cleanDomain))
+    .filter((p) => !NON_SERVICE_URL_PATTERNS.some((rx) => rx.test(p.url)))
+    // Skip the home page — it's not a service pillar even though it ranks high
+    .filter((p) => {
+      try {
+        const u = new URL(p.url);
+        return u.pathname !== "/" && u.pathname !== "";
+      } catch {
+        return true;
+      }
+    })
+    .filter((p) => !p.wordCount || p.wordCount >= 100);
+
+  const scored = candidates.map((p) => {
+    const slug = slugFromUrl(p.url);
+    const haystack = `${slug} ${p.title || ""} ${p.description || ""}`.toLowerCase();
+    let score = 0;
+    if (SERVICE_URL_HINTS.some((rx) => rx.test(p.url))) score += 3;
+    for (const term of serviceTerms) {
+      if (haystack.includes(term)) score += 2;
+    }
+    if (p.title && p.title.length > 5) score += 1;
+    return { page: p, slug, score };
+  });
+
+  return scored
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10) // cap at 10 pillars — more than that and the AI prompt bloats
+    .map((x) => ({
+      url: x.page.url,
+      title: x.page.title,
+      description: x.page.description,
+      slug: x.slug,
+    }));
 }
 
 // ─── Smart Seed Generator ────────────────────────────────
@@ -317,21 +455,30 @@ export function generateSmartSeeds(profile: BusinessProfile): string[] {
 }
 
 /**
- * Ask Claude to propose 20 high-quality seed phrases tailored to the
- * business profile. This is the preferred path when an Anthropic key is
- * configured — Claude understands buying intent and customer journey
- * context that mechanical templates can't reproduce.
+ * Ask Claude to propose seed phrases tailored to the business profile.
  *
- * Falls back to `generateSmartSeeds` if the request fails for any reason.
+ * When `profile.servicePages` is populated, seeds are generated PER PILLAR:
+ * each service page gets its own dedicated seeds for supporting-content
+ * keywords, plus a smaller pool of business-wide general seeds. This means
+ * each keyword can be traced back to a specific service page, so the
+ * dashboard can render content clusters per pillar.
+ *
+ * When no service pages are available (audit didn't surface any, or it
+ * failed), seeds are flat and untagged — same as the original behavior.
+ *
+ * Falls back to `generateSmartSeeds` (mechanical) if the AI request fails.
  */
 export async function generateAISeeds(
   profile: BusinessProfile,
   anthropicKey: string,
-): Promise<string[]> {
+): Promise<SeedWithPillar[]> {
   const allCities = profile.targetCities.filter(Boolean);
   const primaryCity = allCities[0] || "(no city specified)";
   const cityList = allCities.length > 0 ? allCities.join(", ") : "(no cities specified)";
   const brandTerms = (profile.brandTerms || []).filter(Boolean);
+  const servicePages = (profile.servicePages || []).slice(0, 8);
+  const hasPillars = servicePages.length > 0;
+
   const profileLines = [
     `Business: ${profile.clientName}`,
     profile.businessDescription ? `What they do: ${profile.businessDescription}` : null,
@@ -344,28 +491,66 @@ export async function generateAISeeds(
     brandTerms.length > 0 ? `Brand terms to AVOID in seeds: ${brandTerms.join(", ")}` : null,
   ].filter(Boolean).join("\n");
 
-  const prompt = `You are an SEO strategist preparing seed keywords for a LOCAL SERVICE BUSINESS. The business serves multiple distinct geographic markets — generate seeds that cover the FULL list of target cities, not only the first one. Distinct sub-markets (e.g. metro vs. mountain resort towns) deserve distinct seeds.
+  const pillarSection = hasPillars
+    ? `\nSERVICE PAGES (PILLARS) — these are real pages on the site. For each one, generate dedicated seeds that will surface SUPPORTING-CONTENT keywords (blog posts that link back to this pillar):
+${servicePages.map((p, i) => `  ${i + 1}. ${p.title || p.slug} — ${p.url}${p.description ? `\n     Description: ${p.description.slice(0, 200)}` : ""}`).join("\n")}\n`
+    : "";
+
+  const prompt = hasPillars
+    ? `You are an SEO strategist building a CONTENT CLUSTER strategy for a LOCAL SERVICE BUSINESS. Each service page is a pillar; your job is to generate seeds that produce SUPPORTING-CONTENT KEYWORDS for each pillar — keywords for blog posts that link back to the pillar and drive traffic to it.
+
+BUSINESS PROFILE:
+${profileLines}
+${pillarSection}
+
+For EACH pillar above, generate 4–6 seed phrases. Pillar seeds should target keywords that a real prospect researches before they're ready to hire — problem-aware, comparison, cost, location-qualified, decision-stage phrases. Examples for a "Kitchen Remodeling" pillar:
+  - "kitchen remodel cost ${primaryCity}"
+  - "how long does a kitchen remodel take"
+  - "kitchen remodel mistakes to avoid"
+  - "best kitchen layout for resale"
+  - "kitchen remodel timeline"
+
+Also generate 6–10 GENERAL seeds for business-wide local/commercial intent (not tied to a single pillar):
+  - Local money phrases spread across the target cities: ${cityList}
+  - Service commercial ("hire {service} {city}", "{service} company")
+  - ICP-specific niches the profile explicitly mentions
+
+Rules — do not break these:
+  - Each seed must look like something a paying customer would actually type
+  - DO NOT include educational ("course", "tutorial", "how to learn"), DIY, or job-seeker phrases
+  - DO NOT include single-word generic terms unless paired with a qualifier
+  - DO NOT include the business's brand terms${brandTerms.length > 0 ? ` (listed above)` : ""}
+  - Lowercase, trimmed, no punctuation other than spaces
+  - A pillar's seeds should be obviously tied to that pillar's topic
+
+Respond with ONLY a JSON object in this shape — no prose, no markdown, no code fences:
+{
+  "perPillar": [
+    { "pillarUrl": "url-from-above", "seeds": ["seed1", "seed2", ...] },
+    ...
+  ],
+  "general": ["seed1", "seed2", ...]
+}`
+    : `You are an SEO strategist preparing seed keywords for a LOCAL SERVICE BUSINESS. The business serves multiple distinct geographic markets — generate seeds that cover the FULL list of target cities, not only the first one.
 
 BUSINESS PROFILE:
 ${profileLines}
 
-Produce 20 seed phrases that, when expanded by a keyword research tool, will yield keywords a real prospect would actually search before HIRING this business. Cover this mix across the 20:
+Produce 20 seed phrases. Mix:
+  - 6–8 LOCAL MONEY phrases — spread across the target cities (don't anchor all to ${primaryCity})
+  - 3–5 SERVICE COMMERCIAL phrases ("{service} cost", "hire {service}")
+  - 3–5 VERTICAL- or ICP-SPECIFIC phrases tied to the unique customer
+  - 2–4 TOP-OF-FUNNEL problem-aware phrases
 
-  - 6–8 LOCAL MONEY phrases — spread these across the target cities (don't anchor all of them to ${primaryCity}). Examples: "{service} {city}", "best {service} near me", "{service} {city}", "hire {service} {city}"
-  - 3–5 SERVICE COMMERCIAL phrases ("{service} cost", "{service} pricing", "{service} services", "{service} company")
-  - 3–5 VERTICAL- or ICP-SPECIFIC phrases tied to the business's actual ideal customer or unique sub-market (e.g. a niche the business explicitly serves — STR/Airbnb investors, mountain second-home owners, bilingual prospects, etc. — if any of these appear in the profile)
-  - 2–4 TOP-OF-FUNNEL problem-aware phrases real prospects have right before buying ("how to choose a {service}", "{service} vs alternative")
-
-Rules — do not break these:
+Rules:
   - Each seed must look like something a paying customer would actually type
-  - DO NOT include educational ("course", "tutorial", "how to learn"), DIY ("make your own"), or job-seeker ("salary", "jobs") phrases
+  - DO NOT include educational, DIY, or job-seeker phrases
   - DO NOT include single-word generic terms unless paired with a qualifier
   - DO NOT include the business's brand terms${brandTerms.length > 0 ? ` (listed above)` : ""}
-  - Use the business's exact service names where possible
   - Lowercase, trimmed, no punctuation other than spaces
 
-Respond with a JSON array of 20 strings only — no prose, no markdown, no code fences.
-Example shape: ["wordpress developer denver", "best web design agency colorado", ...]`;
+Respond with ONLY a JSON object — no prose, no markdown, no code fences:
+{ "general": ["seed1", "seed2", ...] }`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -377,27 +562,46 @@ Example shape: ["wordpress developer denver", "best web design agency colorado",
       },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-        max_tokens: 1500,
+        max_tokens: 3000,
         messages: [{ role: "user", content: prompt }],
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) throw new Error(`Claude HTTP ${res.status}`);
     const data = await res.json();
     const text = (data?.content?.[0]?.text || "").trim();
     const cleaned = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-    const seeds = JSON.parse(cleaned);
-    if (!Array.isArray(seeds)) throw new Error("Not an array");
-    const filtered = seeds
-      .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
-      .map((s) => s.toLowerCase().trim())
-      .filter((s, i, arr) => arr.indexOf(s) === i)
-      .slice(0, 20);
-    if (filtered.length === 0) throw new Error("Empty seed list");
-    return filtered;
+    const parsed = JSON.parse(cleaned);
+
+    const out: SeedWithPillar[] = [];
+    const seenSeeds = new Set<string>();
+    const pushSeed = (raw: unknown, pillarUrl: string | null, pillarTitle: string | null) => {
+      if (typeof raw !== "string") return;
+      const s = raw.toLowerCase().trim();
+      if (!s || seenSeeds.has(s)) return;
+      seenSeeds.add(s);
+      out.push({ seed: s, pillarUrl, pillarTitle });
+    };
+
+    if (Array.isArray(parsed?.perPillar)) {
+      for (const group of parsed.perPillar) {
+        const pillar = servicePages.find((p) => p.url === group?.pillarUrl);
+        const pillarUrl = pillar?.url ?? null;
+        const pillarTitle = pillar?.title ?? pillar?.slug ?? null;
+        if (Array.isArray(group?.seeds)) {
+          for (const s of group.seeds) pushSeed(s, pillarUrl, pillarTitle);
+        }
+      }
+    }
+    if (Array.isArray(parsed?.general)) {
+      for (const s of parsed.general) pushSeed(s, null, null);
+    }
+
+    if (out.length === 0) throw new Error("Empty seed list");
+    return out;
   } catch (err) {
     console.warn("[KW-INTEL] generateAISeeds fell back to mechanical seeds:", err instanceof Error ? err.message : err);
-    return generateSmartSeeds(profile);
+    return generateSmartSeeds(profile).map((seed) => ({ seed, pillarUrl: null, pillarTitle: null }));
   }
 }
 
@@ -575,19 +779,21 @@ export async function scoreKeywordRelevance(
     profile.targetCities.length > 0 ? `Target Cities: ${profile.targetCities.join(", ")}` : null,
   ].filter(Boolean).join("\n");
 
-  // Pick the 100 most LOCALLY + COMMERCIALLY promising keywords. Bias
+  // Pick the 150 most LOCALLY + COMMERCIALLY promising keywords. Bias
   // selection toward geo-anchored, buying-intent terms before AI scoring.
+  // Bumped from 100 → 150 so the scorer has more material to work with after
+  // earlier filters do their pruning.
   const toScore = keywords
     .map((kw) => ({ kw, s: preRelevanceScore(kw, profile) }))
     .sort((a, b) => b.s - a.s)
-    .slice(0, 100)
+    .slice(0, 150)
     .map((x) => x.kw);
 
   const kwList = toScore.map((kw, i) =>
-    `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, CPC: $${kw.cpc.toFixed(2)}, Competition: ${kw.competition}%, Intent: ${kw.intent || "unknown"}`
+    `${i + 1}. "${kw.keyword}" — Vol: ${kw.searchVolume}, CPC: $${kw.cpc.toFixed(2)}, Competition: ${kw.competition}%, Intent: ${kw.intent || "unknown"}${kw.pillarTitle ? `, Pillar: ${kw.pillarTitle}` : ""}`
   ).join("\n");
 
-  const prompt = `You are an SEO strategist scoring keywords for a LOCAL SERVICE BUSINESS that wants to attract paying clients in ${cityLabel} through content marketing.
+  const prompt = `You are an SEO strategist scoring keywords for a LOCAL SERVICE BUSINESS that wants to attract paying clients in ${cityLabel} through a CONTENT CLUSTER strategy: pillar service pages + supporting blog content that links into them. So you're scoring both DIRECT-INTENT keywords (likely to convert) AND SUPPORTING-CONTENT keywords (drive traffic to a pillar via a blog post). Both have value.
 
 BUSINESS PROFILE:
 ${businessContext}
@@ -598,32 +804,34 @@ ${kwList}
 ────────────────────────────────────────────────────────
 SCORING RUBRIC — read carefully and follow it strictly.
 
-A "good" keyword for this business is one a real prospect — someone in or near ${cityLabel} who would pay this business to perform their core service — would actually type into Google.
-
-  9-10  Perfect: clear local commercial intent. Examples of patterns:
+  9-10  Perfect: clear local commercial intent. Examples:
         - "{service} {city}" / "{service} near me"
-        - "best {service} {city}" / "{service} agency {city}"
-        - "{service} for {their target vertical}"
-        - "hire {service}" / "{service} cost" / "{service} pricing"
+        - "best {service} {city}" / "hire {service}"
+        - "{service} cost {city}" / "{service} pricing"
   7-8   Strong: matches core service AND has commercial qualifier even if
-        not local (e.g. "wordpress development services").
-  5-6   Useful as supporting/blog content (top-of-funnel info that a real
-        prospect might read) but won't directly drive leads on its own.
-  3-4   Weak relevance — vaguely on-topic but the searcher is unlikely
-        to be a paying prospect.
-  1-2   Drop entirely. Use this for ALL of the following — no exceptions:
-        - Searchers who want to LEARN the skill (course/tutorial/how-to-learn)
-        - DIY searchers ("make your own", "do it yourself")
-        - Job seekers (salary, jobs, intern, career)
-        - Generic single-term industry words with no qualifier ("web design",
-          "lawn care") — a small local business cannot realistically rank
-          for these and they don't signal local commercial intent
-        - Definitional queries ("what is X", "why does Y")
-        - National brand/franchise names
-        - Software / tool / template / book / pdf searches
+        not local (e.g. "kitchen remodeling services", "adu builder").
+  5-6   Solid SUPPORTING-CONTENT topic — a blog post targeting this keyword
+        would attract real prospects researching the service ("kitchen
+        remodel cost", "how long does a basement remodel take", "{service}
+        ideas {year}", "{service} mistakes to avoid"). Keep these — they
+        feed the content cluster strategy.
+  3-4   Weak but plausible content angle. Might still be worth a blog post
+        if the volume is meaningful. Default for ambiguous keywords.
+  1-2   Drop entirely. Use ONLY for the following — no exceptions:
+        - Searchers who want to LEARN THE TRADE (course/tutorial/certification/
+          "how to become a {trade}")
+        - DIY searchers explicitly looking to do the work themselves
+          ("DIY {service}", "do it yourself {service}")
+        - Job seekers (salary, "jobs near me", intern, career, hiring)
+        - Definitional queries with zero buying signal ("what is a contractor")
+        - National brand/franchise names the business doesn't compete with
+        - Software / tool / template / book / pdf searches when the business
+          is NOT in software
 
-BE STRICT. The client should never see a keyword that wouldn't pass the
-"would my actual paying customer type this?" test. When in doubt, score lower.
+DO NOT auto-drop "generic" industry terms ("kitchen remodeling", "bathroom
+remodel"). Score them based on whether they could anchor a pillar page or
+supporting blog — generic but on-topic terms can still earn local traffic
+when ranked alongside a content cluster. They typically score 4-6.
 
 For each keyword return:
   - index: the keyword's number above
@@ -683,11 +891,14 @@ Respond with ONLY a JSON array. No markdown, no prose, no code fences:
       }));
     }
 
-    // Map scores back to keywords
+    // Map scores back to keywords. Threshold lowered from 5 → 3 so supporting-
+    // content keywords (blog topics that drive traffic to pillars) aren't
+    // dropped. The dashboard shows the score, so weak matches stay visible
+    // and the operator can decide.
     const scored: ScoredKeyword[] = [];
     for (const s of scores) {
       const idx = s.index - 1;
-      if (idx >= 0 && idx < toScore.length && s.score >= 5) {
+      if (idx >= 0 && idx < toScore.length && s.score >= 3) {
         scored.push({
           ...toScore[idx],
           intent: toScore[idx].intent || "unknown",
