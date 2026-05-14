@@ -26,9 +26,9 @@ model User {
   updatedAt      DateTime  @updatedAt
 
   // Relations
-  clientAccess ClientUser[]
-  accounts     Account[]
-  sessions     Session[]
+  clientAccess   ClientUser[]
+  accounts       Account[]
+  sessions       Session[]
 }
 
 model Account {
@@ -87,66 +87,66 @@ model Client {
   notes        String?
 
   // Google Business Profile
-  gbpName     String? // GBP listing name
-  gbpUrl      String? // GBP profile URL (maps.google.com link)
-  gbpPhone    String? // GBP phone number
-  gbpAddress  String? // GBP listed address
-  gbpCategory String? // Primary GBP category
+  gbpName      String?   // GBP listing name
+  gbpUrl       String?   // GBP profile URL (maps.google.com link)
+  gbpPhone     String?   // GBP phone number
+  gbpAddress   String?   // GBP listed address
+  gbpCategory  String?   // Primary GBP category
 
   // Deliverable template defaults (Local Visibility tier defaults)
-  monthlyBlogs             Int     @default(2)
-  monthlyGbpPosts          Int     @default(2)
-  monthlyGbpQAs            Int     @default(2)
-  monthlyPressReleases     Int     @default(1)
-  monthlyDirectoryListings Int     @default(25)
+  monthlyBlogs             Int @default(2)
+  monthlyGbpPosts          Int @default(2)
+  monthlyGbpQAs            Int @default(2)
+  monthlyPressReleases     Int @default(1)
+  monthlyDirectoryListings Int @default(25)
   includesAudit            Boolean @default(true)
   includesReporting        Boolean @default(true)
 
   // Google Integration
-  gscProperty   String? // GSC property URL (e.g. "sc-domain:example.com")
-  ga4PropertyId String? // GA4 property ID (e.g. "123456789")
+  gscProperty   String?  // GSC property URL (e.g. "sc-domain:example.com")
+  ga4PropertyId String?  // GA4 property ID (e.g. "123456789")
 
   // SEO Configuration
-  sitemapUrl String? // Custom sitemap URL (defaults to /sitemap.xml if blank)
+  sitemapUrl    String?  // Custom sitemap URL (defaults to /sitemap.xml if blank)
 
   // Onboarding
-  onboardingStatus String? @default("PENDING") // PENDING, DISCOVERING, COMPLETE
-  serviceAreas     String? @db.Text // JSON array: geographic regions (e.g. ["Northern Colorado", "Denver Metro"]). NOT a duplicate of primaryServices.
-  targetCities     String? @db.Text // JSON array: ["McAllen, TX", "Mission, TX"]
-  competitors      String? @db.Text // DEPRECATED — use Competitor table. Kept for backward-compat reads.
-  icpPains         String? @db.Text // JSON array of pain points the ICP feels (drives pain-point keyword research)
+  onboardingStatus  String?  @default("PENDING")  // PENDING, DISCOVERING, COMPLETE
+  serviceAreas      String?  @db.Text              // JSON array: geographic regions (e.g. ["Northern Colorado", "Denver Metro"]). NOT a duplicate of primaryServices.
+  targetCities      String?  @db.Text              // JSON array: ["McAllen, TX", "Mission, TX"]
+  competitors       String?  @db.Text              // DEPRECATED — use Competitor table. Kept for backward-compat reads.
+  icpPains          String?  @db.Text              // JSON array of pain points the ICP feels (drives pain-point keyword research)
 
   // Business Profile (for AI keyword targeting)
-  businessDescription String? @db.Text // "Custom website development for contractors $10K+"
-  primaryServices     String? @db.Text // JSON array: ["custom websites", "web apps", "SEO"]
-  idealClientProfile  String? @db.Text // "Large contractor companies, $5M+ revenue"
-  priceRange          String? // "budget", "mid-range", "premium", "enterprise"
-  industryVertical    String? // Tier 2: specific vertical, e.g. "Plumber", "Med Spa", "Personal Injury Attorney"
-  industrySector      String? // Tier 1: broad bucket, e.g. "Home Services & Trades", "Health & Medical"
+  businessDescription  String?  @db.Text  // "Custom website development for contractors $10K+"
+  primaryServices      String?  @db.Text  // JSON array: ["custom websites", "web apps", "SEO"]
+  idealClientProfile   String?  @db.Text  // "Large contractor companies, $5M+ revenue"
+  priceRange           String?            // "budget", "mid-range", "premium", "enterprise"
+  industryVertical     String?            // Tier 2: specific vertical, e.g. "Plumber", "Med Spa", "Personal Injury Attorney"
+  industrySector       String?            // Tier 1: broad bucket, e.g. "Home Services & Trades", "Health & Medical"
 
   // WordPress Publishing
-  wpUrl            String? // e.g. "https://example.com" (no trailing slash)
-  wpUsername       String? // WP user with author/editor privileges
-  wpAppPasswordEnc String? @db.Text // AES-256-GCM encrypted Application Password (format: iv:tag:ciphertext, hex)
+  wpUrl              String?  // e.g. "https://example.com" (no trailing slash)
+  wpUsername         String?  // WP user with author/editor privileges
+  wpAppPasswordEnc   String?  @db.Text  // AES-256-GCM encrypted Application Password (format: iv:tag:ciphertext, hex)
 
   // Performance / ROI configuration
-  brandTerms String? @db.Text // JSON array of branded query terms; if null, derived from name/domain
-  avgCpcUsd  Float   @default(3.50) // dollars; multiplied by clicks for estimated traffic value
+  brandTerms         String?  @db.Text   // JSON array of branded query terms; if null, derived from name/domain
+  avgCpcUsd          Float    @default(3.50)  // dollars; multiplied by clicks for estimated traffic value
 
   // Relations
-  users             ClientUser[]
-  keywords          Keyword[]
-  rankSnapshots     RankSnapshot[]
-  contentPlans      ContentPlan[]
-  deliverables      Deliverable[]
-  reports           Report[]
-  siteAudits        SiteAudit[]
-  googleToken       GoogleToken?
-  keywordResearch   KeywordResearch[]
-  contentMaps       ContentMap[]
-  urlCrawls         UrlCrawl[]
-  monthlySnapshots  MonthlySnapshot[]
-  competitorEntries Competitor[]
+  users              ClientUser[]
+  keywords           Keyword[]
+  rankSnapshots      RankSnapshot[]
+  contentPlans       ContentPlan[]
+  deliverables       Deliverable[]
+  reports            Report[]
+  siteAudits         SiteAudit[]
+  googleToken        GoogleToken?
+  keywordResearch    KeywordResearch[]
+  contentMaps        ContentMap[]
+  urlCrawls          UrlCrawl[]
+  monthlySnapshots   MonthlySnapshot[]
+  competitorEntries  Competitor[]
 }
 
 model ClientUser {
@@ -167,9 +167,9 @@ model Keyword {
   keyword      String
   searchVolume Int?
   difficulty   Int?
-  cpc          Float? // USD; from DataForSEO Google Ads — refreshed when metrics update
+  cpc          Float?   // USD; from DataForSEO Google Ads — refreshed when metrics update
   targetUrl    String?
-  group        String? // keyword group/cluster name
+  group        String?  // keyword group/cluster name
   isTracking   Boolean  @default(true)
   createdAt    DateTime @default(now())
 
@@ -183,9 +183,9 @@ model RankSnapshot {
   id          String   @id @default(cuid())
   clientId    String
   keywordId   String
-  position    Int? // null = not ranking
+  position    Int?     // null = not ranking
   previousPos Int?
-  url         String? // the URL that's ranking
+  url         String?  // the URL that's ranking
   localPack   Boolean  @default(false)
   checkedAt   DateTime @default(now())
 
@@ -201,12 +201,12 @@ model RankSnapshot {
 model KeywordResearch {
   id            String   @id @default(cuid())
   clientId      String
-  mode          String   @default("SERVICE") // SERVICE | PAIN_POINT | MIXED
-  pillarSlug    String? // optional — researched specifically for a pillar
-  seedTopics    String   @db.Text // comma-separated seed topics used
+  mode          String   @default("SERVICE")  // SERVICE | PAIN_POINT | MIXED
+  pillarSlug    String?  // optional — researched specifically for a pillar
+  seedTopics    String   @db.Text  // comma-separated seed topics used
   location      String   @default("United States")
-  results       String   @db.Text // JSON: array of discovered keywords with metrics + ROI
-  aiAnalysis    String?  @db.Text // Claude's strategic analysis and recommendations
+  results       String   @db.Text  // JSON: array of discovered keywords with metrics + ROI
+  aiAnalysis    String?  @db.Text  // Claude's strategic analysis and recommendations
   keywordsFound Int      @default(0)
   createdAt     DateTime @default(now())
 
@@ -218,14 +218,14 @@ model KeywordResearch {
 // ─── Content Maps ─────────────────────────────────────
 
 model ContentMap {
-  id        String   @id @default(cuid())
-  clientId  String
-  title     String // e.g. "Q2 2026 Content Strategy"
-  mapData   String   @db.Text // JSON: pillar topics, supporting content, keyword clusters
-  aiSummary String?  @db.Text // Claude's strategic summary
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  clientId   String
+  title      String   // e.g. "Q2 2026 Content Strategy"
+  mapData    String   @db.Text  // JSON: pillar topics, supporting content, keyword clusters
+  aiSummary  String?  @db.Text  // Claude's strategic summary
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -247,30 +247,24 @@ enum ContentStatus {
   APPROVED
   REJECTED
   WRITING
-  DRAFT_REVIEW // client reviewing final draft
-  READY_TO_PUBLISH // draft approved, awaiting publish
+  DRAFT_REVIEW       // client reviewing final draft
+  READY_TO_PUBLISH   // draft approved, awaiting publish
   PUBLISHED
   ARCHIVED
 }
 
 model ContentPlan {
-  id            String   @id @default(cuid())
-  clientId      String
-  month         Int // 1-12; start-of-coverage when monthsCovered > 1
-  year          Int // start-of-coverage year
-  title         String // e.g. "May 2026 Content Plan"
-  seedKeyword   String?
-  planStatus    String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED
-  planNotes     String?  @db.Text // Client feedback notes on plan
-  isActive      Boolean  @default(true)
-  // monthsCovered=1 means a normal monthly plan (default). >1 indicates a
-  // catch-up plan covering multiple months — used by quotasFromPlan to
-  // multiply per-type quotas, and by content/generate to scale the 2x
-  // primary+reserve target. The @@unique([clientId, month, year]) constraint
-  // is preserved; month/year represent the START of coverage.
-  monthsCovered Int      @default(1)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(cuid())
+  clientId    String
+  month       Int      // 1-12
+  year        Int
+  title       String   // e.g. "May 2026 Content Plan"
+  seedKeyword String?
+  planStatus  String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED
+  planNotes   String?  @db.Text // Client feedback notes on plan
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   client Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
   pieces ContentPiece[]
@@ -279,39 +273,39 @@ model ContentPlan {
 }
 
 model ContentPiece {
-  id                   String        @id @default(cuid())
-  contentPlanId        String
-  type                 ContentType
-  title                String
-  description          String?       @db.Text // angle/brief
-  keyword              String? // target keyword
-  body                 String?       @db.Text // full content body (markdown/html)
+  id            String        @id @default(cuid())
+  contentPlanId String
+  type          ContentType
+  title         String
+  description   String?       @db.Text  // angle/brief
+  keyword       String?       // target keyword
+  body          String?       @db.Text  // full content body (markdown/html)
   // SEO meta description (150–160 chars). Used as the WP post excerpt and
   // pushed to Yoast/Rank Math at publish. Generated by Claude at draft time
   // but always operator-editable.
-  metaDescription      String?       @db.Text
+  metaDescription String?     @db.Text
   // Pre-written distribution copy by platform. JSON-stringified shape:
   //   { twitter: string, linkedin: string, facebook: string, instagram: string }
   // Each variant is the full caption (no URL — the platform appends the
   // published URL at copy time). Generated by Claude alongside the body.
-  socialPosts          String?       @db.Text
+  socialPosts   String?       @db.Text
   // URL slug (kebab-case, no leading slash). Suggested by Claude at publish
   // time and operator-confirmed. Required when status = PUBLISHED — used by
   // the internal-link resolver to find this piece by slug.
-  slug                 String?
-  status               ContentStatus @default(PLANNED)
-  sortOrder            Int           @default(0)
-  priority             Int           @default(0) // higher = more urgent in queue
-  revisionCount        Int           @default(0) // tracks revision cycles
-  isReserve            Boolean       @default(false) // backup piece — only shown if client rejects a primary
-  dueDate              DateTime? // writing deadline
+  slug          String?
+  status        ContentStatus @default(PLANNED)
+  sortOrder     Int           @default(0)
+  priority      Int           @default(0)  // higher = more urgent in queue
+  revisionCount Int           @default(0)  // tracks revision cycles
+  isReserve     Boolean       @default(false) // backup piece — only shown if client rejects a primary
+  dueDate            DateTime?   // writing deadline
   scheduledPublishDate DateTime? // target publish date
-  publishedUrl         String?
-  publishedAt          DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  publishedUrl  String?
+  publishedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  contentPlan ContentPlan       @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  contentPlan ContentPlan        @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
   approval    ContentApproval?
   annotations PieceAnnotation[]
   linksFrom   InternalLink[]    @relation("InternalLinkFrom")
@@ -321,9 +315,9 @@ model ContentPiece {
 model ContentApproval {
   id             String   @id @default(cuid())
   contentPieceId String   @unique
-  outcome        String // 'approved', 'rejected', 'save_for_later'
+  outcome        String   // 'approved', 'rejected', 'save_for_later'
   notes          String?  @db.Text
-  imageUrl       String? // reference photo from client
+  imageUrl       String?  // reference photo from client
   decidedAt      DateTime @default(now())
 
   contentPiece ContentPiece @relation(fields: [contentPieceId], references: [id], onDelete: Cascade)
@@ -334,13 +328,13 @@ model ContentApproval {
 // — they break the moment the draft changes). Multiple per piece; resolved
 // = the agency has addressed it.
 model PieceAnnotation {
-  id              String    @id @default(cuid())
+  id              String   @id @default(cuid())
   contentPieceId  String
-  highlightedText String    @db.Text // verbatim copy of what the client highlighted
-  comment         String    @db.Text // the client's note about the selection
-  resolved        Boolean   @default(false)
+  highlightedText String   @db.Text   // verbatim copy of what the client highlighted
+  comment         String   @db.Text   // the client's note about the selection
+  resolved        Boolean  @default(false)
   resolvedAt      DateTime?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime @default(now())
 
   contentPiece ContentPiece @relation(fields: [contentPieceId], references: [id], onDelete: Cascade)
 
@@ -356,23 +350,23 @@ model PieceAnnotation {
 //   3. Sweep for broken links nightly once an external broken-link checker
 //      exists (future enhancement)
 enum InternalLinkStatus {
-  PENDING // target piece not yet published — link is templated
-  RESOLVED // target published; link now points to a real URL
-  BROKEN // target URL returns non-2xx (set by nightly sweep — future)
+  PENDING    // target piece not yet published — link is templated
+  RESOLVED   // target published; link now points to a real URL
+  BROKEN     // target URL returns non-2xx (set by nightly sweep — future)
 }
 
 model InternalLink {
-  id          String             @id @default(cuid())
-  fromPieceId String // the piece whose body contains the link
-  toPieceId   String? // null while PENDING; filled when target publishes
-  plannedSlug String // slug the prompt/operator referenced
-  anchorText  String // the visible text of the link
-  status      InternalLinkStatus @default(PENDING)
-  createdAt   DateTime           @default(now())
-  resolvedAt  DateTime?
+  id            String             @id @default(cuid())
+  fromPieceId   String             // the piece whose body contains the link
+  toPieceId     String?            // null while PENDING; filled when target publishes
+  plannedSlug   String             // slug the prompt/operator referenced
+  anchorText    String             // the visible text of the link
+  status        InternalLinkStatus @default(PENDING)
+  createdAt     DateTime           @default(now())
+  resolvedAt    DateTime?
 
   fromPiece ContentPiece  @relation("InternalLinkFrom", fields: [fromPieceId], references: [id], onDelete: Cascade)
-  toPiece   ContentPiece? @relation("InternalLinkTo", fields: [toPieceId], references: [id], onDelete: SetNull)
+  toPiece   ContentPiece? @relation("InternalLinkTo",   fields: [toPieceId],   references: [id], onDelete: SetNull)
 
   @@index([fromPieceId])
   @@index([plannedSlug])
@@ -389,18 +383,18 @@ enum DeliverableStatus {
 }
 
 model Deliverable {
-  id           String            @id @default(cuid())
-  clientId     String
-  month        Int
-  year         Int
-  name         String // "Blog Posts", "GBP Posts", "Technical Audit", etc.
-  targetCount  Int               @default(1)
-  currentCount Int               @default(0)
-  status       DeliverableStatus @default(PENDING)
-  notes        String?           @db.Text
-  completedAt  DateTime?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id          String            @id @default(cuid())
+  clientId    String
+  month       Int
+  year        Int
+  name        String            // "Blog Posts", "GBP Posts", "Technical Audit", etc.
+  targetCount Int               @default(1)
+  currentCount Int              @default(0)
+  status      DeliverableStatus @default(PENDING)
+  notes       String?           @db.Text
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -411,21 +405,21 @@ model Deliverable {
 // ─── Reports ──────────────────────────────────────────
 
 model Report {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   clientId    String
-  uuid        String    @unique @default(cuid()) // public share link
-  type        String    @default("MONTHLY") // MONTHLY, SITE_AUDIT, BASELINE
+  uuid        String   @unique @default(cuid()) // public share link
+  type        String   @default("MONTHLY")       // MONTHLY, SITE_AUDIT, BASELINE
   month       Int
   year        Int
   title       String
-  summary     String?   @db.Text // plain English summary
-  highlights  String?   @db.Text // JSON array of key wins
+  summary     String?  @db.Text // plain English summary
+  highlights  String?  @db.Text // JSON array of key wins
   pdfUrl      String?
-  isPublished Boolean   @default(false)
-  isArchived  Boolean   @default(false)
+  isPublished Boolean  @default(false)
+  isArchived  Boolean  @default(false)
   expiresAt   DateTime? // public link expiration; null = no expiry
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -450,10 +444,10 @@ model AgencySettings {
 model SiteAudit {
   id          String    @id @default(cuid())
   clientId    String
-  taskId      String? // DataForSEO task ID
+  taskId      String?   // DataForSEO task ID
   status      String    @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
   pagesCount  Int       @default(0)
-  onpageScore Float? // 0-100 overall health score
+  onpageScore Float?    // 0-100 overall health score
   summary     String?   @db.Text // JSON: full crawl summary
   crawledAt   DateTime  @default(now())
   archivedAt  DateTime? // null = active, set = archived
@@ -465,19 +459,19 @@ model SiteAudit {
 }
 
 model SiteAuditPage {
-  id                 String  @id @default(cuid())
-  auditId            String
-  url                String
-  statusCode         Int?
-  title              String?
-  description        String? @db.Text
-  h1Count            Int     @default(0)
-  wordCount          Int     @default(0)
-  imageCount         Int     @default(0)
-  imagesNoAlt        Int     @default(0)
-  checks             String? @db.Text // JSON: per-page check results
-  onpageScore        Float?
-  recommendations    String? @db.Text // JSON: AI-generated recs per check
+  id              String @id @default(cuid())
+  auditId         String
+  url             String
+  statusCode      Int?
+  title           String?
+  description     String?  @db.Text
+  h1Count         Int      @default(0)
+  wordCount       Int      @default(0)
+  imageCount      Int      @default(0)
+  imagesNoAlt     Int      @default(0)
+  checks          String?  @db.Text // JSON: per-page check results
+  onpageScore     Float?
+  recommendations String?  @db.Text // JSON: AI-generated recs per check
   excludedFromReport Boolean @default(false) // Hide from client-facing reports
 
   audit  SiteAudit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
@@ -487,16 +481,16 @@ model SiteAuditPage {
 }
 
 model AuditIssue {
-  id           String    @id @default(cuid())
-  pageId       String
-  checkKey     String // e.g. "no_title", "title_too_long"
-  severity     String    @default("warning") // "critical", "warning", "info"
-  currentValue String?   @db.Text // e.g. current title text
-  suggestion   String?   @db.Text // AI-generated replacement
-  status       String    @default("OPEN") // OPEN, FIXED, IGNORED
-  fixedAt      DateTime?
-  fixNotes     String?   @db.Text
-  createdAt    DateTime  @default(now())
+  id            String   @id @default(cuid())
+  pageId        String
+  checkKey      String   // e.g. "no_title", "title_too_long"
+  severity      String   @default("warning") // "critical", "warning", "info"
+  currentValue  String?  @db.Text // e.g. current title text
+  suggestion    String?  @db.Text // AI-generated replacement
+  status        String   @default("OPEN") // OPEN, FIXED, IGNORED
+  fixedAt       DateTime?
+  fixNotes      String?  @db.Text
+  createdAt     DateTime @default(now())
 
   page SiteAuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
@@ -527,8 +521,8 @@ model GoogleToken {
 model KeywordCpc {
   id           String   @id @default(cuid())
   keyword      String
-  locationCode Int // DataForSEO location code (e.g. 2840 = US)
-  cpc          Float? // USD; null = DataForSEO returned no CPC for this query
+  locationCode Int      // DataForSEO location code (e.g. 2840 = US)
+  cpc          Float?   // USD; null = DataForSEO returned no CPC for this query
   competition  Float?
   searchVolume Int?
   fetchedAt    DateTime @default(now())
@@ -543,38 +537,38 @@ model KeywordCpc {
 // "Generate Report" path. One row per client per month.
 
 model MonthlySnapshot {
-  id       String @id @default(cuid())
-  clientId String
-  month    Int // 1-12
-  year     Int
+  id                String   @id @default(cuid())
+  clientId          String
+  month             Int      // 1-12
+  year              Int
 
   // GSC totals (full calendar month)
-  gscClicks           Int    @default(0)
-  gscImpressions      Int    @default(0)
-  gscBrandedClicks    Int    @default(0)
-  gscNonBrandedClicks Int    @default(0)
-  gscAvgPosition      Float?
+  gscClicks            Int      @default(0)
+  gscImpressions       Int      @default(0)
+  gscBrandedClicks     Int      @default(0)
+  gscNonBrandedClicks  Int      @default(0)
+  gscAvgPosition       Float?
 
   // GA4 totals
-  ga4Sessions        Int @default(0)
-  ga4Users           Int @default(0)
-  ga4OrganicSessions Int @default(0)
-  ga4PageViews       Int @default(0)
+  ga4Sessions          Int      @default(0)
+  ga4Users             Int      @default(0)
+  ga4OrganicSessions   Int      @default(0)
+  ga4PageViews         Int      @default(0)
 
   // Engagement / intent signals (from GA4 events)
-  phoneClicks Int @default(0)
-  formSubmits Int @default(0)
-  emailClicks Int @default(0)
+  phoneClicks          Int      @default(0)
+  formSubmits          Int      @default(0)
+  emailClicks          Int      @default(0)
 
   // Estimated traffic value: nonBrandedClicks * avgCpcUsd (dollars)
-  estTrafficValue Float @default(0)
-  cpcUsedUsd      Float @default(0) // CPC value used for the calc, frozen at snapshot time
+  estTrafficValue      Float    @default(0)
+  cpcUsedUsd           Float    @default(0)  // CPC value used for the calc, frozen at snapshot time
 
   // Raw drill-down data (JSON arrays)
-  pageData  String? @db.Text // [{url, clicks, impressions, ctr, position}]
-  queryData String? @db.Text // [{query, clicks, impressions, ctr, position, isBranded}]
+  pageData             String?  @db.Text  // [{url, clicks, impressions, ctr, position}]
+  queryData            String?  @db.Text  // [{query, clicks, impressions, ctr, position, isBranded}]
 
-  generatedAt DateTime @default(now())
+  generatedAt          DateTime @default(now())
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -601,12 +595,12 @@ model Competitor {
   //   ADJACENT      — different category but related (SaaS vendors for an agency)
   //   IRRELEVANT    — wrong category entirely
   classification String   @default("PEER")
-  reasoning      String?  @db.Text // one-sentence rationale from Claude
-  pillarSlug     String? // optional — relevant only to a specific pillar
-  isAccepted     Boolean  @default(true) // included in research scrapes when true
-  source         String   @default("manual") // 'manual' | 'discovery' | 'wizard'
-  domainRank     Int? // Optional: DR/DA snapshot at discovery
-  estTraffic     Int? // Optional: est monthly organic traffic
+  reasoning      String?  @db.Text         // one-sentence rationale from Claude
+  pillarSlug     String?                   // optional — relevant only to a specific pillar
+  isAccepted     Boolean  @default(true)   // included in research scrapes when true
+  source         String   @default("manual")  // 'manual' | 'discovery' | 'wizard'
+  domainRank     Int?                      // Optional: DR/DA snapshot at discovery
+  estTraffic     Int?                      // Optional: est monthly organic traffic
   discoveredAt   DateTime @default(now())
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -619,16 +613,16 @@ model Competitor {
 // ─── Domain Migration / URL Crawl ─────────────────────
 
 model UrlCrawl {
-  id         String   @id @default(cuid())
-  clientId   String?
-  domain     String
-  taskId     String? // DataForSEO On-Page task ID
-  status     String   @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
-  pagesCount Int      @default(0)
-  maxPages   Int      @default(500)
-  label      String? // User label e.g. "Domain A - old site"
-  urls       String?  @db.Text // JSON array of crawled URL objects
-  createdAt  DateTime @default(now())
+  id          String    @id @default(cuid())
+  clientId    String?
+  domain      String
+  taskId      String?   // DataForSEO On-Page task ID
+  status      String    @default("PENDING") // PENDING, CRAWLING, COMPLETED, FAILED
+  pagesCount  Int       @default(0)
+  maxPages    Int       @default(500)
+  label       String?   // User label e.g. "Domain A - old site"
+  urls        String?   @db.Text  // JSON array of crawled URL objects
+  createdAt   DateTime  @default(now())
 
   client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
