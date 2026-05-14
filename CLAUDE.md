@@ -61,6 +61,8 @@ When proposing a schema change, also:
 - Show me the list and the migration plan before writing the migration.
 - If a column is being removed, the read sites must be updated in the same PR.
 
+**Never push a `prisma/schema.prisma` change to `main` without an accompanying migration file in the same commit.** Schema-only pushes give Coolify a Prisma client that disagrees with the deployed DB shape — same drift mode as the 2026-05-08 incident. If you don't have local Postgres set up to run `prisma migrate dev`, see the "Local development setup" section below before editing `schema.prisma` at all. This rule was inadvertently violated on 2026-05-15 (commit `eeb18dc`, since reverted) — codifying it here so it doesn't happen again.
+
 ### 4. When fixing a bug, write a failing test first
 
 Once Vitest is set up (Week 2), every bug fix follows this order:
@@ -90,6 +92,22 @@ If I ask you to add behavior to one of these, **propose a split first** before a
 All DataForSEO calls go through `src/lib/dataforseo.ts`'s `fetchWithRetry`. The audit route currently bypasses it (`discover/route.ts:340`) — that's the only known exception and it should be fixed when we get there. Don't add new direct `fetch()` calls to external APIs.
 
 When wrapping a new external API, Zod-validate the response shape too. If the API changes silently, we want to fail loudly at the boundary, not three modules downstream.
+
+---
+
+## Local development setup
+
+**As of 2026-05-15, this project has never had local Postgres configured.** Any task that requires `prisma migrate dev` is blocked until this is set up. See `local-dev-setup` in `../kngo-platform-session-state.md` (item 17 at time of writing) for the full backlog entry and the failure mode that surfaced it.
+
+What's required before schema work resumes:
+
+- **Local Postgres instance** — `docker-compose.yml` with a Postgres 16 service exposing port 5432 to localhost. Volume-persisted so data survives container restarts.
+- **`.env.local`** (gitignored) containing `DATABASE_URL=postgresql://...@localhost:5432/...`. Confirm `prisma.config.js` reads this — it should via the standard Prisma datasource.
+- **First-run verification** — `npx prisma migrate deploy` applies all existing migrations to the empty local DB. Then `npx prisma migrate dev` against an unchanged schema reports "Already in sync" — proves the round-trip works.
+
+**Until local Postgres is set up, do not edit `prisma/schema.prisma`.** Without the ability to run `prisma migrate dev`, you can't generate the migration file that must ship alongside the schema change. A schema-only push violates Rule 3 above and risks repeating the 2026-05-08 drift incident. The 2026-05-15 incident (`eeb18dc`, reverted) was exactly this trap — schema edit looked feasible from inside the editor, but the migration-file half was impossible without local DB access.
+
+If a schema change is genuinely needed in a session and local dev isn't set up: stop and flag it. Adding `local-dev-setup` to the immediate work is the right move, not editing `schema.prisma` without the means to migrate.
 
 ---
 
