@@ -143,84 +143,8 @@ function commaStringToJsonArray(value: string): string {
   return JSON.stringify(items);
 }
 
-import { SECTORS, getSectorForVertical, resolveLegacyIndustry } from "@/lib/industry-taxonomy";
-
-// ─── Two-Tier Industry Picker ──────────────────────────────
-// Sector dropdown → filtered Vertical dropdown (with search).
-// "Other" sector shows a free-text input.
-function SectorVerticalPicker({
-  sector,
-  vertical,
-  onSectorChange,
-  onVerticalChange,
-}: {
-  sector: string;
-  vertical: string;
-  onSectorChange: (s: string) => void;
-  onVerticalChange: (v: string) => void;
-}) {
-  const [verticalSearch, setVerticalSearch] = useState("");
-
-  const selectedSector = SECTORS.find((s) => s.label === sector);
-  const verticals = selectedSector?.verticals ?? [];
-  const isOther = sector === "Other" || (sector && !selectedSector);
-
-  const filteredVerticals = verticalSearch
-    ? verticals.filter((v) => v.toLowerCase().includes(verticalSearch.toLowerCase()))
-    : verticals;
-
-  return (
-    <div className="flex flex-col gap-2">
-      <select
-        className="input-field"
-        value={sector}
-        onChange={(e) => {
-          const next = e.target.value;
-          onSectorChange(next);
-          // Clear vertical when sector changes (unless Other)
-          if (next !== "Other") onVerticalChange("");
-        }}
-      >
-        <option value="">Select sector...</option>
-        {SECTORS.map((s) => (
-          <option key={s.id} value={s.label}>{s.label}</option>
-        ))}
-      </select>
-      {sector && !isOther && verticals.length > 0 && (
-        <>
-          {verticals.length > 15 && (
-            <input
-              className="input-field"
-              value={verticalSearch}
-              onChange={(e) => setVerticalSearch(e.target.value)}
-              placeholder="Search verticals..."
-              style={{ fontSize: 12 }}
-            />
-          )}
-          <select
-            className="input-field"
-            value={vertical}
-            onChange={(e) => onVerticalChange(e.target.value)}
-          >
-            <option value="">Select vertical...</option>
-            {filteredVerticals.map((v) => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </select>
-        </>
-      )}
-      {isOther && (
-        <input
-          className="input-field"
-          value={vertical}
-          onChange={(e) => onVerticalChange(e.target.value)}
-          placeholder="Type your industry..."
-          autoFocus
-        />
-      )}
-    </div>
-  );
-}
+import { getSectorForVertical, resolveLegacyIndustry } from "@/lib/industry-taxonomy";
+import { SectorVerticalPicker } from "@/components/SectorVerticalPicker";
 
 function MiniStat({
   label,

@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { TIER_LABELS, TIER_COLORS } from "@/lib/tier-config";
 
-import { SECTORS } from "@/lib/industry-taxonomy";
+import { SectorVerticalPicker } from "@/components/SectorVerticalPicker";
 
 // ─── Onboarding Wizard ────────────────────────────────────
 
@@ -49,7 +49,6 @@ function ClientOnboardingWizard({
   const [tier, setTier] = useState("STARTER");
   const [industrySector, setIndustrySector] = useState("");
   const [industryVertical, setIndustryVertical] = useState("");
-  const [verticalSearch, setVerticalSearch] = useState("");
   const [primaryCity, setPrimaryCity] = useState("");
   const [primaryState, setPrimaryState] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
@@ -321,47 +320,12 @@ function ClientOnboardingWizard({
                 <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: "var(--text-muted)" }}>
                   Industry Sector
                 </label>
-                <select className="input-field" value={industrySector} onChange={(e) => { setIndustrySector(e.target.value); setIndustryVertical(""); setVerticalSearch(""); }}>
-                  <option value="">Select sector...</option>
-                  {SECTORS.map((s) => (
-                    <option key={s.id} value={s.label}>{s.label}</option>
-                  ))}
-                </select>
-                {industrySector && industrySector !== "Other" && (() => {
-                  const sectorObj = SECTORS.find((s) => s.label === industrySector);
-                  const verts = sectorObj?.verticals ?? [];
-                  const filtered = verticalSearch
-                    ? verts.filter((v) => v.toLowerCase().includes(verticalSearch.toLowerCase()))
-                    : verts;
-                  return verts.length > 0 ? (
-                    <div className="mt-2 flex flex-col gap-1.5">
-                      {verts.length > 15 && (
-                        <input
-                          className="input-field"
-                          value={verticalSearch}
-                          onChange={(e) => setVerticalSearch(e.target.value)}
-                          placeholder="Search verticals..."
-                          style={{ fontSize: 12 }}
-                        />
-                      )}
-                      <select className="input-field" value={industryVertical} onChange={(e) => setIndustryVertical(e.target.value)}>
-                        <option value="">Select vertical...</option>
-                        {filtered.map((v) => (
-                          <option key={v} value={v}>{v}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : null;
-                })()}
-                {industrySector === "Other" && (
-                  <input
-                    className="input-field mt-2"
-                    value={industryVertical}
-                    onChange={(e) => setIndustryVertical(e.target.value)}
-                    placeholder="Type your industry..."
-                    autoFocus
-                  />
-                )}
+                <SectorVerticalPicker
+                  sector={industrySector}
+                  vertical={industryVertical}
+                  onSectorChange={setIndustrySector}
+                  onVerticalChange={setIndustryVertical}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
