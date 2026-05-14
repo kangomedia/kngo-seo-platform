@@ -7,7 +7,6 @@ import { validateBody } from "@/lib/validate";
 import {
   parseClientServiceAreas,
   parseClientTargetCities,
-  parseClientCompetitorsLegacy,
   parseClientBrandTerms,
   parseClientPrimaryServices,
 } from "@/lib/parsers";
@@ -199,7 +198,18 @@ async function runDiscoveryPipeline({
     // is shape-validated with Zod and logs a [parsers] warning on malformed
     // data — surfacing legacy/corrupt rows instead of silently falling
     // through to []. See CLAUDE.md Rule 1.
-    const competitors = parseClientCompetitorsLegacy(client.competitors);
+    //
+    // EXCEPTION: competitors no longer reads `Client.competitors` (legacy
+    // JSON column, deprecated). The Competitor table is the source of truth
+    // once the operator has accepted entries via the Discover Competitors UI.
+    // This is the surgical half of the full Competitor migration — when the
+    // schema migration drops `Client.competitors`, `parseClientCompetitorsLegacy`
+    // also goes away.
+    const competitorRows = await prisma.competitor.findMany({
+      where: { clientId, isAccepted: true },
+      select: { domain: true },
+    });
+    const competitors: string[] = competitorRows.map((c) => c.domain);
     const serviceAreas = parseClientServiceAreas(client.serviceAreas);
     const targetCities = parseClientTargetCities(client.targetCities);
     const brandTerms = parseClientBrandTerms(client.brandTerms);
@@ -605,6 +615,13 @@ async function discoverKeywords(
         },
       ];
 
+      // ── DIAGNOSTIC LOGGING — TEMPORARY ─────────────────────────────────
+      // Capture exact request body + raw response so we can diagnose why
+      // Building While Giving's pipeline returns 0 raw results from DataForSEO
+      // while other clients on the same code path work. Remove this block
+      // once the root cause is identified. Tracked in
+      // kngo-platform-session-state.md "Bug B".
+      console.log(`[DFS REQ] seed="${seed}" body=${JSON.stringify(body)}`);
       const response = await fetch(
         `${DATAFORSEO_API}/dataforseo_labs/google/keyword_suggestions/live`,
         {
@@ -613,23 +630,36 @@ async function discoverKeywords(
           body: JSON.stringify(body),
         }
       );
+      const responseText = await response.text();
+      console.log(
+        `[DFS RES] seed="${seed}" status=${response.status} body=${responseText.slice(0, 500)}`,
+      );
+      // ── END DIAGNOSTIC LOGGING ─────────────────────────────────────────
 
       if (response.ok) {
-        const result = await response.json();
-        const taskStatus = result?.tasks?.[0]?.status_code;
+        let result: unknown;
+        try {
+          result = JSON.parse(responseText);
+        } catch (e) {
+          console.error(`[DFS PARSE FAIL] seed="${seed}"`, e);
+          continue;
+        }
+        const taskStatus = (result as { tasks?: Array<{ status_code?: number }> })?.tasks?.[0]?.status_code;
         if (taskStatus && taskStatus !== 20000) {
           console.error(`[DISCOVER] keyword_suggestions task error for "${seed}": ${taskStatus}`);
           continue;
         }
 
-        const items = result?.tasks?.[0]?.result?.[0]?.items || [];
+        const items: Array<Record<string, unknown>> =
+          (result as { tasks?: Array<{ result?: Array<{ items?: Array<Record<string, unknown>> }> }> })
+            ?.tasks?.[0]?.result?.[0]?.items || [];
         console.log(`[DISCOVER] keyword_suggestions "${seed}"${pillarTitle ? ` [${pillarTitle}]` : ""}: ${items.length} keywords returned`);
 
         for (const item of items) {
-          const kw = item?.keyword;
-          const info = item?.keyword_info;
-          const intentInfo = item?.search_intent_info;
-          if (kw && info && info.search_volume > 0) {
+          const kw = item?.keyword as string | undefined;
+          const info = item?.keyword_info as { search_volume?: number; competition?: number; cpc?: number } | undefined;
+          const intentInfo = item?.search_intent_info as { main_intent?: string } | undefined;
+          if (kw && info && (info.search_volume ?? 0) > 0) {
             allKeywords.push({
               keyword: kw,
               searchVolume: info.search_volume || 0,
@@ -643,8 +673,9 @@ async function discoverKeywords(
           }
         }
       } else {
-        const errText = await response.text();
-        console.error(`[DISCOVER] keyword_suggestions HTTP ${response.status} for "${seed}": ${errText}`);
+        // responseText was already captured by the diagnostic block above —
+        // reuse it instead of re-reading the consumed body.
+        console.error(`[DISCOVER] keyword_suggestions HTTP ${response.status} for "${seed}": ${responseText}`);
       }
     } catch (err) {
       console.error(`[DISCOVER] Error in keyword_suggestions for "${seed}":`, err);

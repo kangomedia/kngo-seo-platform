@@ -102,11 +102,21 @@ export async function GET(
   };
 
   // ── Bucket 2: Business profile ───────────────────────
+  // competitors reads from the Competitor table (operator-accepted entries)
+  // rather than the deprecated `Client.competitors` JSON column. The pipeline
+  // in discover/route.ts does the same — keeping the debug view aligned so
+  // the snapshot reflects what discovery actually feeds into DataForSEO.
+  const competitorRows = await prisma.competitor.findMany({
+    where: { clientId, isAccepted: true },
+    select: { domain: true },
+  });
+  const competitors = competitorRows.map((c) => c.domain);
+
   const businessProfile = {
     onboardingStatus: client.onboardingStatus,
     serviceAreas: safeParseJson<string[]>(client.serviceAreas, []),
     targetCities: safeParseJson<string[]>(client.targetCities, []),
-    competitors: safeParseJson<string[]>(client.competitors, []),
+    competitors,
     businessDescription: client.businessDescription,
     primaryServices: safeParseJson<string[]>(client.primaryServices, []),
     idealClientProfile: client.idealClientProfile,
