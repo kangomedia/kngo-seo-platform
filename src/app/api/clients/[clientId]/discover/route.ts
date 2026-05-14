@@ -34,8 +34,18 @@ function getDataForSEOAuth() {
 
 /**
  * POST /api/clients/[clientId]/discover
- * Triggers the remote discovery process (Site Audit + Keyword Discovery + Content Map)
- * Does not block the HTTP response since these tasks take >3-5 minutes.
+ *
+ * Validates inputs, marks the client as DISCOVERING, kicks off the audit +
+ * keyword pipeline in the background, and returns immediately (202 Accepted).
+ *
+ * Background work continues to run in the same Node process after the
+ * response is sent — Next.js on a long-lived server (Coolify/Vultr) keeps
+ * the event loop alive until promises settle. This is required because the
+ * pipeline takes 3–8 minutes end-to-end, well past Cloudflare's 100s proxy
+ * timeout (which manifested as HTTP 524 on `/discover` re-runs).
+ *
+ * The dashboard polls GET /api/clients/[clientId]/discover every 5s to track
+ * progress and pick up results when status flips to COMPLETE.
  */
 export async function POST(
   request: Request,
@@ -77,115 +87,160 @@ export async function POST(
     return NextResponse.json({ error: "Client domain is required for discovery" }, { status: 400 });
   }
 
+  // Note: we intentionally do NOT block when onboardingStatus === DISCOVERING.
+  // If the Node process died mid-pipeline (e.g., Coolify restart), the status
+  // would be permanently stuck and the operator couldn't re-run. The Re-run
+  // Discovery button already requires explicit operator confirmation, so the
+  // worst case from a concurrent re-run is wasted DataForSEO credits — far
+  // less bad than a permanently-jammed client.
+
   const authHdr = getDataForSEOAuth();
   if (!authHdr) {
     console.warn("DataForSEO credentials missing. Discovery cannot proceed.");
     return NextResponse.json({ error: "DataForSEO credentials missing" }, { status: 500 });
   }
 
-  // Update status to DISCOVERING
+  // Flip status BEFORE returning so the dashboard's next GET poll sees
+  // DISCOVERING immediately rather than reading the stale COMPLETE state.
   await prisma.client.update({
     where: { id: clientId },
     data: { onboardingStatus: "DISCOVERING" },
   });
 
-  // Parse JSON string fields from DB into actual arrays
-  const competitors: string[] = (() => { try { return JSON.parse(client.competitors || "[]"); } catch { return []; } })();
-  const serviceAreas: string[] = (() => { try { return JSON.parse(client.serviceAreas || "[]"); } catch { return []; } })();
-  const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
-  const brandTerms: string[] = (() => { try { return JSON.parse(client.brandTerms || "[]"); } catch { return []; } })();
+  const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+  const host = request.headers.get("host") || "localhost:3000";
+  const baseUrl = `${protocol}://${host}`;
+  const operatorEmail = session.user?.email || null;
 
-  // Parse business profile fields
-  const primaryServices: string[] = (() => { try { return JSON.parse(client.primaryServices || "[]"); } catch { return []; } })();
+  // Kick off the pipeline as fire-and-forget. The `void` + outer try/catch
+  // inside `runDiscoveryPipeline` ensures background errors can't crash the
+  // server or leak unhandled rejections.
+  void runDiscoveryPipeline({
+    clientId,
+    client,
+    authHdr,
+    operatorEmail,
+    baseUrl,
+  });
 
-  // Pipeline: run audit FIRST so we can pull the service pages it crawled and
-  // feed them into keyword discovery as pillar anchors. Without this step,
-  // keyword seeds are built only from the typed primaryServices array — the
-  // actual site structure (the most authoritative source of "what services
-  // does this business actually sell") is ignored.
-  const auditResultSettled = await Promise.allSettled([
-    triggerSiteAudit(clientId, client.domain, client.sitemapUrl, authHdr),
-  ]).then((r) => r[0]);
+  return NextResponse.json(
+    { status: "started", clientId, message: "Discovery started — poll GET for progress." },
+    { status: 202 },
+  );
+}
 
-  // Pull service pages from the just-completed audit. Graceful: if audit
-  // failed or surfaced no service pages, keyword discovery still runs — it
-  // just falls back to the typed-services seed path.
-  let servicePages: ServicePage[] = [];
-  if (
-    auditResultSettled.status === "fulfilled" &&
-    auditResultSettled.value?.auditId
-  ) {
-    try {
-      const pages = await prisma.siteAuditPage.findMany({
-        where: { auditId: auditResultSettled.value.auditId },
-        select: { url: true, title: true, description: true, wordCount: true },
-      });
-      servicePages = identifyServicePages(pages, primaryServices, client.domain);
-      console.log(`[DISCOVER] Identified ${servicePages.length} service pages from audit: ${servicePages.map((p) => p.slug).join(", ")}`);
-    } catch (e) {
-      console.error("[DISCOVER] Failed to fetch service pages from audit:", e);
-    }
-  }
-
-  const businessProfile: BusinessProfile = {
-    clientName: client.name,
-    domain: client.domain,
-    businessDescription: client.businessDescription || null,
-    primaryServices,
-    idealClientProfile: client.idealClientProfile || null,
-    priceRange: client.priceRange || null,
-    industryVertical: client.industryVertical || null,
-    industrySector: client.industrySector || null,
-    serviceAreas,
-    targetCities,
-    brandTerms,
-    servicePages,
+/**
+ * Background pipeline runner. Owns the full audit → service-page extraction →
+ * keyword discovery → status-update → email flow.
+ *
+ * MUST swallow all errors and always reset `onboardingStatus` so a stuck
+ * client doesn't permanently block re-runs. Logged failures surface in
+ * Coolify; the operator can hit Re-run Discovery to retry.
+ */
+async function runDiscoveryPipeline({
+  clientId,
+  client,
+  authHdr,
+  operatorEmail,
+  baseUrl,
+}: {
+  clientId: string;
+  client: {
+    name: string;
+    domain: string | null;
+    serviceAreas: string | null;
+    targetCities: string | null;
+    competitors: string | null;
+    businessDescription: string | null;
+    primaryServices: string | null;
+    idealClientProfile: string | null;
+    priceRange: string | null;
+    industryVertical: string | null;
+    industrySector: string | null;
+    sitemapUrl: string | null;
+    brandTerms: string | null;
   };
+  authHdr: string;
+  operatorEmail: string | null;
+  baseUrl: string;
+}): Promise<void> {
+  if (!client.domain) return;
 
-  const keywordResultSettled = await Promise.allSettled([
-    discoverKeywords(clientId, client.domain, competitors, businessProfile, authHdr),
-  ]).then((r) => r[0]);
+  try {
+    const competitors: string[] = (() => { try { return JSON.parse(client.competitors || "[]"); } catch { return []; } })();
+    const serviceAreas: string[] = (() => { try { return JSON.parse(client.serviceAreas || "[]"); } catch { return []; } })();
+    const targetCities: string[] = (() => { try { return JSON.parse(client.targetCities || "[]"); } catch { return []; } })();
+    const brandTerms: string[] = (() => { try { return JSON.parse(client.brandTerms || "[]"); } catch { return []; } })();
+    const primaryServices: string[] = (() => { try { return JSON.parse(client.primaryServices || "[]"); } catch { return []; } })();
 
-  // Reshape to the existing variable names so the rest of this function
-  // (email, response) doesn't need to be touched.
-  const auditResult = auditResultSettled;
-  const keywordResult = keywordResultSettled;
+    // Run audit FIRST so we can pull the service pages it crawled and feed
+    // them into keyword discovery as pillar anchors. Audit failures don't
+    // block keyword discovery — they just remove the pillar-anchoring step.
+    const auditResultSettled = await Promise.allSettled([
+      triggerSiteAudit(clientId, client.domain, client.sitemapUrl, authHdr),
+    ]).then((r) => r[0]);
 
-  // Mark status as COMPLETE
-  await prisma.client.update({
-    where: { id: clientId },
-    data: {
-      onboardingStatus: "COMPLETE",
-    },
-  });
+    let servicePages: ServicePage[] = [];
+    if (
+      auditResultSettled.status === "fulfilled" &&
+      auditResultSettled.value?.auditId
+    ) {
+      try {
+        const pages = await prisma.siteAuditPage.findMany({
+          where: { auditId: auditResultSettled.value.auditId },
+          select: { url: true, title: true, description: true, wordCount: true },
+        });
+        servicePages = identifyServicePages(pages, primaryServices, client.domain);
+        console.log(`[DISCOVER] Identified ${servicePages.length} service pages from audit: ${servicePages.map((p) => p.slug).join(", ")}`);
+      } catch (e) {
+        console.error("[DISCOVER] Failed to fetch service pages from audit:", e);
+      }
+    }
 
-  // Fire off notification email to user that discovery is complete
-  if (session.user?.email) {
-    const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
-    const host = request.headers.get("host") || "localhost:3000";
-    const baseUrl = `${protocol}://${host}`;
-    
-    // Check keywords found safely by handling the successful promise result
-    const kwFound = keywordResult.status === "fulfilled" && keywordResult.value 
-      ? keywordResult.value.keywordsFound 
-      : 0;
+    const businessProfile: BusinessProfile = {
+      clientName: client.name,
+      domain: client.domain,
+      businessDescription: client.businessDescription || null,
+      primaryServices,
+      idealClientProfile: client.idealClientProfile || null,
+      priceRange: client.priceRange || null,
+      industryVertical: client.industryVertical || null,
+      industrySector: client.industrySector || null,
+      serviceAreas,
+      targetCities,
+      brandTerms,
+      servicePages,
+    };
 
-    const { subject, html } = discoveryCompleteEmail(
-      client.name,
-      client.domain,
-      kwFound,
-      clientId,
-      baseUrl
-    );
-    
-    // Fire and forget — don't block the response
-    sendEmail({ to: session.user.email, subject, html }).catch(() => {});
+    const keywordResultSettled = await Promise.allSettled([
+      discoverKeywords(clientId, client.domain, competitors, businessProfile, authHdr),
+    ]).then((r) => r[0]);
+
+    if (operatorEmail) {
+      const kwFound = keywordResultSettled.status === "fulfilled" && keywordResultSettled.value
+        ? keywordResultSettled.value.keywordsFound
+        : 0;
+      const { subject, html } = discoveryCompleteEmail(
+        client.name,
+        client.domain,
+        kwFound,
+        clientId,
+        baseUrl,
+      );
+      sendEmail({ to: operatorEmail, subject, html }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[DISCOVER] Background pipeline failed:", err);
+  } finally {
+    // Always reset onboardingStatus so the client isn't stuck in DISCOVERING
+    // and the operator can re-run if needed.
+    await prisma.client
+      .update({
+        where: { id: clientId },
+        data: { onboardingStatus: "COMPLETE" },
+      })
+      .catch((e) => console.error("[DISCOVER] Failed to mark client COMPLETE:", e));
   }
-
-  return NextResponse.json({
-    audit: auditResult.status === "fulfilled" ? auditResult.value : { error: "Audit failed", details: String(auditResult.reason) },
-    keywords: keywordResult.status === "fulfilled" ? keywordResult.value : { error: "Discovery failed", details: String(keywordResult.reason) },
-  });
 }
 
 /**

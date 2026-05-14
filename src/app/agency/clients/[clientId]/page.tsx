@@ -497,21 +497,30 @@ function OnboardingTracker({
                   if (!proceed) return;
                   setRerunning(true);
                   setRerunError("");
+                  // Optimistically flip local state to DISCOVERING and start
+                  // polling. The server returns 202 immediately and runs the
+                  // pipeline in the background — we don't need to wait for
+                  // pipeline completion before showing the in-progress UI.
+                  setDiscoveryData((prev) =>
+                    prev ? { ...prev, onboardingStatus: "DISCOVERING" } : prev,
+                  );
+                  setPolling(true);
                   try {
                     const res = await fetch(`/api/clients/${clientId}/discover`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
+                      // Short timeout — we only care that the server accepted
+                      // the request, not that it finished.
+                      signal: AbortSignal.timeout(15_000),
                     });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    // Fire-and-forget — the server runs the pipeline in the
-                    // background. Flip the local status so the tracker starts
-                    // polling again.
-                    setDiscoveryData((prev) =>
-                      prev ? { ...prev, onboardingStatus: "DISCOVERING" } : prev,
-                    );
-                    setPolling(true);
+                    // 202 (started) or 200 (already-running) are both fine.
+                    if (!res.ok && res.status !== 202) {
+                      throw new Error(`HTTP ${res.status}`);
+                    }
                   } catch (e) {
-                    setRerunError(e instanceof Error ? e.message : "Re-run failed");
+                    // Network error or timeout on the kick-off request. The
+                    // optimistic state still stands; polling will reconcile.
+                    setRerunError(e instanceof Error ? e.message : "Re-run kick-off failed");
                   } finally {
                     setRerunning(false);
                   }
